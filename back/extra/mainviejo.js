@@ -1,75 +1,3 @@
-const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const XLSX = require('xlsx');
-const { connectToDatabase } = require('./dbConfig');
-const sql = require('mssql');
-const logger = require('./logger');
-
-let mainWindow;
-
-function createMainWindow() {
-    mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
-        webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
-            contextIsolation: true,
-            enableRemoteModule: false,
-            nodeIntegration: false,
-        }
-    });
-    
-    mainWindow.loadFile('index.html');
-    const template = [
-        {
-            label: 'Menu',
-            submenu: [
-                {
-                    label: 'Actualizador de Cheques Propios',
-                    click: () => {
-                        mainWindow.webContents.send('navigate', 'IngresoCheque.html');
-                    }
-                },
-                { type: 'separator' },                          
-                { role: 'quit',label:'Salir' }
-            ]
-        }
-    ];
-
-    const menu = Menu.buildFromTemplate(template);
-    Menu.setApplicationMenu(menu);
-}
-
-app.whenReady().then(createMainWindow);
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-        app.quit();
-    }
-});
-
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-        createMainWindow();
-    }
-});
-
-ipcMain.on('navigate', (event, url) => {
-    mainWindow.loadFile(url);
-});
-
-ipcMain.handle('get-empresas', async () => {
-   
-    
-    const configPath = path.join(__dirname, './fileConfigUpdater/empresas.json');
-    const data = fs.readFileSync(configPath, 'utf-8');
-    var additional = JSON.parse(data);
-    // Aquí deberías obtener las empresas de tu base de datos
-    return additional;
-       
-});
-
 ipcMain.handle('check-table-exists', async (event, empresaId) => {
     try {
         const pool = await connectToDatabase(empresaId);
@@ -157,7 +85,7 @@ ipcMain.handle('load-cheques', async (event) => {
 ipcMain.handle('verify-cheques', async (event, chequeIds, empresaId) => {
     let connection;
     try {
-        connection = await connectToDatabase(empresaId);
+        
         logger.info(`conectando a ${empresaId} para verificar`)
         const results = [];
         for (const idCheque of chequeIds) {

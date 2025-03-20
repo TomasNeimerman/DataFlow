@@ -1,4 +1,3 @@
-
 let chequesData = null;
 
 // Cuando se carga el archivo de cheques

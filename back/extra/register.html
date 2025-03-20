@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro</title>
+    <link rel="stylesheet" href="./styles/register.css">
+    <script src="../back/register.js"></script>
+</head>
+<body>
+    <img src="../logo_cone.png" alt="Consultora de Negocios Empresarios">
+    <div class="container">
+        <h2>Registro</h2>
+        <div class="input-group">
+            <label for="nombre">Nombre</label>
+            <input type="text" id="nombre" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="apellido">Apellido</label>
+            <input type="text" id="apellido" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="email">Email</label>
+            <input type="text" id="email" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="password">Contraseña</label>
+            <input type="password" id="contraseña" name="username" required>
+        </div>
+        
+        <button id="register-btn" class="btn">Registrarse</button>
+        <button onclick="back()" class="btn">Volver al Login</button>
+        <p id="error"></p>
+    </div>
+
+    <script src="register.js"></script>
+</body>
+</html>
