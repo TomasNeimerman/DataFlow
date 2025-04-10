@@ -1,0 +1,49 @@
+{
+  "name": "app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "back/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "electron": "electron .",
+    "electron-dev": "npm-run-all -p dev electron",
+    "electron-build": "electron-builder .",
+    "dist": "electron-builder --win=portable"
+  },
+  "dependencies": {
+    
+    "electron-packager": "^17.1.2",
+    "jsonwebtoken": "^9.0.2",
+    "mssql": "^11.0.1",
+    "next": "15.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.4.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "electron": "^31.5.0",
+    "electron-builder": "^25.1.8",
+    "electron-packager": "^17.1.2",
+    "npm-run-all": "^4.1.5"
+  },
+  "build": {
+    "appId": "com.bejermanErp.updater",
+    "productName": "BejermanErpUpdater",
+    "win": {
+      "target": "portable"
+    },
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "electron/build"
+    },
+    "files": [
+      "electron/**/*",
+      ".next/**/*",
+      "package.json"
+    ]
+  }
+}

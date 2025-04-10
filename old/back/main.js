@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 const { login } = require('./auth/authController');
+require('electron-reload')(__dirname, {
+    electron: require(`${__dirname}/../node_modules/electron`)
+});
+
 
 let mainWindow;
 
@@ -17,7 +21,7 @@ function createMainWindow() {
         }
     });
     
-    mainWindow.loadFile('./front/login.html');
+    mainWindow.loadURL('http://localhost:5173');
 
     const template = [
         {

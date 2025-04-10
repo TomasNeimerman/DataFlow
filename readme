@@ -1,5 +1,0 @@
-1. Archivo de propiedades con la conexion a la base e datos (user, password, server, port)
-2. validacion de empresa con archivo de excel, que haga un log q verifique si coinciden los datos del excel con los datos de la bd
-3. control de cantidad de registros actualizados
-4. hacer un resumen de la cantidad de registros que hay en el excel y cuantos fueron updateados, que te lo diga por pantalla
-

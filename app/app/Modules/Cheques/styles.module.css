@@ -1,0 +1,63 @@
+.body {
+    font-family: 'Public Sans', sans-serif;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
+}
+.container {
+    
+    background-color: white;
+    width: 40%;
+    padding: 40px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+.title {
+    color: black;
+}
+.titlespan{
+    color: #e82c02;
+}
+.p {
+    margin-top: 20px;
+}
+.error{
+    color: #e82c02;
+    font: bold;
+}
+.img {
+    width: 120px;
+    height: 60px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 10px; 
+}
+.btn {
+    margin-bottom: 5px;
+    background-color: #e82c02;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 100%;
+}
+.btn:hover {
+    background-color: #d42602;
+}
+#fileStatus, #empresaStatus {
+    margin-top: 10px;
+    font-weight: bold;
+}
+.select, .input[type="file"] {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}

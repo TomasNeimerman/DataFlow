@@ -1,0 +1,660 @@
+Quiero que a este esquema:
+electron-app/
+│── .vscode/
+│── build/
+│── resources/
+│── src/
+│   ├── main/
+│   │   ├── index.js
+│   ├── preload/
+│   │   ├── index.js
+│   ├── renderer/
+│   │   ├── src/
+│   │   │   ├── assets/
+│   │   │   ├── components/
+│   │   │   │   ├── Versions.jsx
+│   │   │   ├── App.jsx
+│   │   │   ├── main.jsx
+│   │   │   ├── index.html
+│── .editorconfig
+│── .gitignore
+│── .prettierignore
+│── .prettierrc.yaml
+│── dev-app-update.yml
+│── electron-builder.yml
+│── electron.vite.config.mjs
+│── eslint.config.mjs
+│── package.json
+│── README.md
+
+le incorpores este codigo:
+
+authController.js:
+
+const sql = require('mssql');
+
+const { generarToken } = require('./jwtService');
+
+const { getDbConfig } = require('../../dbConfig');
+
+
+
+async function login(usuario, contraseña) {
+
+    try {
+
+        const dbConfig = getDbConfig();
+
+        let pool = await sql.connect(dbConfig);
+
+
+
+        let result = await pool.request()
+
+            .input('usuario', sql.NVarChar, usuario)
+
+            .input('contraseña', sql.NVarChar, contraseña)
+
+            .query('SELECT * FROM Usuarios WHERE Usuario = @usuario AND Contraseña = @contraseña');
+
+
+
+        if (result.recordset.length > 0) {
+
+            const user = result.recordset[0];
+
+
+
+            // Actualizar FechaUltAcceso restando 6 horas
+
+            let fechaActual = new Date();
+
+            fechaActual.setHours(fechaActual.getHours() - 3);
+
+
+
+            await pool.request()
+
+                .input('fecha', sql.DateTime, fechaActual)
+
+                .input('usuario', sql.NVarChar, usuario)
+
+                .query('UPDATE Usuarios SET FechaUltAcceso = @fecha WHERE Usuario = @usuario');
+
+
+
+            // Generar token JWT
+
+            const token = generarToken(user);
+
+            return { success: true, user, token };
+
+        } else {
+
+            return { success: false, message: 'Usuario o contraseña incorrectos.' };
+
+        }
+
+    } catch (error) {
+
+        console.error('Error en la autenticación:', error);
+
+        return { success: false, message: 'Error en la base de datos.' };
+
+    }
+
+}
+
+
+
+module.exports = { login };
+
+
+
+jwtService.js:
+
+const jwt = require('jsonwebtoken');
+
+
+
+const SECRET_KEY = 'CONE'; // Cambia esto por una clave fuerte
+
+
+
+function generarToken(usuario) {
+
+    const payload = {
+
+        id: usuario.Id,
+
+        usuario: usuario.Usuario,
+
+        nombre: usuario.Nombre,
+
+        apellido: usuario.Apellido,
+
+    };
+
+
+
+    return jwt.sign(payload, SECRET_KEY, { expiresIn: '2h' });
+
+}
+
+
+
+function verificarToken(token) {
+
+    try {
+
+        return jwt.verify(token, SECRET_KEY);
+
+    } catch (error) {
+
+        return null;
+
+    }
+
+}
+
+
+
+module.exports = { generarToken, verificarToken };
+
+
+
+login.js:
+
+function login() {
+
+    const usuario = document.getElementById('usuario').value;
+
+    const contraseña = document.getElementById('contraseña').value;
+
+    window.api.login(usuario, contraseña);
+
+}
+
+
+
+window.api.onLoginSuccess((data) => {
+
+    const token = data;
+
+    localStorage.setItem('jwtToken', token);
+
+    window.location.href = 'index.html';
+
+ 
+
+});
+
+
+
+window.api.onLoginFailed((message) => {
+
+    document.getElementById('error').innerText = message;
+
+});
+
+
+
+main.js:
+
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+
+const path = require('path');
+
+const { login } = require('./auth/authController');
+
+
+
+let mainWindow;
+
+
+
+
+
+function createMainWindow() {
+
+    mainWindow = new BrowserWindow({
+
+        width: 1080,
+
+        height: 720,
+
+        webPreferences: {
+
+            preload: path.join(__dirname, 'preload.js'),
+
+            contextIsolation: true,
+
+            enableRemoteModule: false,
+
+            nodeIntegration: false,
+
+        }
+
+    });
+
+   
+
+    mainWindow.loadFile('./front/login.html');
+
+
+
+    const template = [
+
+        {
+
+            label: 'Menu',
+
+            submenu: [                        
+
+                { role: 'quit', label: 'Salir' }
+
+            ]
+
+        }
+
+    ];
+
+
+
+    const menu = Menu.buildFromTemplate(template);
+
+    Menu.setApplicationMenu(menu);
+
+}
+
+
+
+app.whenReady().then(createMainWindow);
+
+
+
+app.on('window-all-closed', () => {
+
+    if (process.platform !== 'darwin') {
+
+        app.quit();
+
+    }
+
+});
+
+
+
+app.on('activate', () => {
+
+    if (BrowserWindow.getAllWindows().length === 0) {
+
+        createMainWindow();
+
+    }
+
+});
+
+
+
+ipcMain.on('login', async (event, { usuario, contraseña }) => {
+
+    const resultado = await login(usuario, contraseña);
+
+
+
+    if (resultado.success) {
+
+        event.sender.send('login-success', resultado);
+
+    } else {
+
+        event.sender.send('login-failed', resultado.message);
+
+    }
+
+});
+
+
+
+
+
+preload.js:
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+
+
+contextBridge.exposeInMainWorld('api', {
+
+    login: (usuario, contraseña) => ipcRenderer.send('login', { usuario, contraseña }),
+
+    onLoginSuccess: (callback) => ipcRenderer.on('login-success', (event, data) => callback(data)),
+
+    onLoginFailed: (callback) => ipcRenderer.on('login-failed', (event, message) => callback(message)),
+
+});
+
+
+
+dbConfig.properties:
+
+user=sa
+
+password=12345678
+
+server=localhost
+
+port=1433
+
+db=SistemaCONE
+
+
+
+index.css:
+
+body {
+
+    font-family: 'Public Sans', sans-serif;
+
+    margin: 0;
+
+    padding: 0;
+
+    display: flex;
+
+    justify-content: center;
+
+    align-items: center;
+
+    height: 100vh;
+
+    background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
+
+}
+
+.container {
+
+    text-align: center;
+
+    background-color: white;
+
+    width: 60%;
+
+    padding: 40px;
+
+    border-radius: 10px;
+
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+
+}
+
+h1 {
+
+    color: black;
+
+}
+
+h1 span{
+
+    color: #e82c02;
+
+}
+
+p {
+
+    margin-top: 20px;
+
+}
+
+img {
+
+    width: 120px;
+
+    height: 60px;
+
+    position: absolute;
+
+    top: 0;
+
+    left: 0;
+
+    margin: 10px;
+
+}
+
+
+
+login.css:
+
+body {
+
+    font-family: 'Public Sans', sans-serif;
+
+    margin: 0;
+
+    padding: 0;
+
+    display: flex;
+
+    justify-content: center;
+
+    align-items: center;
+
+    height: 100vh;
+
+    background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
+
+}
+
+.container {
+
+   
+
+    background-color: white;
+
+    width: 40%;
+
+    padding: 40px;
+
+    border-radius: 10px;
+
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+
+}
+
+h1 {
+
+    color: black;
+
+}
+
+h1 span{
+
+    color: #e82c02;
+
+}
+
+.input-group {
+
+    margin: 15px 0;
+
+    text-align: left;
+
+}
+
+label {
+
+    display: block;
+
+    font-weight: bold;
+
+}
+
+input {
+
+    width: 95%;
+
+    padding: 10px;
+
+    margin-top: 5px;
+
+    border: 1px solid #ccc;
+
+    border-radius: 5px;
+
+}
+
+.btn {
+
+    background-color: #e82c02;
+
+    color: white;
+
+    border: none;
+
+    padding: 10px 20px;
+
+    width: 100%;
+
+    border-radius: 5px;
+
+    cursor: pointer;
+
+    font-size: 16px;
+
+    margin-top: 5px;
+
+    margin-bottom: 5px;
+
+}
+
+.btn:hover {
+
+    background-color: #c92202;
+
+}
+
+img {
+
+    width: 120px;
+
+    height: 60px;
+
+    position: absolute;
+
+    top: 0;
+
+    left: 0;
+
+    margin: 10px;
+
+}
+
+.error{
+
+    color: #e82c02;
+
+    font: bold;
+
+}
+
+
+
+index.html:
+
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Home</title>
+
+    <link rel="stylesheet" href="./styles/index.css">
+
+</head>
+
+<body>
+
+    <img src="../logo_cone.png" alt="Consultora de Negocios Empresarios">
+
+    <div class="container">
+
+        <h1>Bejerman <span>ERP</span></h1>
+
+        <p id=""></p>
+
+    </div>
+
+</body>
+
+</html>
+
+
+
+login.html:
+
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Iniciar Sesion</title>
+
+    <link rel="stylesheet" href="./styles/login.css">
+
+    <script src="../back/login.js"></script>
+
+</head>
+
+<body>
+
+    <img src="../logo_cone.png" alt="Consultora de Negocios Empresarios">
+
+    <div class="container">
+
+        <h1>Bejerman <span>ERP</span></h1>
+
+       
+
+            <div class="input-group">
+
+                <label for="username">Usuario</label>
+
+                <input type="text" id="usuario" name="username" required>
+
+            </div>
+
+            <div class="input-group">
+
+                <label for="password">Contraseña</label>
+
+                <input type="password" id="contraseña" name="password" required>
+
+            </div>
+
+            <div class="error" >
+
+                <p id="error"></p>
+
+            </div>
+
+            <button type="submit" class="btn" onclick="login()">Ingresar</button>
+
+           
+
+    </div>
+
+</body>
+
+</html>
