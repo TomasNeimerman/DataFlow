@@ -1,0 +1,63 @@
+.container {
+    
+    background-color: white;
+    width: 40%;
+    padding: 40px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+.title {
+    color: black;
+}
+.titlespan{
+    color: #e82c02;
+}
+.p {
+    margin-top: 20px;
+}
+.error{
+    color: #e82c02;
+    font: bold;
+}
+
+.btn {
+    margin-bottom: 5px;
+    background-color: #e82c02;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 100%;
+}
+.btn2{
+    margin-bottom: 5px;
+    background-color: #e82c02;
+    color: white;
+    border-color: black;
+    padding: 10px 20px;   
+    cursor: pointer;
+    width: 50%;
+}
+.btn:hover, .btn2:hover {
+    background-color: #d42602;
+    border-color: white;
+}
+#fileStatus, #empresaStatus {
+    margin-top: 10px;
+    font-weight: bold;
+}
+.select {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+.input[type="file"]{
+    width: 95%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}

@@ -18,7 +18,17 @@ export async function GET(request) {
     let modulesResult = await pool.request()
       .input('idCliente', sql.Int, idCliente)
       .query(`
-        SELECT m.Id AS ModuloId, m.Nombre AS ModuloNombre, m.Texto, m.Icono, m.Link
+        SELECT 
+          m.Id AS ModuloId,
+          m.Nombre AS ModuloNombre,
+          m.Texto,
+          m.Icono,
+          m.Link,
+          (
+            SELECT COUNT(*) 
+            FROM ModulosXCliente mx2 
+            WHERE mx2.IdModulo = m.Id
+          ) AS countClientesPorModulo
         FROM ModulosXCliente mx
         JOIN Modulos m ON mx.IdModulo = m.Id
         WHERE mx.IdCliente = @idCliente
@@ -29,7 +39,8 @@ export async function GET(request) {
       nombre: modulo.ModuloNombre,
       texto: modulo.Texto,
       icono: modulo.Icono,
-      link: modulo.Link
+      link: modulo.Link,
+      countClientesPorModulo: modulo.countClientesPorModulo
     }));
 
     return NextResponse.json({ success: true, modulos });

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "electron": "electron .",
-    "electron-dev": "npm-run-all -p dev electron",
+    "electrondev": "npm-run-all -p dev electron",
     "electron-build": "electron-builder .",
     "dist": "electron-builder --win=portable"
   },
