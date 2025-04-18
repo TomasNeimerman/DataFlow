@@ -15,10 +15,10 @@ export default function LoginPage() {
   const handleLogin = async () => {
     try {
       const response = await window.api.login(usuario, contraseña);
-
+  
       if (response.success) {
         localStorage.setItem('jwtToken', response.token);
-        router.push('http://localhost:3000/Index'); // Redirige a la página principal (probablemente app/page.js)
+        router.push('/Index'); // ✅ Redirige a la ruta interna
       } else {
         setError(response.message);
       }
