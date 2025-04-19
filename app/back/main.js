@@ -22,7 +22,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadURL('http://localhost:3000/Login');
-
+  mainWindow.webContents.openDevTools();
   const template = [
     {
       label: 'Menú',
@@ -81,6 +81,9 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
     const token = generarToken(user);
 
     const idCliente = user.IdCliente;
+    mainWindow.webContents.executeJavaScript(
+      `localStorage.setItem("idCliente", "${idCliente}");`
+    );
 
     // 🔹 2. Obtener módulos
     const modulesResult = await pool.request()
@@ -164,6 +167,7 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
           m.Texto,
           m.Icono,
           m.Link,
+          m.PathExcelModelo,
           (
             SELECT COUNT(*) 
             FROM ModulosXCliente mx2 
@@ -180,6 +184,7 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
       texto: modulo.Texto,
       icono: modulo.Icono,
       link: modulo.Link,
+      pathExcel: modulo.PathExcelModelo,
       countClientesPorModulo: modulo.countClientesPorModulo
     }));
 
@@ -191,22 +196,3 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
   }
 });
 
-ipcMain.handle('get-clientes-modules', async (module) => {
-  try {
-    const pool = await sql.connect(dbConfig);
-    const result = await pool.request()
-      .input('modulo', sql.VarChar, module)
-      .query(`
-        SELECT c.id, c.nombre
-        FROM Clientes c
-        INNER JOIN ModulosPorCliente mc ON c.id = mc.cliente_id
-        INNER JOIN Modulos m ON m.id = mc.modulo_id
-        WHERE m.nombre = @modulo
-      `);
-
-    return result.recordset; // Devuelve [{ id, nombre }, ...]
-  } catch (err) {
-    console.error('Error al obtener clientes con el módulo "cheques":', err);
-    return []; // Devolvemos array vacío si algo falla
-  }
-});
