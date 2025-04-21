@@ -2,15 +2,14 @@
 import { useEffect, useState } from 'react';
 import styles from './styles.module.css';
 
-const ModuleForm = ({  nombreModulo }) => {
+const ModuleForm = ({ nombreModulo, onImportar, idCliente }) => { // Se eliminó valoresActuales como prop
   const [modulos, setModulos] = useState([]);
-  const [idCliente, setIdCliente] = useState(null);
+  
+  const [fileName, setFileName] = useState('');
+  const [isFileLoaded, setIsFileLoaded] = useState(false);
+  const [file, setFile] = useState(null);
 
-  useEffect(() => {
-    // Recuperar idCliente del localStorage
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
-  }, []);
+  
 
   useEffect(() => {
     const fetchModulos = async () => {
@@ -36,16 +35,72 @@ const ModuleForm = ({  nombreModulo }) => {
 
     fetchModulos();
   }, [idCliente, nombreModulo]);
-  console.log(modulos[0])
-  const titulo = modulos[0].texto
+
+  // Manejo de la carga del archivo
+  const handleFileChange = (event) => {
+    const f = event.target.files[0];
+    if (f) {
+      setFile(f);
+      setFileName(f.name);
+      setIsFileLoaded(true);
+    } else {
+      setFile(null);
+      setFileName('');
+      setIsFileLoaded(false);
+    }
+  };
+
+  // Verificar el archivo
+  const handleVerify = () => {
+    if (fileName) {
+      const expectedFileName = `${modulos[0].pathExcel}`; // O el formato que necesites
+      if (fileName === expectedFileName) {
+        console.log("El archivo es válido para verificar.");
+        document.getElementById('fileStatus').innerText = `Archivo valido`;
+      } else {
+        console.error("El nombre del archivo no coincide con el módulo.");
+        document.getElementById('fileStatus').innerText = `Archivo invalido`;
+      }
+    }
+  };
+
+  const handleCancel = () => {
+    setFileName(''); // Restablecer el nombre del archivo
+    setIsFileLoaded(false); // Restablecer el estado de carga
+    document.getElementById('loadFile').value = ''; // Limpiar el campo de entrada de archivo
+    document.getElementById('fileStatus').innerText = ''; // Restablecer el mensaje
+  };
+
+  const titulo = modulos.length > 0 ? modulos[0].texto : "Cargando...";
+
   return (
     <div className={styles.container}>
       <h1 className={styles.title}>{titulo}</h1>
-      <input type='file' className={styles.input} id="loadFile" accept=".xlsx, .xls" />
-      <button className={styles.btn2} id="cancel" disabled>Cancelar</button>
-      <button className={styles.btn2} id="verifyButton" disabled>Verificar</button>
-      <button className={styles.btn} id="saveButton" disabled>Guardar</button>
-      <p className={styles.error} id="fileStatus">No se ha cargado ningún archivo de cheques</p>
+      <input 
+        type='file' 
+        className={styles.input} 
+        id="loadFile" 
+        accept=".xlsx, .xls" 
+        onChange={handleFileChange} 
+      />
+      <button className={styles.btn2} id="cancel" onClick={handleCancel}>Cancelar</button>
+      <button 
+        className={styles.btn2} 
+        id="verifyButton" 
+        disabled={!isFileLoaded} 
+        onClick={handleVerify}
+      >
+        Verificar
+      </button>
+      <button 
+        className={styles.btn} 
+        id="saveButton" 
+        disabled={!isFileLoaded} 
+        onClick={() => onImportar && onImportar(file)}
+      >
+        Importar
+      </button>
+      <p className={styles.error} id="fileStatus"></p>
     </div>
   );
 };
