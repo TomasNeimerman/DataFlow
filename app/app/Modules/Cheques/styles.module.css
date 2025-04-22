@@ -1,46 +1,34 @@
 .body {
     font-family: 'Public Sans', sans-serif;
     margin: 0;
-    padding: 0;
+    padding: 20px;
     display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
+    flex-direction: column;
+    align-items: center; /* Centra horizontalmente */
+    justify-content: center; /* Centra verticalmente */
+    min-height: 100vh;
+    width: 100%;
+    overflow-x: auto;
     background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
-}
-.img {
+  }
+  .img {
     width: 120px;
     height: 60px;
     position: absolute;
     top: 0;
     left: 0;
-    margin: 10px; 
-}
-.valores {
-    margin-top: 20px; /* Espaciado superior */
-    padding: 15px; /* Espaciado interno */
-    border: 1px solid #ddd; /* Borde del contenedor de valores */
-    border-radius: 5px; /* Bordes redondeados */
-    background-color: #f9f9f9; /* Fondo gris claro */
-}
-
-.valores h2 {
-    font-size: 18px; /* Tamaño de fuente del título de valores */
-    color: #e82c02; /* Color del título */
-    margin-bottom: 10px; /* Espaciado inferior */
-}
-
-.valores ul {
-    list-style-type: none; /* Sin viñetas */
-    padding: 0; /* Sin espaciado interno */
-}
-
-.valores li {
-    padding: 8px; /* Espaciado interno para cada elemento de la lista */
-    border-bottom: 1px solid #ddd; /* Línea divisoria entre elementos */
-    color: #333; /* Color del texto */
-}
-
-.valores li:last-child {
-    border-bottom: none; /* Sin línea divisoria para el último elemento */
-}
+    margin: 10px;
+  }
+  .container {
+    padding: 2rem;
+    background-color: #fff;
+    border: 4px solid #f9caca;
+    border-radius: 12px;
+    max-width: 900px; /* Debe ser el mismo o menor que el de "Control de cheques" */
+    width: 75%; /* Debe ser el mismo o menor que el de "Control de cheques" */
+    
+    margin-bottom: 20px; /* Espacio con otros componentes si hubiera */
+    font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+    overflow-y: auto;
+    max-height: 400px;
+  }

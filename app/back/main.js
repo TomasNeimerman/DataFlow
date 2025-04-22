@@ -16,8 +16,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 720,
-    minWidth: 800,  
-    minHeight: 600,
+   
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -39,6 +38,8 @@ function createMainWindow() {
   Menu.setApplicationMenu(menu);
 }
 
+
+
 app.whenReady().then(createMainWindow);
 
 app.on('window-all-closed', () => {
@@ -50,6 +51,12 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createMainWindow();
+  }
+});
+
+ipcMain.on('abrir-dev-tools', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.openDevTools();
   }
 });
 
@@ -205,88 +212,22 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
 });
 
 
-ipcMain.handle('importar-cheques', async (event, cheques) => {
+// 📌 Obtener un cheque por ID
+ipcMain.handle('obtener-cheques', async (event, id) => {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    console.log(`✅ Conectado a ${dbConfig.database}`);
+    console.log(`🔍 Buscando cheque ID ${id} en ${dbConfig.database}`);
 
-    
-      const {
-        codEmp, emp, idCheque, fechaEmision,
-        movimiento, tipoCheque, estado, fechaVenc,
-        chequeCodigo, nroDefinitivo, importe, idCliente
-      } = cheques;
+    const result = await pool.request()
+      .input('id', sql.Int, id)
+      .query(`SELECT * FROM Cheques WHERE chp_ID = @id`);
 
-      const fecEnt = convertirFecha(fechaEmision);
-      const fecVto = convertirFecha(fechaVenc);
-      const importeFinal = importe * -1
-
-      const result = await pool.request()
-        .input('idCheque', sql.Int, idCheque)
-        .query(`SELECT 1 FROM Cheques WHERE chp_ID = @idCheque`);
-
-      if (result.recordset.length === 0) {
-        await pool.request()
-          .input('codEmp', sql.VarChar(50), codEmp)
-          .input('emp', sql.VarChar(50), emp)
-          .input('idCheque', sql.Int, idCheque)
-          .input('fecEnt', sql.Date, fecEnt)
-          .input('movSuc', sql.VarChar(50), movimiento)
-          .input('tipo', sql.VarChar(50), tipoCheque)
-          .input('edo', sql.VarChar(50), estado)
-          .input('fecVto', sql.Date, fecVto)
-          .input('ctbCod', sql.Int, chequeCodigo)
-          .input('definitivo', sql.Int, nroDefinitivo)
-          .input('importe', sql.Float, importeFinal)
-          .input('idcl', sql.Int, idCliente)
-          .query(`
-            INSERT INTO Cheques (
-              chpemp_Codigo, chpsuc_Cod, chp_ID, chp_FEnt,
-              chpbco_Suc, chptch_Cod, chp_edo, chp_FVto,
-              chp_NroCheq, chp_NroDtvo, chp_Importe, chpemp_IdCliente
-            )
-            VALUES (
-              @codEmp, @emp, @idCheque, @fecEnt,
-              @movSuc, @tipo, @edo, @fecVto,
-              @ctbCod, @definitivo, @importe, @idcl
-            )
-          `);
-      }
-    
-
-    return { success: true, message: 'Cheques insertados correctamente.' };
-  } catch (err) {
-    console.error('❌ Error en importar-cheques:', err);
-    return { success: false, message: err.message };
-  } finally {
-    if (pool) await pool.close();
-  }
-});
-ipcMain.handle('obtener-cheques', async (event, ids = []) => {
-  let pool;
-  try {
-    const dbConfig = getAdminDbConfig();
-    pool = await sql.connect(dbConfig);
-    console.log(`🔍 Obteniendo cheques desde ${dbConfig.database}`);
-
-    if (!Array.isArray(ids) || ids.length === 0)
-      return { success: true, cheques: [] };
-
-    const placeholders = ids.map((_, i) => `@id${i}`).join(',');
-    const request = pool.request();
-    ids.forEach((id, i) => {
-      request.input(`id${i}`, sql.Int, id);
-    });
-
-    const result = await request.query(`
-      SELECT *
-      FROM Cheques
-      WHERE chp_ID IN (${placeholders})
-    `);
-
-    return { success: true, cheques: result.recordset };
+    return {
+      success: true,
+      cheque: result.recordset[0] || null,
+    };
   } catch (err) {
     console.error('❌ Error en obtener-cheques:', err);
     return { success: false, message: err.message };
@@ -294,51 +235,103 @@ ipcMain.handle('obtener-cheques', async (event, ids = []) => {
     if (pool) await pool.close();
   }
 });
-ipcMain.handle('update-cheques', async (event, cheques) => {
+// 📌 Insertar nuevo cheque
+ipcMain.handle('importar-cheques', async (event, cheque) => {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    console.log(`🔄 Actualizando cheques en ${dbConfig.database}`);
+    console.log(`📥 Insertando cheque ID ${cheque.idCheque}`);
 
-      const {
-        codEmp, emp, idCheque, fechaEmision,
-        movimiento, tipoCheque, estado, fechaVenc,
-        chequeCodigo, nroDefinitivo, importe, idCliente
-      } = cheques;
+    const {
+      codEmp, emp, idCheque, fechaEmision,
+      movimiento, tipoCheque, estado, fechaVenc,
+      chequeCodigo, nroDefinitivo, importe, idCliente
+    } = cheque;
 
-      const fecEnt = convertirFecha(fechaEmision);
-      const fecVto = convertirFecha(fechaVenc);
-      const importeFinal = importe * -1
+    const fecEnt = convertirFecha(fechaEmision);
+    const fecVto = convertirFecha(fechaVenc);
+    const importeFinal = Math.abs(parseFloat(importe)) * -1;
 
-      await pool.request()
-        .input('codEmp', sql.VarChar(50), codEmp)
-        .input('emp', sql.VarChar(50), emp)
-        .input('idCheque', sql.Int, idCheque)
-        .input('fecEnt', sql.Date, fecEnt)
-        .input('movSuc', sql.VarChar(50), movimiento)
-        .input('tipo', sql.VarChar(50), tipoCheque)
-        .input('edo', sql.VarChar(50), estado)
-        .input('fecVto', sql.Date, fecVto)
-        .input('ctbCod', sql.Int, chequeCodigo)
-        .input('definitivo', sql.Int, nroDefinitivo)
-        .input('importe', sql.Float, importeFinal)
-        .input('idcl', sql.Int, idCliente)
-        .query(`
-          UPDATE Cheques SET 
-            chp_FEnt = @fecEnt,
-            chpbco_Suc = @movSuc,
-            chptch_Cod = @tipo,
-            chp_edo = @edo,
-            chp_FVto = @fecVto,
-            chp_NroCheq = @ctbCod,
-            chp_NroDtvo = @definitivo,
-            chp_Importe = @importe
-          WHERE chp_ID = @idCheque AND chpemp_Codigo = @codEmp AND chpsuc_Cod = @emp AND chpemp_IdCliente = @idcl
-        `);
-    
+    await pool.request()
+      .input('codEmp', sql.VarChar(50), codEmp)
+      .input('emp', sql.VarChar(50), emp)
+      .input('idCheque', sql.Int, idCheque)
+      .input('fecEnt', sql.Date, fecEnt)
+      .input('movSuc', sql.VarChar(50), movimiento)
+      .input('tipo', sql.VarChar(50), tipoCheque)
+      .input('edo', sql.VarChar(50), estado)
+      .input('fecVto', sql.Date, fecVto)
+      .input('ctbCod', sql.Int, chequeCodigo)
+      .input('definitivo', sql.Int, nroDefinitivo)
+      .input('importe', sql.Float, importeFinal)
+      .input('idcl', sql.Int, idCliente)
+      .query(`
+        INSERT INTO Cheques (
+          chpemp_Codigo, chpsuc_Cod, chp_ID, chp_FEnt,
+          chpbco_Suc, chptch_Cod, chp_edo, chp_FVto,
+          chp_NroCheq, chp_NroDtvo, chp_Importe, chpemp_IdCliente
+        )
+        VALUES (
+          @codEmp, @emp, @idCheque, @fecEnt,
+          @movSuc, @tipo, @edo, @fecVto,
+          @ctbCod, @definitivo, @importe, @idcl
+        )
+      `);
 
-    return { success: true, message: 'Cheques actualizados correctamente.' };
+    return { success: true, message: 'Cheque insertado correctamente.' };
+  } catch (err) {
+    console.error('❌ Error en importar-cheques:', err);
+    return { success: false, message: err.message };
+  } finally {
+    if (pool) await pool.close();
+  }
+});
+// 📌 Actualizar cheque existente
+ipcMain.handle('update-cheques', async (event, cheque) => {
+  let pool;
+  try {
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
+    console.log(`🔁 Actualizando cheque ID ${cheque.idCheque}`);
+
+    const {
+      codEmp, emp, idCheque, fechaEmision,
+      movimiento, tipoCheque, estado, fechaVenc,
+      chequeCodigo, nroDefinitivo, importe, idCliente
+    } = cheque;
+
+    const fecEnt = convertirFecha(fechaEmision);
+    const fecVto = convertirFecha(fechaVenc);
+    const importeFinal = Math.abs(parseFloat(importe)) * -1;
+
+    await pool.request()
+      .input('codEmp', sql.VarChar(50), codEmp)
+      .input('emp', sql.VarChar(50), emp)
+      .input('idCheque', sql.Int, idCheque)
+      .input('fecEnt', sql.Date, fecEnt)
+      .input('movSuc', sql.VarChar(50), movimiento)
+      .input('tipo', sql.VarChar(50), tipoCheque)
+      .input('edo', sql.VarChar(50), estado)
+      .input('fecVto', sql.Date, fecVto)
+      .input('ctbCod', sql.Int, chequeCodigo)
+      .input('definitivo', sql.Int, nroDefinitivo)
+      .input('importe', sql.Float, importeFinal)
+      .input('idcl', sql.Int, idCliente)
+      .query(`
+        UPDATE Cheques SET 
+          chp_FEnt = @fecEnt,
+          chpbco_Suc = @movSuc,
+          chptch_Cod = @tipo,
+          chp_edo = @edo,
+          chp_FVto = @fecVto,
+          chp_NroCheq = @ctbCod,
+          chp_NroDtvo = @definitivo,
+          chp_Importe = @importe
+        WHERE chp_ID = @idCheque AND chpemp_Codigo = @codEmp AND chpsuc_Cod = @emp AND chpemp_IdCliente = @idcl
+      `);
+
+    return { success: true, message: 'Cheque actualizado correctamente.' };
   } catch (err) {
     console.error('❌ Error en update-cheques:', err);
     return { success: false, message: err.message };
@@ -346,6 +339,7 @@ ipcMain.handle('update-cheques', async (event, cheques) => {
     if (pool) await pool.close();
   }
 });
+
 function convertirFecha(fechaDDMMYYYY) {
   if (!fechaDDMMYYYY || typeof fechaDDMMYYYY !== 'string') {
     throw new Error(`Fecha inválida (no definida o no string): ${fechaDDMMYYYY}`);

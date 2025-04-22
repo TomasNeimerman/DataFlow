@@ -45,21 +45,25 @@ export default function Cheques() {
 
       setCheques(parsed);
 
-      const ids = parsed.map(c => c.idCheque);
-      const respActuales = await window.api.obtenerCheques(ids);
-      setValoresActuales(respActuales.cheques || []);
+      
+      
       console.log(parsed.length)
-      for(const cheque of parsed){
-        const response = await window.api.obtenerCheques(cheque.idCheque)
-        console.log(response)
-        if(cheque.idCheque = response.idCheque){
-          await window.api.updateCheques(cheque)
-          console.log(`Existe el cheque con el id ${cheque.idCheque}, actualizando resultados: ${response}`)
-        }else{
-          console.log(`No existe el cheque con el id ${cheque.idCheque}, importando resultados`)
+      for (const cheque of parsed) {
+        const res = await window.api.obtenerCheques(cheque.idCheque);
+        
+        if (res?.cheque?.chp_ID === cheque.idCheque) {
+          console.log(`🔁 Actualizando cheque ID ${cheque.idCheque}`);
+          setValoresActuales((prev) => {
+            const yaExiste = prev.some((c) => c.chp_ID === res.cheque.chp_ID);
+            return yaExiste ? prev : [...prev, res.cheque];
+          });
+          await window.api.updateCheques(cheque);
+        } else {
+          console.log(`🆕 Insertando cheque ID ${cheque.idCheque}`);
           await window.api.importarCheques(cheque);
-      };
+        }
       }
+      
       
     };
 
@@ -68,13 +72,15 @@ export default function Cheques() {
 
   return (
     <div className={styles.body}>
+      <div className={styles.container}>
       <Image alt='CONE ERP' className={styles.img} src={logo} />
       <ModuleForm 
         nombreModulo="Cheques" 
         onImportar={handleImportar} 
         idCliente={idCliente}
       />
-      
+      <ChequesActualizados cheques={cheques} valoresActuales={valoresActuales} />
+      </div>
     </div>
   );
 }

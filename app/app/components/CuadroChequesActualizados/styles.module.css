@@ -1,0 +1,58 @@
+
+  /* El resto de tus estilos se mantienen igual */
+  .title {
+    font-size: 1.6rem;
+    font-weight: bold;
+    margin-bottom: 1rem;
+    color: #111;
+  }
+  
+  .card {
+    margin-bottom: 2rem;
+    border: 1px solid #ccc;
+    padding: 1rem;
+    border-radius: 12px;
+    background: #fefefe;
+  }
+  
+  .cardTitle {
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #111;
+  }
+  
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  
+  .table th,
+  .table td {
+    text-align: left;
+    padding: 0.5rem;
+    border-bottom: 1px solid #ddd;
+  }
+  
+  .headerRow {
+    background-color: #f0f0f0;
+  }
+  
+  .fieldName {
+    font-weight: bold;
+  }
+  
+  .sameValue {
+    color: #007700;
+  }
+  
+  .differentValue {
+    color: #d00;
+    font-weight: bold;
+  }
+  
+  .noResults {
+    font-style: italic;
+    color: #999;
+  }
