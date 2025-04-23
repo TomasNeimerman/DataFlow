@@ -16,7 +16,8 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 720,
-   
+    maxWidth: 1920,
+    maxHeight: 1080,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -26,7 +27,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadURL('http://localhost:3000/Login');
-  mainWindow.webContents.openDevTools();
+  
   const template = [
     {
       label: 'Menú',
@@ -248,20 +249,18 @@ ipcMain.handle('importar-cheques', async (event, cheque) => {
       movimiento, tipoCheque, estado, fechaVenc,
       chequeCodigo, nroDefinitivo, importe, idCliente
     } = cheque;
-
-    const fecEnt = convertirFecha(fechaEmision);
-    const fecVto = convertirFecha(fechaVenc);
-    const importeFinal = Math.abs(parseFloat(importe)) * -1;
+  
+    const importeFinal = convertirImporte(importe)
 
     await pool.request()
       .input('codEmp', sql.VarChar(50), codEmp)
       .input('emp', sql.VarChar(50), emp)
       .input('idCheque', sql.Int, idCheque)
-      .input('fecEnt', sql.Date, fecEnt)
+      .input('fecEnt', sql.Date, fechaEmision.toISOString().split('T')[0])
       .input('movSuc', sql.VarChar(50), movimiento)
       .input('tipo', sql.VarChar(50), tipoCheque)
       .input('edo', sql.VarChar(50), estado)
-      .input('fecVto', sql.Date, fecVto)
+      .input('fecVto', sql.Date, fechaVenc.toISOString().split('T')[0])
       .input('ctbCod', sql.Int, chequeCodigo)
       .input('definitivo', sql.Int, nroDefinitivo)
       .input('importe', sql.Float, importeFinal)
@@ -301,19 +300,18 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
       chequeCodigo, nroDefinitivo, importe, idCliente
     } = cheque;
 
-    const fecEnt = convertirFecha(fechaEmision);
-    const fecVto = convertirFecha(fechaVenc);
-    const importeFinal = Math.abs(parseFloat(importe)) * -1;
+ 
+    const importeFinal = convertirImporte(importe)
 
     await pool.request()
       .input('codEmp', sql.VarChar(50), codEmp)
       .input('emp', sql.VarChar(50), emp)
       .input('idCheque', sql.Int, idCheque)
-      .input('fecEnt', sql.Date, fecEnt)
+      .input('fecEnt', sql.Date, fechaEmision.toISOString().split('T')[0])
       .input('movSuc', sql.VarChar(50), movimiento)
       .input('tipo', sql.VarChar(50), tipoCheque)
       .input('edo', sql.VarChar(50), estado)
-      .input('fecVto', sql.Date, fecVto)
+      .input('fecVto', sql.Date, fechaVenc.toISOString().split('T')[0])
       .input('ctbCod', sql.Int, chequeCodigo)
       .input('definitivo', sql.Int, nroDefinitivo)
       .input('importe', sql.Float, importeFinal)
@@ -330,7 +328,6 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
           chp_Importe = @importe
         WHERE chp_ID = @idCheque AND chpemp_Codigo = @codEmp AND chpsuc_Cod = @emp AND chpemp_IdCliente = @idcl
       `);
-
     return { success: true, message: 'Cheque actualizado correctamente.' };
   } catch (err) {
     console.error('❌ Error en update-cheques:', err);
@@ -340,27 +337,11 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
   }
 });
 
-function convertirFecha(fechaDDMMYYYY) {
-  if (!fechaDDMMYYYY || typeof fechaDDMMYYYY !== 'string') {
-    throw new Error(`Fecha inválida (no definida o no string): ${fechaDDMMYYYY}`);
-  }
 
-  const partes = fechaDDMMYYYY.split("/");
-  if (partes.length !== 3) {
-    throw new Error(`Fecha malformateada: ${fechaDDMMYYYY}`);
-  }
-
-  const [dia, mes, año] = partes.map(str => parseInt(str, 10));
-  if (isNaN(dia) || isNaN(mes) || isNaN(año)) {
-    throw new Error(`Partes numéricas inválidas en la fecha: ${fechaDDMMYYYY}`);
-  }
-
-  // Creamos con Date.UTC para evitar problemas de timezone/locale
-  const fechaUTC = new Date(Date.UTC(año, mes - 1, dia)); // JS: mes 0-indexed
-  if (isNaN(fechaUTC.getTime())) {
-    throw new Error(`Fecha inválida al convertir: ${fechaDDMMYYYY}`);
-  }
-
-  return fechaUTC;
+function convertirImporte(valor){
+  if (!valor) return '-';
+  const num = parseFloat(valor);
+  if (isNaN(num)) return '-';
+  return num.toLocaleString('es-AR', { minimumFractionDigits: 2 });
 }
 

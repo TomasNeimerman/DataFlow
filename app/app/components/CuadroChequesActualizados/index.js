@@ -1,20 +1,20 @@
 import React from "react";
 import styles from './styles.module.css';
 
-// ✅ Formatear fecha a DD/MM/YYYY
 const formatFecha = (fecha) => {
   if (!fecha) return '-';
   const d = new Date(fecha);
   if (isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('es-AR'); // DD/MM/YYYY
+  const dia = String(d.getUTCDate()).padStart(2, '0');
+  const mes = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const año = d.getUTCFullYear();
+  return `${dia}/${mes}/${año}`;
 };
 
-// ✅ Formatear importe con separador de miles y coma decimal
 const formatImporte = (valor) => {
   if (!valor) return '-';
   const num = parseFloat(valor);
-  if (isNaN(num)) return '-';
-  return num.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+  return isNaN(num) ? '-' : num.toLocaleString('es-AR', { minimumFractionDigits: 2 });
 };
 
 const renderCampo = (label, actual, nuevo) => {
@@ -30,22 +30,37 @@ const renderCampo = (label, actual, nuevo) => {
   );
 };
 
-const ChequesActualizados = ({ cheques, valoresActuales }) => {
+const esChequeIgual = (actual, nuevo) => {
+  return (
+    actual.chpemp_Codigo === nuevo.codEmp &&
+    actual.chpsuc_Cod === nuevo.emp &&
+    formatFecha(actual.chp_FEnt) === nuevo.fechaEmision &&
+    actual.chpbco_Suc === nuevo.movimiento &&
+    actual.chptch_Cod === nuevo.tipoCheque &&
+    actual.chp_edo === nuevo.estado &&
+    formatFecha(actual.chp_FVto) === nuevo.fechaVenc &&
+    actual.chp_NroCheq === nuevo.chequeCodigo &&
+    actual.chp_NroDtvo === nuevo.nroDefinitivo &&
+    parseFloat(actual.chp_Importe).toFixed(2) === parseFloat(nuevo.importe).toFixed(2)
+  );
+};
+
+const ChequesActualizados = ({ cheques, valoresActuales, validar }) => {
   const getNuevoCheque = (id) => cheques.find((c) => c.idCheque === id);
 
+  const chequesModificados = valoresActuales.filter(actual => {
+    const nuevo = getNuevoCheque(actual.chp_ID);
+    return nuevo && !esChequeIgual(actual, nuevo);
+  });
+
+  if (!validar || chequesModificados.length === 0) return null;
+
   return (
-    <div >
+    <div className={styles.container}>
       <h2 className={styles.title}>Actualización de Cheques Detectada</h2>
-
-      {valoresActuales.length === 0 && (
-        <p className={styles.noResults}>No hay cheques para actualizar.</p>
-      )}
-
-      <div className={styles.cardsContainer}> {/* Nuevo div contenedor */}
-        {valoresActuales.map((actual) => {
+      <div className={styles.cardsContainer}>
+        {chequesModificados.map((actual) => {
           const nuevo = getNuevoCheque(actual.chp_ID);
-          if (!nuevo) return null;
-
           return (
             <div key={actual.chp_ID} className={styles.card}>
               <h4 className={styles.cardTitle}>Cheque ID: {actual.chp_ID}</h4>
