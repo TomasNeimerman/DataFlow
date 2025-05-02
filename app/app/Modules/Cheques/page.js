@@ -8,10 +8,9 @@ import ModuleForm from '@/app/components/ModulesForm';
 import ChequesActualizados from '@/app/components/CuadroChequesActualizados';
 
 export default function Cheques() {
-  const [valoresActuales, setValoresActuales] = useState([]);
   const [cheques, setCheques] = useState([]);
   const [idCliente, setIdCliente] = useState(null);
-  const [huboActualizaciones, setHuboActualizaciones] = useState(false);
+  const [validar, setValidar] = useState(false);
 
   useEffect(() => {
     const storedIdCliente = localStorage.getItem("idCliente");
@@ -51,32 +50,36 @@ export default function Cheques() {
         idCliente: idCliente
       }));
 
-      setCheques(parsed);
-
+      const chequesProcesados = [];
       let huboCambios = false;
 
       for (const cheque of parsed) {
         const res = await window.api.obtenerCheques(cheque.idCheque);
-
+        
         if (res?.cheque?.chp_ID === cheque.idCheque) {
-          const yaExiste = valoresActuales.some(c => c.chp_ID === res.cheque.chp_ID);
-          if (!yaExiste) {
-            setValoresActuales(prev => [...prev, res.cheque]);
-            huboCambios = true;
+          const importeActual = parseFloat(res.cheque.chp_Importe).toFixed(2);
+          const importeNuevo = parseFloat(cheque.importe).toFixed(2);
+          const actualizado = importeActual !== importeNuevo;
+
+          if (actualizado) {
             await window.api.updateCheques(cheque);
-            console.log(`🔁 Actualizando cheque ID ${cheque.idCheque}`);
+            console.log(`🔁 Actualizado cheque ID ${cheque.idCheque}`);
+            huboCambios = true;
           } else {
-            console.log(`✅ Cheque ID ${cheque.idCheque} ya actualizado previamente.`);
+            console.log(`✅ Cheque ID ${cheque.idCheque} no necesita cambios.`);
           }
-        } else if (!res?.cheque) {
-          await window.api.importarCheques(cheque);
-          console.log(`🆕 Insertando cheque ID ${cheque.idCheque}`);
+
+          chequesProcesados.push({
+            cheque,
+            actualizado
+          });
         } else {
-          console.log(`🔍 Cheque ID ${cheque.idCheque} ya existe sin cambios.`);
+          console.log(`⛔ Cheque ID ${cheque.idCheque} no encontrado.`);
         }
       }
 
-      setHuboActualizaciones(huboCambios);
+      setCheques(chequesProcesados);
+      setValidar(huboCambios);
     };
 
     reader.readAsArrayBuffer(file);
@@ -90,11 +93,7 @@ export default function Cheques() {
         onImportar={handleImportar} 
         idCliente={idCliente}
       />
-      <ChequesActualizados 
-        cheques={cheques} 
-        valoresActuales={valoresActuales} 
-        validar={huboActualizaciones}
-      />
+      <ChequesActualizados cheques={cheques} validar={validar} />
     </div>
   );
 }

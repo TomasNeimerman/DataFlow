@@ -1,4 +1,3 @@
-// electron/main.js
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
 const sql = require('mssql');
@@ -6,18 +5,14 @@ const fs = require('fs');
 const { generarToken } = require('./jwtService');
 const { getDbConfig } = require('./dbConfig');
 const { getAdminDbConfig } = require('./dbAdminConfig.js');
-const { COMPILER_INDEXES } = require('next/dist/shared/lib/constants');
-const { error } = require('console');
-
 
 let mainWindow;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
-    width: 1080,
-    height: 720,
-    maxWidth: 1920,
-    maxHeight: 1080,
+    width: 1280,
+    height: 920,
+    fullscreen: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -27,7 +22,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadURL('http://localhost:3000/Login');
-  
+
   const template = [
     {
       label: 'Menú',
@@ -38,8 +33,6 @@ function createMainWindow() {
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
 }
-
-
 
 app.whenReady().then(createMainWindow);
 
@@ -64,10 +57,8 @@ ipcMain.on('abrir-dev-tools', () => {
 ipcMain.handle('login', async (event, { usuario, contraseña }) => {
   try {
     const dbConfig = getDbConfig();
-    console.log(`✅Conectado a ${dbConfig.database}`)
     const pool = await sql.connect(dbConfig);
 
-    // 🔹 1. Hacer login
     const loginResult = await pool.request()
       .input('usuario', sql.NVarChar, usuario)
       .input('contraseña', sql.NVarChar, contraseña)
@@ -83,7 +74,6 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
 
     const user = loginResult.recordset[0];
 
-    // Actualizar FechaUltAcceso
     let fechaActual = new Date();
     fechaActual.setHours(fechaActual.getHours() - 3);
 
@@ -99,7 +89,6 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
       `localStorage.setItem("idCliente", "${idCliente}");`
     );
 
-    // 🔹 2. Obtener módulos
     const modulesResult = await pool.request()
       .input('idCliente', sql.Int, idCliente)
       .query(`
@@ -128,24 +117,23 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
       countClientesPorModulo: modulo.countClientesPorModulo
     }));
 
-    // 🔹 3. Crear menú dinámico en Electron
     const template = [
       {
         label: 'Menú',
         submenu: modulos.map(modulo => ({
           label: modulo.nombre,
           click: () => {
-            // Pasamos el nombre del módulo como query param
             mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}`);
           }
         }))
       },
       { role: 'quit', label: 'Salir' }
     ];
-    
+
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
-    await pool.close()
+    await pool.close();
+
     return { 
       success: true, 
       user: {
@@ -158,19 +146,18 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
       modulos,
       token
     };
-    
+
   } catch (error) {
     console.error('Error en login local:', error);
     return { success: false, message: error.message };
   }
 });
-// 📦 OBTENER MÓDULOS
+
 ipcMain.handle('get-modules', async (event, idCliente) => {
   if (!idCliente) return { success: false, message: 'Falta idCliente' };
 
   try {
     const dbConfig = getDbConfig();
-    console.log(`✅Conectado a ${dbConfig.database}`)
     let pool = await sql.connect(dbConfig);
 
     let result = await pool.request()
@@ -202,25 +189,20 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
       pathExcel: modulo.PathExcelModelo,
       countClientesPorModulo: modulo.countClientesPorModulo
     }));
-     await pool.close()
+    await pool.close();
     return { success: true, modulos };
 
   } catch (error) {
     console.error('Error en get-modules:', error);
     return { success: false, message: 'Error en la base de datos.' };
   }
-  
 });
 
-
-// 📌 Obtener un cheque por ID
 ipcMain.handle('obtener-cheques', async (event, id) => {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    console.log(`🔍 Buscando cheque ID ${id} en ${dbConfig.database}`);
-
     const result = await pool.request()
       .input('id', sql.Int, id)
       .query(`SELECT * FROM Cheques WHERE chp_ID = @id`);
@@ -236,82 +218,41 @@ ipcMain.handle('obtener-cheques', async (event, id) => {
     if (pool) await pool.close();
   }
 });
-// 📌 Insertar nuevo cheque
-ipcMain.handle('importar-cheques', async (event, cheque) => {
-  let pool;
-  try {
-    const dbConfig = getAdminDbConfig();
-    pool = await sql.connect(dbConfig);
-    console.log(`📥 Insertando cheque ID ${cheque.idCheque}`);
 
-    const {
-      codEmp, emp, idCheque, fechaEmision,
-      movimiento, tipoCheque, estado, fechaVenc,
-      chequeCodigo, nroDefinitivo, importe, idCliente
-    } = cheque;
-  
-    const importeFinal = convertirImporte(importe)
-
-    await pool.request()
-      .input('codEmp', sql.VarChar(50), codEmp)
-      .input('emp', sql.VarChar(50), emp)
-      .input('idCheque', sql.Int, idCheque)
-      .input('fecEnt', sql.Date, fechaEmision.toISOString().split('T')[0])
-      .input('movSuc', sql.VarChar(50), movimiento)
-      .input('tipo', sql.VarChar(50), tipoCheque)
-      .input('edo', sql.VarChar(50), estado)
-      .input('fecVto', sql.Date, fechaVenc.toISOString().split('T')[0])
-      .input('ctbCod', sql.Int, chequeCodigo)
-      .input('definitivo', sql.Int, nroDefinitivo)
-      .input('importe', sql.Float, importeFinal)
-      .input('idcl', sql.Int, idCliente)
-      .query(`
-        INSERT INTO Cheques (
-          chpemp_Codigo, chpsuc_Cod, chp_ID, chp_FEnt,
-          chpbco_Suc, chptch_Cod, chp_edo, chp_FVto,
-          chp_NroCheq, chp_NroDtvo, chp_Importe, chpemp_IdCliente
-        )
-        VALUES (
-          @codEmp, @emp, @idCheque, @fecEnt,
-          @movSuc, @tipo, @edo, @fecVto,
-          @ctbCod, @definitivo, @importe, @idcl
-        )
-      `);
-
-    return { success: true, message: 'Cheque insertado correctamente.' };
-  } catch (err) {
-    console.error('❌ Error en importar-cheques:', err);
-    return { success: false, message: err.message };
-  } finally {
-    if (pool) await pool.close();
-  }
-});
-// 📌 Actualizar cheque existente
 ipcMain.handle('update-cheques', async (event, cheque) => {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    console.log(`🔁 Actualizando cheque ID ${cheque.idCheque}`);
-
     const {
       codEmp, emp, idCheque, fechaEmision,
       movimiento, tipoCheque, estado, fechaVenc,
       chequeCodigo, nroDefinitivo, importe, idCliente
     } = cheque;
 
- 
-    const importeFinal = convertirImporte(importe)
+    const fecEnt = convertirFecha(fechaEmision);
+    const fecVto = convertirFecha(fechaVenc);
+    const importeFinal = parseFloat(
+      importe.replace(/\./g, '').replace(',', '.').replace('-', '')
+    );
+
+    const existe = await pool.request()
+      .input('id', sql.Int, idCheque)
+      .query(`SELECT COUNT(*) as count FROM Cheques WHERE chp_ID = @id`);
+
+    if (existe.recordset[0].count === 0) {
+      return { success: false, message: `Cheque ID ${idCheque} no existe y no se puede actualizar.` };
+    }
 
     await pool.request()
       .input('codEmp', sql.VarChar(50), codEmp)
       .input('emp', sql.VarChar(50), emp)
       .input('idCheque', sql.Int, idCheque)
-      .input('fecEnt', sql.Date, fechaEmision.toISOString().split('T')[0])
+      .input('fecEnt', sql.Date, fecEnt)
       .input('movSuc', sql.VarChar(50), movimiento)
       .input('tipo', sql.VarChar(50), tipoCheque)
       .input('edo', sql.VarChar(50), estado)
-      .input('fecVto', sql.Date, fechaVenc.toISOString().split('T')[0])
+      .input('fecVto', sql.Date, fecVto)
       .input('ctbCod', sql.Int, chequeCodigo)
       .input('definitivo', sql.Int, nroDefinitivo)
       .input('importe', sql.Float, importeFinal)
@@ -328,6 +269,7 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
           chp_Importe = @importe
         WHERE chp_ID = @idCheque AND chpemp_Codigo = @codEmp AND chpsuc_Cod = @emp AND chpemp_IdCliente = @idcl
       `);
+
     return { success: true, message: 'Cheque actualizado correctamente.' };
   } catch (err) {
     console.error('❌ Error en update-cheques:', err);
@@ -337,11 +279,25 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
   }
 });
 
+function convertirFecha(fechaDDMMYYYY) {
+  if (!fechaDDMMYYYY || typeof fechaDDMMYYYY !== 'string') {
+    throw new Error(`Fecha inválida (no definida o no string): ${fechaDDMMYYYY}`);
+  }
 
-function convertirImporte(valor){
-  if (!valor) return '-';
-  const num = parseFloat(valor);
-  if (isNaN(num)) return '-';
-  return num.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+  const partes = fechaDDMMYYYY.split("/");
+  if (partes.length !== 3) {
+    throw new Error(`Fecha malformateada: ${fechaDDMMYYYY}`);
+  }
+
+  const [dia, mes, año] = partes.map(str => parseInt(str, 10));
+  if (isNaN(dia) || isNaN(mes) || isNaN(año)) {
+    throw new Error(`Partes numéricas inválidas en la fecha: ${fechaDDMMYYYY}`);
+  }
+
+  const fechaUTC = new Date(Date.UTC(año, mes - 1, dia));
+  if (isNaN(fechaUTC.getTime())) {
+    throw new Error(`Fecha inválida al convertir: ${fechaDDMMYYYY}`);
+  }
+
+  return fechaUTC;
 }
-
