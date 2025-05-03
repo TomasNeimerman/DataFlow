@@ -12,6 +12,20 @@ export default function Cheques() {
   const [idCliente, setIdCliente] = useState(null);
   const [validar, setValidar] = useState(false);
 
+  const columnasEsperadas = [
+    "CodEmpresa",
+    "Emp.",
+    "ID Cheque",
+    "Mov. - F. Emisión",
+    "Mov.",
+    "Cheque - Tipo Valor - Cód.",
+    "Cheq. / Doc. / Obl. - Estado",
+    "Cheq. / Doc. / Obl. - F. Vto.",
+    "Cheq. / Doc. / Obl. - Nro.",
+    "Nro Definitivo",
+    "IMPORTE",
+  ];
+
   useEffect(() => {
     const storedIdCliente = localStorage.getItem("idCliente");
     setIdCliente(storedIdCliente);
@@ -55,11 +69,17 @@ export default function Cheques() {
 
       for (const cheque of parsed) {
         const res = await window.api.obtenerCheques(cheque.idCheque);
-        
+
         if (res?.cheque?.chp_ID === cheque.idCheque) {
-          const importeActual = parseFloat(res.cheque.chp_Importe).toFixed(2);
-          const importeNuevo = parseFloat(cheque.importe).toFixed(2);
-          const actualizado = importeActual !== importeNuevo;
+          const importeActual = Number(res.cheque.chp_Importe).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          });
+          const importeActualFinal = `-${importeActual}   `
+          const importeNuevo = cheque.importe;
+          const actualizado = importeActualFinal !== importeNuevo;
+
+          console.log('📄 Comparación importes:', { importeActualFinal, importeNuevo });
 
           if (actualizado) {
             await window.api.updateCheques(cheque);
@@ -80,6 +100,7 @@ export default function Cheques() {
 
       setCheques(chequesProcesados);
       setValidar(huboCambios);
+      console.log()
     };
 
     reader.readAsArrayBuffer(file);
@@ -88,10 +109,10 @@ export default function Cheques() {
   return (
     <div className={styles.body}>
       <Image alt='CONE ERP' className={styles.img} src={logo} />
-      <ModuleForm 
-        nombreModulo="Cheques" 
-        onImportar={handleImportar} 
-        idCliente={idCliente}
+      <ModuleForm
+        nombreModulo="Cheques"
+        onImportar={handleImportar}
+        excelRows={columnasEsperadas} // Pasar columnasEsperadas como prop
       />
       <ChequesActualizados cheques={cheques} validar={validar} />
     </div>

@@ -26,9 +26,30 @@ function createMainWindow() {
   const template = [
     {
       label: 'Menú',
-      submenu: [{ role: 'quit', label: 'Salir' }]
+          submenu: [
+            {
+              label: 'Toggle DevTools',
+              accelerator: 'F12',
+              click: () => {
+                mainWindow.webContents.toggleDevTools();
+              }
+            },
+            {
+              label: 'Salir',
+              role: 'quit',
+              accelerator: 'Esc'
+            },
+            {
+              label: 'Reload',
+              accelerator: 'F5',
+              click: () => {
+                mainWindow.reload();
+              }
+            }
+          ],
     }
   ];
+  
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
@@ -120,15 +141,43 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
     const template = [
       {
         label: 'Menú',
-        submenu: modulos.map(modulo => ({
-          label: modulo.nombre,
-          click: () => {
-            mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}`);
+        submenu: [
+          ...modulos.map(modulo => ({
+            label: modulo.nombre,
+            click: () => {
+              mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}`);
+            }
+          })),
+          {
+            type: 'separator'
+          },
+          {
+            label: 'Toggle DevTools',
+            accelerator: 'F12',
+            click: () => {
+              mainWindow.webContents.toggleDevTools();
+            }
+          },
+          {
+            role: 'quit',
+            label: 'Salir',
+            accelerator: 'Esc'
+          },
+          {
+            label: 'Reload',
+            accelerator: 'F5',
+            click: () => {
+              mainWindow.reload();
+            }
           }
-        }))
-      },
-      { role: 'quit', label: 'Salir' }
+        ]
+      }
     ];
+    
+     
+        
+      
+    
 
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
@@ -233,8 +282,9 @@ ipcMain.handle('update-cheques', async (event, cheque) => {
     const fecEnt = convertirFecha(fechaEmision);
     const fecVto = convertirFecha(fechaVenc);
     const importeFinal = parseFloat(
-      importe.replace(/\./g, '').replace(',', '.').replace('-', '')
+      importe.replace(/,/g, '').replace('-', '')
     );
+    
 
     const existe = await pool.request()
       .input('id', sql.Int, idCheque)

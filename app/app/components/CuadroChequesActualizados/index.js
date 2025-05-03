@@ -1,18 +1,7 @@
 import React from "react";
 import styles from './styles.module.css';
 
-const formatFecha = (fecha) => {
-  if (!fecha) return '-';
-  const d = new Date(fecha);
-  if (isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('es-AR');
-};
 
-const formatImporte = (valor) => {
-  if (!valor) return '-';
-  const num = parseFloat(valor);
-  return isNaN(num) ? '-' : num.toLocaleString('es-AR', { minimumFractionDigits: 2 });
-};
 
 const ChequesActualizados = ({ cheques, validar }) => {
   if (!validar || cheques.length === 0) {
@@ -44,7 +33,7 @@ const ChequesActualizados = ({ cheques, validar }) => {
               <td>{cheque.codEmp}</td>
               <td>{cheque.chequeCodigo}</td>
               <td>{cheque.nroDefinitivo}</td>
-              <td className={actualizado ? styles.ok : ''}>{formatImporte(cheque.importe)}</td>
+              <td className={actualizado ? styles.ok : ''}>{cheque.importe}</td>
               <td>{cheque.fechaEmision}</td>
               <td>{cheque.movimiento}</td>
               <td>{actualizado ? 'Se actualizo correctamente✅' : 'No se actualizo'}</td>
