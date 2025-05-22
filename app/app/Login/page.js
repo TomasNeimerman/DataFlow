@@ -15,7 +15,7 @@ export default function LoginPage() {
   const handleLogin = async () => {
     try {
       const response = await window.api.login(usuario, contraseña);
-  
+
       if (response.success) {
         localStorage.setItem('jwtToken', response.token);
         router.push('/Index'); // ✅ Redirige a la ruta interna
@@ -36,7 +36,7 @@ export default function LoginPage() {
     src={logo}
     />
     <div className={styles.container}>
-      <h1 className={styles.title}>Bejerman <span className={styles.titlespan}>ERP</span></h1>
+      <h1 className={styles.title}>Actualizador</h1>
       <div className={styles.inputgroup}>
         <label htmlFor="usuario" className={styles.label}>Usuario</label>
         <input
