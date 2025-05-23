@@ -1,5 +1,5 @@
 // back/modulesService/Login.js
-const sql = require('mssql');
+const mysql = require('mysql2/promise'); // Usamos el cliente MySQL con promesas
 const fs = require('fs').promises; // Usamos la API de promesas para async/await
 const path = require('path');
 const { generarToken } = require('../jwtService');
@@ -7,23 +7,37 @@ const logger = require('../logger');
 
 // Función para obtener la configuración de la base de datos de la empresa
 async function obtenerConfiguracionEmpresa(idCliente) {
+    let poolAdmin; // Declarar poolAdmin fuera del try para asegurar su cierre
     try {
         const dbConfigAdmin = require('../dbConfig').getDbConfig();
-        const poolAdmin = await sql.connect(dbConfigAdmin);
-
-        const empresaResult = await poolAdmin.request()
-            .input('idCliente', sql.Int, idCliente)
-            .query(`
-                SELECT Server, Port, InstanciaBD , Usuario, Contraseña
-                FROM Empresa
-                WHERE IdCliente = @idCliente
-            `);
-
         
+        // Adaptar la configuración para mysql2
+        const mysqlConfigAdmin = {
+            host: dbConfigAdmin.server,
+            port: dbConfigAdmin.port || 3306, // Puerto por defecto de MySQL es 3306
+            user: dbConfigAdmin.user,
+            password: dbConfigAdmin.password,
+            database: dbConfigAdmin.database,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        };
 
-        if (empresaResult.recordset.length > 0) {
-            const empresaData = empresaResult.recordset[0];
-            const configContent = `DB_USER=${empresaData.Usuario}\nDB_PASSWORD=${empresaData.Contraseña}\nDB_SERVER=${empresaData.Server}\nDB_PORT=${empresaData.Port || 1433}\nDB_DATABASE=${empresaData.InstanciaBD}\n`;
+        poolAdmin = await mysql.createPool(mysqlConfigAdmin);
+
+        // Consulta MySQL: Usar '?' para los parámetros
+        const [rows] = await poolAdmin.execute(
+            `
+                SELECT Server, Port, InstanciaBD, Usuario, Contraseña
+                FROM Empresa
+                WHERE IdCliente = ?
+            `,
+            [idCliente]
+        );
+
+        if (rows.length > 0) {
+            const empresaData = rows[0];
+            const configContent = `DB_USER=${empresaData.Usuario}\nDB_PASSWORD=${empresaData.Contraseña}\nDB_SERVER=${empresaData.Server}\nDB_PORT=${empresaData.Port || 3306}\nDB_DATABASE=${empresaData.InstanciaBD}\n`;
             const configPath = path.join(__dirname, '../../fileConfigUpdater/userDbConfig.properties'); // Nombre de archivo diferente para evitar confusión
 
             try {
@@ -35,14 +49,10 @@ async function obtenerConfiguracionEmpresa(idCliente) {
 
             return {
                 server: empresaData.Server,
-                port: empresaData.Port ? parseInt(empresaData.Port, 10) : 1433,
-                database: empresaData.Database,
+                port: empresaData.Port ? parseInt(empresaData.Port, 10) : 3306,
+                database: empresaData.InstanciaBD, // Usar InstanciaBD para la base de datos
                 user: empresaData.Usuario,
                 password: empresaData.Contraseña,
-                options: {
-                    encrypt: false,
-                    trustServerCertificate: true
-                }
             };
         } else {
             return null;
@@ -50,67 +60,102 @@ async function obtenerConfiguracionEmpresa(idCliente) {
     } catch (error) {
         console.error('Error al obtener configuración de la empresa:', error);
         return null;
+    } finally {
+        if (poolAdmin) {
+            await poolAdmin.end(); // Cerrar el pool de conexiones
+        }
     }
 }
 
 async function iniciarSesion({ usuario, contraseña }) {
+    let poolAdmin; // Declarar poolAdmin fuera del try para asegurar su cierre
     try {
         const dbConfigAdmin = require('../dbConfig').getDbConfig();
-        const poolAdmin = await sql.connect(dbConfigAdmin);
+        
+        // Adaptar la configuración para mysql2
+        const mysqlConfigAdmin = {
+            host: dbConfigAdmin.server,
+            port: dbConfigAdmin.port || 3306,
+            user: dbConfigAdmin.user,
+            password: dbConfigAdmin.password,
+            database: dbConfigAdmin.database,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        };
+        console.log('Configuración de MySQL:', mysqlConfigAdmin);
+        poolAdmin = await mysql.createPool(mysqlConfigAdmin);
 
-        const loginResult = await poolAdmin.request()
-            .input('usuario', sql.NVarChar, usuario)
-            .input('contraseña', sql.NVarChar, contraseña)
-            .query(`
+        // Consulta MySQL: Usar '?' para los parámetros
+        const [loginRows] = await poolAdmin.execute(
+            `
                 SELECT Id, Nombre, Apellido, Email, IdCliente
                 FROM Usuarios
-                WHERE Usuario = @usuario AND Contraseña = @contraseña
-            `);
+                WHERE Usuario = ? AND Contraseña = ?
+            `,
+            [usuario, contraseña]
+        );
 
-        if (loginResult.recordset.length === 0) {
-            await poolAdmin.close();
+        if (loginRows.length === 0) {
             return { success: false, message: 'Usuario o contraseña incorrectos.' };
         }
 
-        const user = loginResult.recordset[0];
+        const user = loginRows[0];
         const idCliente = user.IdCliente;
 
         const empresaConfig = await obtenerConfiguracionEmpresa(idCliente);
         if (!empresaConfig) {
-            await poolAdmin.close();
             return { success: false, message: 'No se encontró la configuración de la base de datos para su empresa.' };
         }
 
         let fechaActual = new Date();
-        fechaActual.setHours(fechaActual.getHours() - 3);
+        // No es necesario ajustar la hora aquí si el servidor MySQL está configurado correctamente con la zona horaria
+        // o si la aplicación maneja la zona horaria al mostrar.
+        // fechaActual.setHours(fechaActual.getHours() - 3); // Esto podría ser problemático dependiendo de la configuración del servidor
 
-        await poolAdmin.request()
-            .input('fecha', sql.DateTime, fechaActual)
-            .input('usuario', sql.NVarChar, usuario)
-            .query('UPDATE Usuarios SET FechaUltAcceso = @fecha WHERE Usuario = @usuario');
+        // Actualizar la fecha de último acceso
+        await poolAdmin.execute(
+            'UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?',
+            [fechaActual, usuario]
+        );
 
         const token = generarToken(user);
-
-        await poolAdmin.close();
 
         return { success: true, user, token, empresaConfig };
     } catch (error) {
         console.error('Error en iniciarSesion:', error);
         return { success: false, message: error.message };
+    } finally {
+        if (poolAdmin) {
+            await poolAdmin.end(); // Cerrar el pool de conexiones
+        }
     }
 }
 
 async function obtenerModulos(idCliente) {
     if (!idCliente) return { success: false, message: 'Falta idCliente' };
     const dbConfigAdmin = require('../dbConfig').getDbConfig();
-    if (!dbConfigAdmin) return { success: false, message: 'No se pudo obtener la configuración de la base de datos.' };    
-
+    if (!dbConfigAdmin) return { success: false, message: 'No se pudo obtener la configuración de la base de datos.' }; 
+    
+    let poolEmpresa; // Declarar poolEmpresa fuera del try para asegurar su cierre
     try {
-        const poolEmpresa = await sql.connect(dbConfigAdmin);
+        // Adaptar la configuración para mysql2
+        const mysqlConfigAdmin = {
+            host: dbConfigAdmin.server,
+            port: dbConfigAdmin.port || 3306,
+            user: dbConfigAdmin.user,
+            password: dbConfigAdmin.password,
+            database: dbConfigAdmin.database,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        };
 
-        let result = await poolEmpresa.request()
-            .input('idCliente', sql.Int, idCliente)
-            .query(`
+        poolEmpresa = await mysql.createPool(mysqlConfigAdmin);
+
+        // Consulta MySQL: Usar '?' para los parámetros. La subconsulta COUNT(*) es compatible con MySQL.
+        const [rows] = await poolEmpresa.execute(
+            `
                 SELECT
                     m.Id AS ModuloId,
                     m.Nombre AS ModuloNombre,
@@ -125,9 +170,12 @@ async function obtenerModulos(idCliente) {
                     ) AS countClientesPorModulo
                 FROM ModulosXCliente mx
                 JOIN Modulos m ON mx.IdModulo = m.Id
-                WHERE mx.IdCliente = @idCliente
-            `);
-        const modulos = result.recordset.map(modulo => ({
+                WHERE mx.IdCliente = ?
+            `,
+            [idCliente]
+        );
+
+        const modulos = rows.map(modulo => ({
             id: modulo.ModuloId,
             nombre: modulo.ModuloNombre,
             texto: modulo.Texto,
@@ -136,12 +184,16 @@ async function obtenerModulos(idCliente) {
             pathExcel: modulo.PathExcelModelo,
             countClientesPorModulo: modulo.countClientesPorModulo
         }));
-        await poolEmpresa.close();
+        
         return { success: true, modulos };
 
     } catch (error) {
         console.error('Error en obtenerModulos:', error);
         return { success: false, message: 'Error en la base de datos de la empresa.' };
+    } finally {
+        if (poolEmpresa) {
+            await poolEmpresa.end(); // Cerrar el pool de conexiones
+        }
     }
 }
 
