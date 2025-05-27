@@ -88,7 +88,7 @@ const ModuleForm = ({ nombreModulo, onImportar, estadoImportar, mensajeImportaci
     }
   };
 
-
+  
   const titulo = modulos.length > 0 ? modulos[0].texto : "Cargando...";
   return (
     <div className={styles.container}>

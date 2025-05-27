@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   updateCheque3: (cheque) => ipcRenderer.invoke('update-cheque3', cheque),
   abrirDevTools: () => ipcRenderer.send('abrir-dev-tools'),
   downloadAndOpenExcel: (url) => ipcRenderer.invoke('download-and-open-excel', url),
+  getClases: () => ipcRenderer.invoke('get-clases'),
 });
 
 document.addEventListener('keydown', (e) => {

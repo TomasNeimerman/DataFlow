@@ -8,7 +8,7 @@ import styles from './styles.module.css';
 import logo from '../../../public/logo_cone.png';
 import ModuleForm from '@/app/components/ModulesForm';
 import ChequesActualizados from '@/app/components/CuadroChequesActualizados';
-import useChequesError from '@/app/hooks/chequesError'; // Importa el hook
+import useChequesError from '@/app/hooks/chequesPError'; // Importa el hook
 
 export default function Cheques3() {
   const [cheques, setCheques] = useState([]);

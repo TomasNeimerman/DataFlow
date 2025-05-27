@@ -3,13 +3,12 @@ const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('path');
 const sql = require('mssql');
 const fs = require('fs');
-const { generarToken } = require('./jwtService'); // Asegúrate de que esta importación siga siendo necesaria aquí
-const { getDbConfig } = require('./dbConfig');
-const { getAdminDbConfig } = require('./userDbConfig.js');
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
 const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
 const { obtenerCheque3: obtenerCheque3Service, actualizarCheque3: actualizarCheque3Service } = require('./modulesService/Cheques3'); // <--- Asegúrate de que esta línea exista y esté correcta
-const logger = require('./logger')
+const { getClases: getClases } = require('./modulesService/Articulos'); // Asegúrate de que esta línea exista y esté correcta
+const logger = require('./logger');
+const { get } = require('http');
 
 let mainWindow;
 
@@ -166,6 +165,9 @@ ipcMain.handle('obtener-cheque3', async (event, id) => {
 ipcMain.handle('update-cheque3', async (event, cheque) => {
   return await actualizarCheque3Service(cheque);
 });
+ipcMain.handle('get-clases', async (event) => {
+  return await getClases();
+})
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => { // Aquí relativeFilePath es el '../templates/chequesp.xlsx'
   try {
       if (!relativeFilePath) {
