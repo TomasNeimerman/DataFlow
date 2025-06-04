@@ -13,7 +13,6 @@ function getAdminDbConfig() {
             config[key.trim()] = value.trim();
         }
     });
-    console.log('Configuración de la base de datos:', config);
     return {
         user: config.DB_USER,
         password: config.DB_PASSWORD,
