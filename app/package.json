@@ -2,7 +2,8 @@
   "name": "app",
   "version": "0.1.0",
   "private": true,
-  "main": "back/main.js",
+  "author": "Bejerman",
+  "main": "electron/main.js", 
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +11,7 @@
     "electron": "electron .",
     "electrondev": "npm-run-all -p dev electron",
     "electron-build": "electron-builder .",
-    "dist": "electron-builder --win=portable"
+    "dist": "npm run build && electron-builder --win=portable" 
   },
   "dependencies": {
     "dotenv": "^16.5.0",
@@ -35,7 +36,8 @@
     "appId": "com.bejermanErp.updater",
     "productName": "BejermanErpUpdater",
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "public/iconodesktop.ico" 
     },
     "asar": true,
     "directories": {
@@ -45,7 +47,14 @@
     "files": [
       "electron/**/*",
       ".next/**/*",
-      "package.json"
+      "package.json",
+      "public/**/*",
+      "templates/**/*",
+      "node_modules/**/*", 
+      "fileConfigUpdater/**/*",
+      "eslint.config.mjs",
+      "next.config.mjs",
+      "package-lock.json"
     ]
   }
 }

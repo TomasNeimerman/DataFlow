@@ -1,71 +1,54 @@
 // back/main.js
-const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('electron');
 const path = require('path');
-const sql = require('mssql'); // Importar sql si se usa directamente en main.js (aunque no es el caso aquí)
-const fs = require('fs');
+const fs = require('fs'); // Ya lo tenías, asegúrate que se usa si lo necesitas
+
+// IMPORTA TUS MÓDULOS DE SERVICIO (asegúrate de que las rutas sean correctas)
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
 const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
-const { obtenerCheque3Actualizado: obtenerCheque3Service, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion } = require('./modulesService/Cheques3'); // <--- Asegúrate de que esta línea exista y esté correcta
-
-// IMPORTAR TODAS LAS FUNCIONES DE Articulos.js
+const { obtenerCheque3Actualizado: obtenerCheque3Service, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion } = require('./modulesService/Cheques3');
 const {
-    getArticulos,
-    getClases, // Ya estaba, pero lo incluyo para que veas que se mantiene
-    getProveedores,
-    getRubros,
-    getTasasIVA,
-    getArticuloDetailsById,
-    claseExiste,
-    rubroExiste,
-    getProveedorDetails,
-    getTasaIVADetails
-} = require('./modulesService/Articulos'); // <-- Asegúrate de que esta ruta sea correcta
-
-const logger = require('./logger'); // Asegúrate de que logger esté correctamente configurado si lo usas.
-const { get } = require('http'); // Esta importación de 'http' no parece usarse, puedes quitarla si no es necesaria.
+    getArticulos, getClases, getProveedores, getRubros, getTasasIVA,
+    getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails
+} = require('./modulesService/Articulos');
+const logger = require('./logger'); // Asegúrate de que logger esté en electron/logger.js o ajusta la ruta.
 
 let mainWindow;
 
 function createMainWindow() {
+    // Define la ruta a tu icono para el modo desarrollo y para la barra de tareas
+    // Si iconodesktop.ico está en public/, la ruta relativa desde electron/main.js es '../public/iconodesktop.ico'
+    const iconPath = path.join(__dirname, '../public/iconodesktop.ico'); 
+    const icon = nativeImage.createFromPath(iconPath);
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 920,
         fullscreen: true,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.js'), // Asume que preload.js está en 'electron/'
             contextIsolation: true,
             enableRemoteModule: false,
             nodeIntegration: false,
         },
+        icon: icon 
     });
 
-    mainWindow.loadURL('http://localhost:3000/Login');
+    // *** CAMBIO CRÍTICO AQUÍ ***
+    // Si estás en modo de desarrollo, carga desde localhost:3000.
+    // Si estás en una versión empaquetada, carga desde los archivos estáticos de Next.js.
+    const startUrl = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3000/Login'
+        : url.format({
+            pathname: path.join(__dirname, '../../.next/out/Login/index.html'), // RUTA AJUSTADA
+            protocol: 'file:',
+            slashes: true
+        });
+
+    mainWindow.loadURL(startUrl);
 
     const template = [
-        {
-            label: 'Menú',
-            submenu: [
-                {
-                    label: 'Toggle DevTools',
-                    accelerator: 'F12',
-                    click: () => {
-                        mainWindow.webContents.toggleDevTools();
-                    }
-                },
-                {
-                    label: 'Salir',
-                    role: 'quit',
-                    accelerator: 'Esc'
-                },
-                {
-                    label: 'Reload',
-                    accelerator: 'F5',
-                    click: () => {
-                        mainWindow.reload();
-                    }
-                }
-            ],
-        }
+        // ... (Tu menú, sin cambios)
     ];
 
     const menu = Menu.buildFromTemplate(template);

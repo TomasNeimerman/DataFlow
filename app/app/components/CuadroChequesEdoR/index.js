@@ -119,7 +119,7 @@ const ChequesRechazados = ({
                 Número {renderSortArrow('nroDefinitivo')}
               </th>
               <th onClick={() => handleSort('fvto')} className={styles.sortableHeader}>
-                Fecha vencimiento {renderSortArrow('fvto')}
+                Fecha Vencimiento {renderSortArrow('fvto')}
               </th>
               <th onClick={() => handleSort('importe')} className={styles.sortableHeader}>
                 Importe {renderSortArrow('importe')}
