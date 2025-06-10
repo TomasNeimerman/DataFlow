@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('api', {
     getProveedorDetails: (codigoProveedor) => ipcRenderer.invoke('get-proveedor-details', codigoProveedor),
     getTasaIVADetails: (codigoTasaIVA) => ipcRenderer.invoke('get-tasa-iva-details', codigoTasaIVA),
     getSituacion: () => ipcRenderer.invoke('cheque3-situacion'),
+    setRegistro: (emp, suc, IDCheque, sit, sitAnt) => ipcRenderer.invoke('registro-cheque3-sit', { emp, suc, IDCheque, sit, sitAnt }),
     obtenerCheque3Rechazado: () => ipcRenderer.invoke('cheque3-rechazado'),
 });
 

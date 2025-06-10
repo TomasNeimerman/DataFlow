@@ -3,7 +3,7 @@ const mysql = require('mysql2/promise'); // Usamos el cliente MySQL con promesas
 const fs = require('fs').promises; // Usamos la API de promesas para async/await
 const path = require('path');
 const { generarToken } = require('../jwtService');
-const logger = require('../logger');
+
 
 // Función para obtener la configuración de la base de datos de la empresa
 async function obtenerConfiguracionEmpresa(idCliente) {
@@ -111,7 +111,7 @@ async function iniciarSesion({ usuario, contraseña }) {
         let fechaActual = new Date();
         // No es necesario ajustar la hora aquí si el servidor MySQL está configurado correctamente con la zona horaria
         // o si la aplicación maneja la zona horaria al mostrar.
-        // fechaActual.setHours(fechaActual.getHours() - 3); // Esto podría ser problemático dependiendo de la configuración del servidor
+       fechaActual.setHours(fechaActual.getHours() - 3);
 
         // Actualizar la fecha de último acceso
         await poolAdmin.execute(

@@ -1,24 +1,68 @@
 // back/main.js
 const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('electron');
 const path = require('path');
+const url = require('url'); // Asegúrate de que url esté importado
 const fs = require('fs'); // Ya lo tenías, asegúrate que se usa si lo necesitas
 
 // IMPORTA TUS MÓDULOS DE SERVICIO (asegúrate de que las rutas sean correctas)
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
 const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
-const { obtenerCheque3Actualizado: obtenerCheque3Service, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion } = require('./modulesService/Cheques3');
+const { registroCheq3Sit: registro, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion } = require('./modulesService/Cheques3');
 const {
     getArticulos, getClases, getProveedores, getRubros, getTasasIVA,
     getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails
 } = require('./modulesService/Articulos');
-const logger = require('./logger'); // Asegúrate de que logger esté en electron/logger.js o ajusta la ruta.
+
+
+const { spawn } = require('child_process');
+// ...
+
+
+const isDev = process.env.NODE_ENV === 'development';
+function startNextServer() {
+    return new Promise((resolve, reject) => {
+        const port = 8000;
+        if (isDev) {
+            // ... lógica para desarrollo ...
+            resolve();
+        } else {
+            const nextServerPath = path.join(app.getAppPath(), '.next', 'standalone', 'server.js');
+            // ... lógica de spawn ...
+            nextProcess = spawn(process.execPath, [nextServerPath], {
+                env: { ...process.env, PORT: port, NODE_ENV: 'production' },
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            // ... manejo de stdout, stderr, on('close'), on('error') ...
+        }
+    });
+}
+// *** CAMBIO CRÍTICO AQUÍ ***
+// Para el build de producción, Next.js necesita apuntar a la carpeta 'standalone'
+const nextAppDir = isDev
+    ? path.join(__dirname, '..') // En desarrollo, la raíz del proyecto
+    : path.join(__dirname, '..', '.next', 'standalone'); // En producción, la carpeta standalone
+
+const appNext = next({ dev: isDev, dir: nextAppDir }); // Pasa el directorio correcto
+const handleNextRequests = appNext.getRequestHandler();
 
 let mainWindow;
+let nextAppReady = false;
+
+appNext.prepare().then(() => {
+    nextAppReady = true;
+    console.log('Next.js está listo.');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        loadNextApp();
+    }
+}).catch((err) => {
+    console.error('Error al preparar Next.js:', err);
+    // Ahora que el error es claro, si `next build` no funciona, esto lo atrapará.
+    app.quit();
+});
+
 
 function createMainWindow() {
-    // Define la ruta a tu icono para el modo desarrollo y para la barra de tareas
-    // Si iconodesktop.ico está en public/, la ruta relativa desde electron/main.js es '../public/iconodesktop.ico'
-    const iconPath = path.join(__dirname, '../public/iconodesktop.ico'); 
+    const iconPath = path.join(__dirname, '../public/iconodesktop.ico');
     const icon = nativeImage.createFromPath(iconPath);
 
     mainWindow = new BrowserWindow({
@@ -26,36 +70,75 @@ function createMainWindow() {
         height: 920,
         fullscreen: true,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'), // Asume que preload.js está en 'electron/'
+            preload: path.join(__dirname, 'preload.js'),
             contextIsolation: true,
             enableRemoteModule: false,
             nodeIntegration: false,
+            webSecurity: false // Temporalmente para depuración
         },
-        icon: icon 
+        icon: icon
     });
-
-    // *** CAMBIO CRÍTICO AQUÍ ***
-    // Si estás en modo de desarrollo, carga desde localhost:3000.
-    // Si estás en una versión empaquetada, carga desde los archivos estáticos de Next.js.
-    const startUrl = process.env.NODE_ENV === 'development'
-        ? 'http://localhost:3000/Login'
-        : url.format({
-            pathname: path.join(__dirname, '../../.next/out/Login/index.html'), // RUTA AJUSTADA
-            protocol: 'file:',
-            slashes: true
-        });
-
-    mainWindow.loadURL(startUrl);
-
     const template = [
-        // ... (Tu menú, sin cambios)
+        {
+            label: 'Menú',
+            submenu: [
+                {
+                    label: 'Toggle DevTools',
+                    accelerator: 'F12',
+                    click: () => {
+                        mainWindow.webContents.toggleDevTools();
+                    }
+                },
+                {
+                    label: 'Salir',
+                    role: 'quit',
+                    accelerator: 'Esc'
+                },
+                {
+                    label: 'Reload',
+                    accelerator: 'F5',
+                    click: () => {
+                        mainWindow.reload();
+                    }
+                }
+            ],
+        }
     ];
-
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
+
+    mainWindow.webContents.openDevTools(); // Mantener para depurar
+
+    if (nextAppReady) {
+        loadNextApp();
+    } else {
+        // Podrías cargar un 'loading.html' aquí si quieres una pantalla de carga
+        console.log('Next.js no está listo, esperando...');
+    }
 }
 
-app.whenReady().then(createMainWindow);
+function loadNextApp() {
+    const port = 8000; // O cualquier puerto libre
+    const targetUrl = isDev ? `http://localhost:3000/Login` : `http://localhost:${port}/Login`;
+    mainWindow.loadURL(targetUrl);
+    console.log(`Cargando URL: ${targetUrl}`);
+}
+
+app.whenReady().then(async () => {
+    try {
+        await startNextServer();
+        createMainWindow();
+    } catch (err) {
+        console.error('Error fatal al iniciar la aplicación:', err);
+        app.quit();
+    }
+});
+// ...
+app.on('before-quit', () => {
+    if (nextProcess) {
+        nextProcess.kill();
+    }
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -68,6 +151,10 @@ app.on('activate', () => {
         createMainWindow();
     }
 });
+
+    
+
+
 
 ipcMain.on('abrir-dev-tools', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -211,6 +298,9 @@ ipcMain.handle('cheque3-rechazado', async (event) => {
 })
 ipcMain.handle('cheque3-situacion', async (event) => {
     return await situacion();
+})
+ipcMain.handle('registro-cheque3-sit', async (event, { emp,suc,IDCheque, sit,sitAnt }) => {
+    return await registro(emp,suc,IDCheque, sit, sitAnt);
 })
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => {
     try {

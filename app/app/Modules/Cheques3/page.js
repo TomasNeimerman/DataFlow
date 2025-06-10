@@ -74,6 +74,8 @@ export default function Cheques3() {
                 emp: ch.ch3emp_Codigo,
                 nroDefinitivo: ch.ch3_NroCheq,
                 estado: ch.ch3_Edo,
+                situacion: ch.ch3sit_Cod,
+                suc: ch.ch3suc_Cod,
                 fvtoRaw: fvtoDate, // Objeto Date para ordenar
                 fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '', // Cadena formateada para mostrar
                 importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : '',
@@ -183,6 +185,9 @@ export default function Cheques3() {
             console.log(`[Frontend] Llamando a window.api.actualizarCheque3 con ID: ${cheque.idCheque}, SIT: ${cheque.situacionId}, cheque completo : ${JSON.stringify(cheque)}`);
             try {
               const response = await window.api.updateCheque3(cheque.idCheque, cheque.situacionId);
+              const valor =  chequesRechazados.filter(ch => String(ch.idCheque) === String(cheque.idCheque));
+              console.log(valor);
+               const res = await window.api.setRegistro(valor[0].emp, valor[0].suc, cheque.idCheque, cheque.situacionId, valor[0].situacion);
               return { idCheque: cheque.idCheque, success: response.success, message: response.message };
             } catch (error) {
               console.error(`[Frontend] Error al actualizar cheque ${cheque.idCheque}:`, error);
@@ -249,8 +254,6 @@ export default function Cheques3() {
     }
   };
 
-  console.log("Estado de cheques rechazados:", chequesRechazados);
-  console.log("Estado de situaciones:", situaciones);
   const isImportButtonDisabled = importStatus === 'loading' ||
     Object.values(selectedChequesData).every(data => !data.isSelected || data.situacionId == null || data.situacionId === '');
 
