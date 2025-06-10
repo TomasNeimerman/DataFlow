@@ -13,56 +13,12 @@ const {
     getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails
 } = require('./modulesService/Articulos');
 
-
-const { spawn } = require('child_process');
-// ...
-
-
-const isDev = process.env.NODE_ENV === 'development';
-function startNextServer() {
-    return new Promise((resolve, reject) => {
-        const port = 8000;
-        if (isDev) {
-            // ... lógica para desarrollo ...
-            resolve();
-        } else {
-            const nextServerPath = path.join(app.getAppPath(), '.next', 'standalone', 'server.js');
-            // ... lógica de spawn ...
-            nextProcess = spawn(process.execPath, [nextServerPath], {
-                env: { ...process.env, PORT: port, NODE_ENV: 'production' },
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-            // ... manejo de stdout, stderr, on('close'), on('error') ...
-        }
-    });
-}
-// *** CAMBIO CRÍTICO AQUÍ ***
-// Para el build de producción, Next.js necesita apuntar a la carpeta 'standalone'
-const nextAppDir = isDev
-    ? path.join(__dirname, '..') // En desarrollo, la raíz del proyecto
-    : path.join(__dirname, '..', '.next', 'standalone'); // En producción, la carpeta standalone
-
-const appNext = next({ dev: isDev, dir: nextAppDir }); // Pasa el directorio correcto
-const handleNextRequests = appNext.getRequestHandler();
-
 let mainWindow;
-let nextAppReady = false;
-
-appNext.prepare().then(() => {
-    nextAppReady = true;
-    console.log('Next.js está listo.');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        loadNextApp();
-    }
-}).catch((err) => {
-    console.error('Error al preparar Next.js:', err);
-    // Ahora que el error es claro, si `next build` no funciona, esto lo atrapará.
-    app.quit();
-});
-
 
 function createMainWindow() {
-    const iconPath = path.join(__dirname, '../public/iconodesktop.ico');
+    // Define la ruta a tu icono para el modo desarrollo y para la barra de tareas
+    // Si iconodesktop.ico está en public/, la ruta relativa desde electron/main.js es '../public/iconodesktop.ico'
+    const iconPath = path.join(__dirname, '../public/iconodesktop.ico'); 
     const icon = nativeImage.createFromPath(iconPath);
 
     mainWindow = new BrowserWindow({
@@ -70,14 +26,15 @@ function createMainWindow() {
         height: 920,
         fullscreen: true,
         webPreferences: {
-            preload: path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.js'), // Asume que preload.js está en 'electron/'
             contextIsolation: true,
             enableRemoteModule: false,
             nodeIntegration: false,
-            webSecurity: false // Temporalmente para depuración
         },
-        icon: icon
+        icon: icon 
     });
+    mainWindow.loadURL('http://localhost:3000/Login')
+
     const template = [
         {
             label: 'Menú',
@@ -104,41 +61,12 @@ function createMainWindow() {
             ],
         }
     ];
+
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
-
-    mainWindow.webContents.openDevTools(); // Mantener para depurar
-
-    if (nextAppReady) {
-        loadNextApp();
-    } else {
-        // Podrías cargar un 'loading.html' aquí si quieres una pantalla de carga
-        console.log('Next.js no está listo, esperando...');
-    }
 }
 
-function loadNextApp() {
-    const port = 8000; // O cualquier puerto libre
-    const targetUrl = isDev ? `http://localhost:3000/Login` : `http://localhost:${port}/Login`;
-    mainWindow.loadURL(targetUrl);
-    console.log(`Cargando URL: ${targetUrl}`);
-}
-
-app.whenReady().then(async () => {
-    try {
-        await startNextServer();
-        createMainWindow();
-    } catch (err) {
-        console.error('Error fatal al iniciar la aplicación:', err);
-        app.quit();
-    }
-});
-// ...
-app.on('before-quit', () => {
-    if (nextProcess) {
-        nextProcess.kill();
-    }
-});
+app.whenReady().then(createMainWindow);
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
@@ -151,10 +79,6 @@ app.on('activate', () => {
         createMainWindow();
     }
 });
-
-    
-
-
 
 ipcMain.on('abrir-dev-tools', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
