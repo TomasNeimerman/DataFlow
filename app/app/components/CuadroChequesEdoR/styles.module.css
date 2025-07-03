@@ -130,3 +130,9 @@
   background-color: #d42602;
   border-color: white;
 }
+
+
+/* Nueva clase para aplicar negrita al texto */
+.boldText {
+  font-weight: bold;
+}

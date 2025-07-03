@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 function getAdminDbConfig() {
-    const configPath = path.join(__dirname, '../fileConfigUpdater/userDbConfig.properties');
+    const configPath = path.join(__dirname, './fileConfigUpdater/userDbConfig.properties');
     const configFile = fs.readFileSync(configPath, 'utf-8');
 
     const config = {};

@@ -14,6 +14,7 @@ export default function Cheques3() {
   const [importStatus, setImportStatus] = useState(null);
   const [importMessage, setImportMessage] = useState('');
 
+
   useEffect(() => {
     const storedIdCliente = localStorage.getItem("idCliente");
     setIdCliente(storedIdCliente);
@@ -41,33 +42,29 @@ export default function Cheques3() {
 
         if (window.api && window.api.obtenerCheque3Rechazado) {
           const chequesResponse = await window.api.obtenerCheque3Rechazado(idCliente);
+          console.log(`[Frontend] Respuesta de obtenerCheque3Rechazado:`, chequesResponse);
           if (chequesResponse.success) {
             const chequesData = chequesResponse.cheque.map(ch => {
-              console.log(`[Frontend] Raw ch3_ID for cheque: ${ch.ch3_ID} (Type: ${typeof ch.ch3_ID})`);
               const idChequeString = String(ch.ch3_ID);
-
-              // --- CAMBIO CLAVE AQUÍ: Lógica de parseo de fecha más robusta ---
               let fvtoDate = null;
+
               if (ch.ch3_FVto) {
-                // Intentar parsear como ISO 8601 (si viene así de la DB) o como fecha de cadena simple
-                const parsed = new Date(ch.ch3_FVto);
-                if (!isNaN(parsed.getTime())) { // Verificar si la fecha es válida
-                  fvtoDate = parsed;
+                let parsedDate = new Date(ch.ch3_FVto);
+                if (!isNaN(parsedDate.getTime())) {
+                  fvtoDate = parsedDate;
                 } else {
-                  // Si falla el parseo directo, intentar un formato 'DD/MM/YYYY'
                   const parts = String(ch.ch3_FVto).split('/');
                   if (parts.length === 3) {
                     const day = parseInt(parts[0], 10);
-                    const month = parseInt(parts[1], 10) - 1; // Meses son 0-indexados
+                    const month = parseInt(parts[1], 10) - 1;
                     const year = parseInt(parts[2], 10);
-                    const customDate = new Date(year, month, day);
+                    const customDate = new Date(year, month, day); 
                     if (!isNaN(customDate.getTime())) {
                       fvtoDate = customDate;
                     }
                   }
                 }
               }
-              // --- FIN CAMBIO CLAVE ---
 
               return {
                 idCheque: idChequeString,
@@ -76,8 +73,9 @@ export default function Cheques3() {
                 estado: ch.ch3_Edo,
                 situacion: ch.ch3sit_Cod,
                 suc: ch.ch3suc_Cod,
-                fvtoRaw: fvtoDate, // Objeto Date para ordenar
-                fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '', // Cadena formateada para mostrar
+                fvtoRaw: fvtoDate,
+                fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '',
+                fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString('es-AR') : '',
                 importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : '',
               };
             });
@@ -185,9 +183,10 @@ export default function Cheques3() {
             console.log(`[Frontend] Llamando a window.api.actualizarCheque3 con ID: ${cheque.idCheque}, SIT: ${cheque.situacionId}, cheque completo : ${JSON.stringify(cheque)}`);
             try {
               const response = await window.api.updateCheque3(cheque.idCheque, cheque.situacionId);
-              const valor =  chequesRechazados.filter(ch => String(ch.idCheque) === String(cheque.idCheque));
+              const valor =  chequesRechazados.filter(ch => String(ch.idCheque) === String(cheque.idCheque));
               console.log(valor);
-               const res = await window.api.setRegistro(valor[0].emp, valor[0].suc, cheque.idCheque, cheque.situacionId, valor[0].situacion);
+              const res = await window.api.setRegistro(valor[0].emp, valor[0].suc, cheque.idCheque, cheque.situacionId, valor[0].situacion);
+              console.log(`[Frontend] Respuesta de updateCheque3:`, response);
               return { idCheque: cheque.idCheque, success: response.success, message: response.message };
             } catch (error) {
               console.error(`[Frontend] Error al actualizar cheque ${cheque.idCheque}:`, error);
@@ -229,7 +228,7 @@ export default function Cheques3() {
           setImportStatus('success');
           setImportMessage('Simulación: Cheques actualizados correctamente.');
           console.log("Cheques que se intentarían actualizar (simulado):", chequesParaActualizar);
-          setChequesRechazados(prevCheques => prevCheques.filter(ch => !chequesParaActualizar.some(updatedCh => String(updatedCh.idCheque) === String(ch.idCheque))));
+          setChequesRechazados(prevCheques => prevCheques.filter(ch => !chequesParaActualizar.some(updatedCh => String(updatedCh.idCheque) === String(ch.idCheque)))); // Corregido: updatedH a updatedCheque
           setSelectedChequesData(prevData => {
             const newData = { ...prevData };
             chequesParaActualizar.forEach(updatedCh => {
@@ -253,6 +252,8 @@ export default function Cheques3() {
       }, 3000);
     }
   };
+
+
 
   const isImportButtonDisabled = importStatus === 'loading' ||
     Object.values(selectedChequesData).every(data => !data.isSelected || data.situacionId == null || data.situacionId === '');

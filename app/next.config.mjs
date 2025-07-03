@@ -1,12 +1,9 @@
-// next.config.mjs
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',
-  serverExternalPackages: [
-    'electron',
-    'express',
-  ],
+  output: "standalone",
+  images:{
+    unoptimized: true,
+  }
 };
 
 export default nextConfig;

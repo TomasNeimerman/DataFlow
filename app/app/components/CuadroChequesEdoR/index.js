@@ -1,66 +1,74 @@
 // app/components/CuadroChequesEdoR.js
-// Renamed from ChequesEdoR to be more descriptive of its role in this new flow
-import React, { useState, useEffect } from "react"; // Import useEffect
-import styles from './styles.module.css'; // Asegúrate de que esta ruta sea correcta
+"use client"
+import React, { useState, useEffect, use } from "react";
+import styles from './styles.module.css';
 
-// Componente ChequesRechazados ahora es puramente visual y recibe props para los datos y acciones.
 const ChequesRechazados = ({
   chequesRechazados,
-  situaciones, // This will now be the raw array of { sit_Cod, sit_Desc } objects
-  onChequeToggle, // Callback cuando se activa/desactiva un checklist
-  onSituacionChange, // Callback cuando cambia la situación de un cheque
-  selectedChequesData, // Objeto con el estado de selección y situación de cada cheque
-  onImportarClick, // Callback para el botón importar
-  isImportButtonDisabled, // Prop para deshabilitar el botón importar
-  importStatus, // Estado de la importación (success, error, loading, info)
-  importMessage // Mensaje de la importación
+  situaciones,
+  onChequeToggle,
+  onSituacionChange,
+  selectedChequesData,
+  onImportarClick,
+  isImportButtonDisabled,
+  importStatus,
+  importMessage
 }) => {
-  const [mostrarCuadro, setMostrarCuadro] = useState(true); // Default a true
-  const [sortColumn, setSortColumn] = useState(null); // Estado para la columna de ordenamiento
-  const [sortDirection, setSortDirection] = useState('asc'); // Estado para la dirección de ordenamiento ('asc' o 'desc')
-  const [sortedCheques, setSortedCheques] = useState([]); // Estado para los cheques ordenados
+  const [mostrarCuadro, setMostrarCuadro] = useState(true);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [sortedCheques, setSortedCheques] = useState([]);
+  const [updatedFechasById, setUpdatedFechasById] = useState({});
+  // const [isLoadingUpdatedDates, setIsLoadingUpdatedDates] = useState(true); // Uncomment if you want to use a loading state
 
-  // useEffect para aplicar el ordenamiento cada vez que cambian los cheques o los parámetros de ordenamiento
+  useEffect(() => {
+    const fetchUpdatedDates = async () => {
+      // setIsLoadingUpdatedDates(true); // Uncomment if you want to use a loading state
+      try {
+        const data = await window.api.getUpdatedFecha()
+        console.log("Fechas de actualización obtenidas:", data);
+
+        // Assuming data.data is the object like { idCheque1: { UltimaFechaCambio: '...', c3s_FCmbio: '...' }, ...}
+        setUpdatedFechasById(data.data);
+      } catch (error) {
+        console.error("Error al obtener las fechas de actualización:", error);
+        setUpdatedFechasById({}); // Ensure it's an empty object on error
+      } finally {
+        // setIsLoadingUpdatedDates(false); // Uncomment if you want to use a loading state
+      }
+    };
+
+    fetchUpdatedDates();
+  }, []); // Dependencias vacías para que se ejecute solo una vez al montar
+
   useEffect(() => {
     if (!chequesRechazados || chequesRechazados.length === 0) {
       setSortedCheques([]);
       return;
     }
 
-    const sortableCheques = [...chequesRechazados]; // Crear una copia para no mutar el prop
+    const sortableCheques = [...chequesRechazados];
 
     if (sortColumn) {
       sortableCheques.sort((a, b) => {
         let valA = a[sortColumn];
         let valB = b[sortColumn];
 
-        // Manejo específico para cada tipo de columna
         if (sortColumn === 'fvto') {
-          // Para fechas, usar fvtoRaw que es un objeto Date
-      // Convertir a timestamp para comparar, si es inválido, usar 0 (o Number.MIN_VALUE/MAX_VALUE si prefieres)
           valA = a.fvtoRaw instanceof Date && !isNaN(a.fvtoRaw) ? a.fvtoRaw.getTime() : 0;
           valB = b.fvtoRaw instanceof Date && !isNaN(b.fvtoRaw) ? b.fvtoRaw.getTime() : 0;
-          
-          // --- DEBUGGING: Log para fechas ---
-          console.log(`[Sort fvto] Cheque A fvtoRaw:`, a.fvtoRaw, `Timestamp A:`, valA);
-          console.log(`[Sort fvto] Cheque B fvtoRaw:`, b.fvtoRaw, `Timestamp B:`, valB);
-          // --- FIN DEBUGGING ---
         } else if (sortColumn === 'importe') {
-          // Para importes, parsear a número flotante.
-          // Eliminar caracteres no numéricos excepto coma/punto y luego reemplazar coma por punto para parseFloat.
           valA = parseFloat(String(valA).replace(/[^0-9,-]+/g, "").replace(",", "."));
           valB = parseFloat(String(valB).replace(/[^0-9,-]+/g, "").replace(",", "."));
-          if (isNaN(valA)) valA = 0; // Manejar NaN (valores no numéricos)
+          if (isNaN(valA)) valA = 0;
           if (isNaN(valB)) valB = 0;
         } else if (sortColumn === 'idCheque' || sortColumn === 'nroDefinitivo') {
-          // Para ID y Nro Definitivo, asegurar que sean números para comparar
           valA = parseInt(valA, 10);
           valB = parseInt(valB, 10);
           if (isNaN(valA)) valA = 0;
           if (isNaN(valB)) valB = 0;
         }
 
-        // Lógica de comparación
         if (valA < valB) {
           return sortDirection === 'asc' ? -1 : 1;
         }
@@ -73,19 +81,15 @@ const ChequesRechazados = ({
     setSortedCheques(sortableCheques);
   }, [chequesRechazados, sortColumn, sortDirection]);
 
-  // Función para manejar el clic en el encabezado de la columna
   const handleSort = (columnName) => {
     if (sortColumn === columnName) {
-      // Si se hace clic en la misma columna, invertir la dirección
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      // Si se hace clic en una nueva columna, establecer esa columna y dirección ascendente
       setSortColumn(columnName);
       setSortDirection('asc');
     }
   };
 
-  // Función para renderizar el indicador de ordenamiento
   const renderSortArrow = (columnName) => {
     return (
       <span style={{ marginLeft: '5px' }}>
@@ -99,6 +103,17 @@ const ChequesRechazados = ({
     setMostrarCuadro(!mostrarCuadro);
   };
 
+  // Uncomment this block if you want to use a loading state
+  /*
+  if (isLoadingUpdatedDates) {
+    return (
+      <div className={styles.container}>
+        <h2 className={styles.title}>Cargando información de cheques...</h2>
+      </div>
+    );
+  }
+  */
+
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
@@ -106,80 +121,93 @@ const ChequesRechazados = ({
       </div>
       <>
         <div className={styles.tableContainer}>
-        
-        <table className={styles.table}>
-          <thead>
-            <tr className={styles.headerRow}>
-              <th>Empresa</th>
-              {/* Encabezados de columna ordenables */}
-              <th onClick={() => handleSort('idCheque')} className={styles.sortableHeader}>
-                ID Cheque {renderSortArrow('idCheque')}
-              </th>
-              <th onClick={() => handleSort('nroDefinitivo')} className={styles.sortableHeader}>
-                Número {renderSortArrow('nroDefinitivo')}
-              </th>
-              <th onClick={() => handleSort('fvto')} className={styles.sortableHeader}>
-                Fecha Vencimiento {renderSortArrow('fvto')}
-              </th>
-              <th onClick={() => handleSort('importe')} className={styles.sortableHeader}>
-                Importe {renderSortArrow('importe')}
-              </th>
-              <th>Estado</th>
-              <th>Situación</th>
-              <th>Actualizar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedCheques.length === 0 ? (
-              <tr>
-                <td colSpan="8" className={styles.noResults}>No hay cheques para actualizar.</td> {/* Colspan ajustado */}
+          <table className={styles.table}>
+            <thead>
+              <tr className={styles.headerRow}>
+                <th>Empresa</th>
+                <th onClick={() => handleSort('idCheque')} className={styles.sortableHeader}>
+                  ID Cheque {renderSortArrow('idCheque')}
+                </th>
+                <th onClick={() => handleSort('nroDefinitivo')} className={styles.sortableHeader}>
+                  Número {renderSortArrow('nroDefinitivo')}
+                </th>
+                <th onClick={() => handleSort('fvto')} className={styles.sortableHeader}>
+                  Fecha Vencimiento {renderSortArrow('fvto')}
+                </th>
+                <th onClick={() => handleSort('importe')} className={styles.sortableHeader}>
+                  Importe {renderSortArrow('importe')}
+                </th>
+                <th>Estado</th>
+                <th>Fecha modificacion</th>
+                <th>Situación</th>
+                <th>Actualizar</th>
               </tr>
-            ) : (
-              sortedCheques.map(cheque => { // Usar sortedCheques aquí
-                const isSelected = selectedChequesData[cheque.idCheque]?.isSelected || false;
-                const situacionId = selectedChequesData[cheque.idCheque]?.situacionId || '';
+            </thead>
+            <tbody>
+              {sortedCheques.length === 0 ? (
+                <tr>
+                  <td colSpan="9" className={styles.noResults}>No hay cheques para actualizar.</td>
+                </tr>
+              ) : (
+                sortedCheques.map(cheque => {
+                  const isSelected = selectedChequesData[cheque.idCheque]?.isSelected || false;
+                  const situacionId = selectedChequesData[cheque.idCheque]?.situacionId || '';
 
-                return (
-                  <tr key={cheque.idCheque}>
-                    <td>{cheque.emp}</td>
-                    <td>{cheque.idCheque}</td>
-                    <td>{cheque.nroDefinitivo}</td>
-                    <td>{cheque.fvto}</td>
-                    <td>{cheque.importe}</td>
-                    <td>{cheque.estado}</td>
-                    <td className={styles.situacionCell}>
-                      {isSelected && (
-                        <select
-                          value={situacionId}
-                          onChange={(e) => onSituacionChange(cheque.idCheque, e.target.value)}
-                          className={styles.select}
-                        >
-                          <option value="">Seleccionar...</option>
-                          {situaciones.map(situacion => (
-                            <option key={situacion.sit_Cod} value={situacion.sit_Cod}>
-                              {situacion.sit_Desc}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-                    <td className={styles.actionCell}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => onChequeToggle(cheque.idCheque)}
-                      />
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                  // MODIFICACIÓN: Using optional chaining to safely access properties
+                  console.log(updatedFechasById);
+                  const id = parseInt(cheque.idCheque)
+                  // Find the specific update item for the current cheque
+                  const fechaActualizacion = updatedFechasById?.find(item => item.c3sch3_ID === id)?.c3s_FCmbio;
+                  console.log("Fecha de actualización:", fechaActualizacion, "id cheque", id);
+                  // Usamos tu clase tractualizado para la fila completa
+                  const isUpdated = !!fechaActualizacion;
+
+                  return (
+                    <tr key={cheque.idCheque} >
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.emp}</td>
+                      {/* Aplicar la clase boldText para el texto en negrita */}
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.idCheque}</td>
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.nroDefinitivo}</td>
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.fvto}</td>
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.importe}</td>
+                      <td className={isUpdated ? styles.boldText : ''}>{cheque.estado}</td>
+                      <td className={isUpdated ? styles.boldText : ''}>
+                        {fechaActualizacion ?
+                          new Date(fechaActualizacion).toLocaleDateString('es-AR') + ' ' +
+                          new Date(fechaActualizacion).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit'})
+                          : 'Sin actualizar'}
+                      </td>
+                      <td className={styles.situacionCell}>
+                        {isSelected && (
+                          <select
+                            value={situacionId}
+                            onChange={(e) => onSituacionChange(cheque.idCheque, e.target.value)}
+                            className={styles.select}
+                          >
+                            <option value="">Seleccionar...</option>
+                            {situaciones.map(situacion => (
+                              <option key={situacion.sit_Cod} value={situacion.sit_Cod}>
+                                {situacion.sit_Desc}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                      <td className={styles.actionCell}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => onChequeToggle(cheque.idCheque)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
-        {/* Import Button moved here, but its logic remains in the parent */}
         <div className={styles.importButtonContainer}>
-          {/* Mostrar el mensaje de importación aquí */}
           {importStatus && (
             <p className={`${styles.statusMessage} ${styles[importStatus]}`}>
               {importMessage}
@@ -194,7 +222,6 @@ const ChequesRechazados = ({
           </button>
         </div>
       </>
-
     </div>
   );
 };

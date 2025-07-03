@@ -2,6 +2,8 @@
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../userDbConfig.js');
 
+const fecha = new Date().toISOString().replace('T', ' ').replace('Z', '');
+
 async function obtenerCheque3Rechazado(id) {
   let pool;
   try {
@@ -9,7 +11,9 @@ async function obtenerCheque3Rechazado(id) {
     pool = await sql.connect(dbConfig);
     const result = await pool.request()
       .input('id', sql.Int, id)
-      .query(`SELECT ch3emp_Codigo, ch3_ID, ch3_NroCheq, ch3_Edo, ch3_FVto, ch3_Importe, ch3suc_Cod,ch3sit_Cod FROM Cheques3 WHERE ch3_Edo = 'R'`); // Consulta a la tabla Cheques3
+      .query(`SELECT ch3emp_Codigo, ch3_ID, ch3_NroCheq, ch3_Edo, ch3_FVto, ch3_Importe, ch3suc_Cod,ch3sit_Cod,
+        (SELECT c3s_FCmbio FROM Cheq3Sit WHERE c3sch3_ID = @id) AS ch3_FCmbio
+        FROM Cheques3 WHERE ch3_Edo = 'R'`); // Consulta a la tabla Cheques3
     return {
       success: true,
       cheque: result.recordset || null,
@@ -34,15 +38,16 @@ async function actualizarCheque3(IDCheque, sit) {
         throw new Error(`ID de Cheque inválido: '${IDCheque}'. Debe ser un número válido.`);
     }
     const sanitizedSit = (sit === undefined || sit === null) ? '' : String(sit);
-
-
+   
     const request = new sql.Request(pool);
     request.input('idCheque', sql.Int, parsedIDCheque);
     request.input('sit', sql.NVarChar, sanitizedSit);
-
+    request.input('fecha', sql.DateTime, fecha);
+    console.log("fecha", fecha)
     await request.query(`
         UPDATE Cheques3 SET
-          ch3sit_Cod = @sit
+          ch3sit_Cod = @sit,
+          ch3_FecMod = @fecha
         WHERE ch3_ID = @idCheque
     `);
 
@@ -79,7 +84,7 @@ async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
   let pool;
   try{
     if (suc === undefined) { suc = ' '; }
-    const fecha = new Date().toISOString().slice(0, 19); // Formato YYYY-MM-DD
+     // Formato YYYY-MM-DD
     console.log('Verificando si la situacion del cheque ya existe:', sitAnt, "con", sit);
     if (sitAnt != sit ) {
       const dbConfig = getAdminDbConfig();
@@ -88,7 +93,7 @@ async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
         .input('emp', sql.NVarChar, emp)
         .input('suc', sql.NVarChar, suc)
         .input('IDCheque', sql.Int, IDCheque)
-        .input('fecha', sql.NVarChar, fecha)
+        .input('fecha', sql.DateTime, fecha)
         .input('sit', sql.NVarChar, sit)
         .input('sitAnt', sql.NVarChar, sitAnt)
         .input('pCG', sql.NVarChar, 'C')
@@ -105,5 +110,23 @@ async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
     if (pool) await pool.close();
   }
 }
+async function getUpdatedbyRegistro(){
+  let pool;
+  try{
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
+    const result = await pool.request()
+      .query(`SELECT c3sch3_ID, MAX(c3s_FCmbio) AS c3s_FCmbio
+              FROM Cheq3Sit
+              GROUP BY c3sch3_ID;`); // Consulta a la tabla Cheq3Sit
+    return {success: true, data: result.recordset || []};
+  }catch(err){
+    console.error('❌ Error en getUpdatedbyRegister (Cheques3):', err);
+    return { success: false, message: err.message };
+  }finally {
+    if (pool) await pool.close();
+  }
+}
 
-module.exports = { actualizarCheque3, obtenerCheque3Rechazado, getSituacion, registroCheq3Sit };
+
+module.exports = { actualizarCheque3, obtenerCheque3Rechazado, getSituacion, registroCheq3Sit, getUpdatedbyRegistro };

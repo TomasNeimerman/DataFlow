@@ -15,8 +15,9 @@ export default function LoginPage() {
   const handleLogin = async () => {
     try {
       const response = await window.api.login(usuario, contraseña);
-
+      console.log('Respuesta del login:', response);
       if (response.success) {
+        localStorage.setItem('fechaInicio', new Date().toISOString());
         localStorage.setItem('jwtToken', response.token);
         router.push('/Index'); // ✅ Redirige a la ruta interna
       } else {
