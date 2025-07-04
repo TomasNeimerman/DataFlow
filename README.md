@@ -10,3 +10,4 @@
 # Para poder hacer el npm run dist
 - Cambiar en la carpeta electron el main a typescript (main.ts)
 - Cambiarlo tambien en el package.json en la parte "main"
+- Una vez hecho todo hacer el npm run dist
