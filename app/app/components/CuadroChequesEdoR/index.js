@@ -154,7 +154,6 @@ const ChequesRechazados = ({
                   const situacionId = selectedChequesData[cheque.idCheque]?.situacionId || '';
 
                   // MODIFICACIÓN: Using optional chaining to safely access properties
-                  console.log(updatedFechasById);
                   const id = parseInt(cheque.idCheque)
                   // Find the specific update item for the current cheque
                   const fechaActualizacion = updatedFechasById?.find(item => item.c3sch3_ID === id)?.c3s_FCmbio;

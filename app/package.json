@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "author": "Bejerman",
-  "main": "electron/main.ts",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -34,11 +34,16 @@
     "electron-packager": "^17.1.2",
     "npm-run-all": "^4.1.5"
   },
-  "build": {
+ "build": {
     "appId": "com.bejermanErp.updater",
     "productName": "BejermanErpUpdater",
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        }
+      ],
       "icon": "public/iconodesktop.ico"
     },
     "asar": true,
@@ -59,6 +64,17 @@
       "next.config.mjs",
       "jsconfig.json",
       "package-lock.json"
-    ]
+    ],
+    "nsis": {
+      "include": "electron/build/installer.nsh",
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true,
+      "runAfterFinish": true,
+      "installerIcon": "public/iconodesktop.ico",
+      "uninstallerIcon": "public/iconodesktop.ico",
+      "license": "public/license.txt"
+    }
   }
 }
