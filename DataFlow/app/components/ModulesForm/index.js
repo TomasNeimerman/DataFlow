@@ -12,9 +12,14 @@ const ModuleForm = ({ nombreModulo, onImportar, estadoImportar, mensajeImportaci
   const [isFileLoaded, setIsFileLoaded] = useState(false);
   const [template, setTemplate] = useState("");
 
-  useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
+   useEffect(() => {
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
   }, []);
 
   useEffect(() => {

@@ -15,10 +15,15 @@ export default function Cheques3() {
 
 
   useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
+    // <-- MODIFICADO
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
   }, []);
-
   useEffect(() => {
     const fetchData = async () => {
       if (!idCliente) return;
@@ -79,7 +84,7 @@ export default function Cheques3() {
               };
             });
             setChequesRechazados(chequesData);
-
+            console.log("Cheques rechazados obtenidos:", chequesData);
             const initialSelectedChequesData = {};
             chequesData.forEach(cheque => {
               initialSelectedChequesData[cheque.idCheque] = {

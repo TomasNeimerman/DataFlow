@@ -1,4 +1,4 @@
-// electron/main.ts
+//electron/main.js
 const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('electron');
 const { createServer } = require('http');
 const next = require('next');
@@ -9,45 +9,47 @@ const path = require('path');
 
 app.disableHardwareAcceleration();
 
+// <-- MODIFICACIÓN: Inicializar el store para persistencia de datos
+let store
+
 const userDataPath = app.getPath('userData');
 const logFilePath = path.join(userDataPath, 'app_error.log');
 
 function writeToLog(message) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  try {
-    fs.appendFileSync(logFilePath, logMessage);
-  } catch (logError) {
-    console.error(`Error al escribir en el archivo de log: ${logError.message}`);
-  }
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${message}\n`;
+    try {
+        fs.appendFileSync(logFilePath, logMessage);
+    } catch (logError) {
+        console.error(`Error al escribir en el archivo de log: ${logError.message}`);
+    }
 }
 
 // Capturar excepciones no controladas en el proceso principal
 process.on('uncaughtException', (error) => {
-  const errorMessage = `Uncaught Exception in Main Process: ${error.message}\n${error.stack}`;
-  writeToLog(errorMessage);
-  console.error(errorMessage);
-  app.quit(); // Cierra la aplicación después de registrar el error
+    const errorMessage = `Uncaught Exception in Main Process: ${error.message}\n${error.stack}`;
+    writeToLog(errorMessage);
+    console.error(errorMessage);
+    app.quit(); // Cierra la aplicación después de registrar el error
 });
 
 // Capturar promesas rechazadas no controladas
 process.on('unhandledRejection', (reason, promise) => {
-  const errorMessage = `Unhandled Rejection in Main Process: ${reason}\nPromise: ${promise}`;
-  writeToLog(errorMessage);
-  console.error(errorMessage);
-  // No se llama a app.quit() aquí automáticamente, ya que podría ser un error recuperable,
-  // pero se registra para diagnóstico.
+    const errorMessage = `Unhandled Rejection in Main Process: ${reason}\nPromise: ${promise}`;
+    writeToLog(errorMessage);
+    console.error(errorMessage);
 });
 
 // --- Servicios personalizados ---
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
+const { getDatosEmpresaById: getDatosEmpresaById, obtenerListadoEmpresas: obtenerListadoEmpresas, guardarDatosEmpresaConfig: guardarDatosEmpresaConfig } = require('./modulesService/Empresa');
 const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
 const { registroCheq3Sit: registro, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion, getUpdatedbyRegistro: getupdreg } = require('./modulesService/Cheques3');
 const {
-  getArticulos, getClases, getProveedores, getRubros, getTasasIVA,
-  getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails
+    getArticulos, getClases, getProveedores, getRubros, getTasasIVA,
+    getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails
 } = require('./modulesService/Articulos');
-const { obtenerPrecios: obtenerPreciosService } = require('./modulesService/Precios');
+const { obtenerPrecios: obtenerPreciosService, actualizarListaDePrecios: actualizarPreciosService, obtenerPreciosActualizados:obtenerPreciosActualizadosService } = require('./modulesService/Precios');
 
 const isDev = !app.isPackaged;
 let currentPort = 3000; // Puerto inicial
@@ -59,220 +61,217 @@ const handle = nextApp.getRequestHandler();
 let mainWindow;
 
 async function createMainWindow() {
+      const { default: Store } = await import('electron-store');
+    store = new Store();  
   writeToLog('Iniciando createMainWindow...');
 
-  try {
-    writeToLog('Preparando la aplicación Next.js...');
-    await nextApp.prepare();
-    writeToLog('Aplicación Next.js preparada.');
-  } catch (error) {
-    const errorMessage = `Error al preparar Next.js: ${error.message}\n${error.stack}`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    app.quit();
-    return;
-  }
-
-  let server;
-  let portFound = false;
-
-  // Bucle para intentar encontrar un puerto disponible
-  for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
     try {
-      server = createServer((req, res) => {
-        handle(req, res);
-      });
-
-      // Usamos una Promesa para manejar el evento 'listen' y 'error' del servidor
-      await new Promise((resolve, reject) => {
-        server.listen(currentPort, () => {
-          writeToLog(`Servidor Next.js listo en http://localhost:${currentPort}`);
-          console.log(`> Ready on http://localhost:${currentPort}`);
-          portFound = true;
-          resolve();
-        });
-
-        server.once('error', (err) => {
-          if (err.code === 'EADDRINUSE') {
-            writeToLog(`Puerto ${currentPort} en uso, intentando el siguiente...`);
-            currentPort++; // Incrementa el puerto para el siguiente intento
-            server.close(); // Cierra la instancia del servidor que falló
-            reject(err); // Rechaza la promesa para ir al bloque catch y reintentar
-          } else {
-            // Otros tipos de errores son críticos y deben ser manejados
-            reject(err);
-          }
-        });
-      });
-
-      if (portFound) break; // Si se encontró un puerto, salimos del bucle
+        writeToLog('Preparando la aplicación Next.js...');
+        await nextApp.prepare();
+        writeToLog('Aplicación Next.js preparada.');
     } catch (error) {
-      // Si el error no es EADDRINUSE o si hemos agotado los intentos, es un error crítico
-      if (error.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) {
-        const errorMessage = `Error crítico al iniciar el servidor Next.js: ${error.message}\n${error.stack}`;
+        const errorMessage = `Error al preparar Next.js: ${error.message}\n${error.stack}`;
         writeToLog(errorMessage);
         console.error(errorMessage);
         app.quit();
         return;
-      }
-      // Si el error es EADDRINUSE, el bucle continuará al siguiente intento
     }
-  }
 
-  // Si después de todos los intentos no se encontró un puerto
-  if (!portFound) {
-    const errorMessage = `No se pudo encontrar un puerto disponible después de ${MAX_PORT_ATTEMPTS} intentos.`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    app.quit();
-    return;
-  }
+    let server;
+    let portFound = false;
 
-  // Manejar errores del servidor HTTP (para el servidor que finalmente se inició)
-  server.on('error', (error) => {
-    const errorMessage = `Error en el servidor HTTP de Next.js (después de iniciar): ${error.message}\n${error.stack}`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    app.quit();
-  });
+    for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
+        try {
+            server = createServer((req, res) => {
+                handle(req, res);
+            });
 
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 920,
-    icon: path.join(__dirname, '../public/iconodesktop.ico'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false, // Asegúrate de que nodeIntegration esté deshabilitado si usas contextIsolation
-      
-    },
-  });
+            await new Promise((resolve, reject) => {
+                server.listen(currentPort, () => {
+                    writeToLog(`Servidor Next.js listo en http://localhost:${currentPort}`);
+                    console.log(`> Ready on http://localhost:${currentPort}`);
+                    portFound = true;
+                    resolve();
+                });
 
-  // Capturar errores de carga de la página web
-  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    const errorMessage = `Fallo al cargar URL en la ventana principal: ${validatedURL}, Código: ${errorCode}, Descripción: ${errorDescription}, MainFrame: ${isMainFrame}`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    // Puedes optar por mostrar un mensaje de error al usuario o cerrar la app
-    // if (!isDev) app.quit();
-  });
+                server.once('error', (err) => {
+                    if (err.code === 'EADDRINUSE') {
+                        writeToLog(`Puerto ${currentPort} en uso, intentando el siguiente...`);
+                        currentPort++;
+                        server.close();
+                        reject(err);
+                    } else {
+                        reject(err);
+                    }
+                });
+            });
 
-  mainWindow.webContents.on('render-process-gone', (event, details) => {
-    const errorMessage = `Proceso de renderizado desaparecido. Razón: ${details.reason}, Exit Code: ${details.exitCode}`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    // Esto es un indicio fuerte de que algo falló en el proceso de renderizado
-    // (ej. falta de memoria, crash de GPU, etc.)
-  });
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    writeToLog('La página web ha terminado de cargar.');
-  });
-
-  writeToLog(`Cargando URL: http://localhost:${currentPort}/Login`);
-  mainWindow.loadURL(`http://localhost:${currentPort}/Login`); // Usa el puerto que se encontró
-
-  // Configuración del menú de la aplicación
-  const template = [
-    {
-      label: 'Menú',
-      submenu: [
-        {
-          label: 'Toggle DevTools',
-          accelerator: 'F12',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.toggleDevTools();
-              writeToLog('DevTools toggled.');
+            if (portFound) break;
+        } catch (error) {
+            if (error.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) {
+                const errorMessage = `Error crítico al iniciar el servidor Next.js: ${error.message}\n${error.stack}`;
+                writeToLog(errorMessage);
+                console.error(errorMessage);
+                app.quit();
+                return;
             }
-          }
-        },
-        {
-          label: 'Salir',
-          role: 'quit',
-          accelerator: 'Esc'
-        },
-        
-        {
-          label: 'Reload',
-          accelerator: 'F5',
-          click: () => {
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.reload();
-              writeToLog('Window reloaded.');
-            }
-          }
         }
-      ],
     }
-  ];
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+    if (!portFound) {
+        const errorMessage = `No se pudo encontrar un puerto disponible después de ${MAX_PORT_ATTEMPTS} intentos.`;
+        writeToLog(errorMessage);
+        console.error(errorMessage);
+        app.quit();
+        return;
+    }
 
-  // Abrir DevTools automáticamente en desarrollo para depuración
-  if (isDev) {
-    writeToLog('DevTools abiertos automáticamente en modo desarrollo.');
-  }
+    server.on('error', (error) => {
+        const errorMessage = `Error en el servidor HTTP de Next.js (después de iniciar): ${error.message}\n${error.stack}`;
+        writeToLog(errorMessage);
+        console.error(errorMessage);
+        app.quit();
+    });
+
+    mainWindow = new BrowserWindow({
+        width: 1280,
+        height: 920,
+        icon: path.join(__dirname, '../public/iconodesktop.ico'),
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+        },
+    });
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        const errorMessage = `Fallo al cargar URL en la ventana principal: ${validatedURL}, Código: ${errorCode}, Descripción: ${errorDescription}, MainFrame: ${isMainFrame}`;
+        writeToLog(errorMessage);
+        console.error(errorMessage);
+    });
+
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        const errorMessage = `Proceso de renderizado desaparecido. Razón: ${details.reason}, Exit Code: ${details.exitCode}`;
+        writeToLog(errorMessage);
+        console.error(errorMessage);
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+        writeToLog('La página web ha terminado de cargar.');
+    });
+
+    writeToLog(`Cargando URL: http://localhost:${currentPort}/Login`);
+    mainWindow.loadURL(`http://localhost:${currentPort}/Login`);
+
+    const template = [
+        {
+            label: 'Menú',
+            submenu: [
+                {
+                    label: 'Toggle DevTools',
+                    accelerator: 'F12',
+                    click: () => {
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.webContents.toggleDevTools();
+                            writeToLog('DevTools toggled.');
+                        }
+                    }
+                },
+                {
+                    label: 'Salir',
+                    role: 'quit',
+                    accelerator: 'Esc'
+                },
+                {
+                    label: 'Reload',
+                    accelerator: 'F5',
+                    click: () => {
+                        if (mainWindow && !mainWindow.isDestroyed()) {
+                            mainWindow.reload();
+                            writeToLog('Window reloaded.');
+                        }
+                    }
+                }
+            ],
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+
+    if (isDev) {
+        writeToLog('DevTools abiertos automáticamente en modo desarrollo.');
+    }
 }
 
 app.whenReady().then(() => {
-  writeToLog('Aplicación Electron lista.');
-  createMainWindow();
+    writeToLog('Aplicación Electron lista.');
+    createMainWindow();
 });
 
 app.on('window-all-closed', () => {
-  writeToLog('Todas las ventanas cerradas.');
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+    writeToLog('Todas las ventanas cerradas.');
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
 
 app.on('activate', () => {
-  writeToLog('Evento "activate" disparado.');
-  if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    writeToLog('Evento "activate" disparado.');
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
 });
 
 // --- IPC HANDLERS ---
 ipcMain.on('abrir-dev-tools', () => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.openDevTools();
-    writeToLog('IPC: Abrir DevTools solicitado.');
-  }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.openDevTools();
+        writeToLog('IPC: Abrir DevTools solicitado.');
+    }
+});
+
+// <-- MODIFICACIÓN: Añadir manejadores para leer y escribir en el store
+ipcMain.handle('electron-store-get', async (event, key) => {
+    return store.get(key);
+});
+
+ipcMain.handle('electron-store-set', async (event, { key, value }) => {
+    store.set(key, value);
 });
 
 ipcMain.handle('login', async (event, { usuario, contraseña }) => {
-  writeToLog(`IPC: Intento de login para usuario: ${usuario}`);
-  try {
-    const result = await iniciarSesionService({ usuario, contraseña });
+    writeToLog(`IPC: Intento de login para usuario: ${usuario}`);
+    try {
+        const result = await iniciarSesionService({ usuario, contraseña });
 
-    if (result.success && result.user && result.token && result.user.IdCliente) {
-      writeToLog(`Login exitoso para IdCliente: ${result.user.IdCliente}`);
-      mainWindow.webContents.executeJavaScript(
-        `localStorage.setItem("idCliente", "${result.user.IdCliente}");`
-      );
+        if (result.success && result.user && result.token && result.user.IdCliente) {
+            writeToLog(`Login exitoso para IdCliente: ${result.user.IdCliente}`);
 
-      const modulesResult = await obtenerModulosService(result.user.IdCliente);
-      if (!modulesResult.success) {
-        writeToLog(`Error al obtener módulos después del login: ${modulesResult.message}`);
-        return { success: false, message: modulesResult.message };
-      }
+            // <-- MODIFICACIÓN: Usar electron-store para guardar datos de sesión
+            store.set("idCliente", result.user.IdCliente);
+            store.set("jwtToken", result.token);
+            store.set("fechaInicio", new Date().toISOString());
 
-      const modulos = modulesResult.modulos.map(modulo => ({
-        id: modulo.id,
-        nombre: modulo.nombre,
-        texto: modulo.texto,
-        icono: modulo.icono,
-        link: modulo.link,
-        path: modulo.pathExcel,
-        countClientesPorModulo: modulo.countClientesPorModulo,
-      }));
+            const modulesResult = await obtenerModulosService(result.user.IdCliente);
+            if (!modulesResult.success) {
+                writeToLog(`Error al obtener módulos después del login: ${modulesResult.message}`);
+                return { success: false, message: modulesResult.message };
+            }
 
-      // Reconstruir el menú después del login con los módulos
-      const template = [
-        {
-          label: 'Menú',
-          submenu: [
+            const modulos = modulesResult.modulos.map(modulo => ({
+                id: modulo.id,
+                nombre: modulo.nombre,
+                texto: modulo.texto,
+                icono: modulo.icono,
+                link: modulo.link,
+                path: modulo.pathExcel,
+                countClientesPorModulo: modulo.countClientesPorModulo,
+            }));
+
+            // Reconstruir el menú después del login con los módulos
+            const template = [
+                {
+                    label: 'Menú',
+                    submenu: [
             ...modulos.map(modulo => ({
               label: modulo.nombre,
               click: () => {
@@ -282,71 +281,94 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
                 }
               },
             })),
-            { type: 'separator' },
-            {
-              label: 'Toggle DevTools',
-              accelerator: 'F12',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.toggleDevTools();
-                  writeToLog('DevTools toggled via menu.');
-                }
-              },
-            },
-            {
-              label: 'Inicio',
-              accelerator: 'Home',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.loadURL(`http://localhost:${currentPort}/Index`);
-                }
-              }
-            },
-            {
-              label: 'Actualizar',
-              accelerator: 'F5',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.reload();
-                  writeToLog('Window reloaded via menu.');
-                }
-              },
-            },
-            {
-              role: 'quit',
-              label: 'Salir',
-              accelerator: 'Esc',
-            },
-          ],
-        },
-      ];
+                        { type: 'separator' },
+                        {
+                            label: 'Toggle DevTools',
+                            accelerator: 'F12',
+                            click: () => {
+                                if (mainWindow && !mainWindow.isDestroyed()) {
+                                    mainWindow.webContents.toggleDevTools();
+                                    writeToLog('DevTools toggled via menu.');
+                                }
+                            },
+                        },
+                        {
+                            label: 'Inicio',
+                            accelerator: 'Home',
+                            click: () => {
+                                if (mainWindow && !mainWindow.isDestroyed()) {
+                                    mainWindow.loadURL(`http://localhost:${currentPort}/Index`);
+                                }
+                            }
+                        },
+                        {
+                            label: 'Actualizar',
+                            accelerator: 'F5',
+                            click: () => {
+                                if (mainWindow && !mainWindow.isDestroyed()) {
+                                    mainWindow.reload();
+                                    writeToLog('Window reloaded via menu.');
+                                }
+                            },
+                        },
+                        {
+                            role: 'quit',
+                            label: 'Salir',
+                            accelerator: 'Esc',
+                        },
+                    ],
+                },
+            ];
 
-      const menu = Menu.buildFromTemplate(template);
-      Menu.setApplicationMenu(menu);
-      writeToLog('Menú de la aplicación actualizado con módulos.');
+            const menu = Menu.buildFromTemplate(template);
+            Menu.setApplicationMenu(menu);
+            writeToLog('Menú de la aplicación actualizado con módulos.');
 
-      return { success: true, user: result.user, modulos, token: result.token };
+            return { success: true, user: result.user, modulos, token: result.token };
+        }
+
+        writeToLog(`Login fallido: ${result.message || 'Credenciales inválidas'}`);
+        return result;
+    } catch (error) {
+        const errorMessage = `Error en IPC login handler: ${error.message}\n${error.stack}`;
+        writeToLog(errorMessage);
+        console.error(errorMessage);
+        return { success: false, message: `Error interno al intentar iniciar sesión: ${error.message}` };
     }
-
-    writeToLog(`Login fallido: ${result.message || 'Credenciales inválidas'}`);
-    return result;
-  } catch (error) {
-    const errorMessage = `Error en IPC login handler: ${error.message}\n${error.stack}`;
-    writeToLog(errorMessage);
-    console.error(errorMessage);
-    return { success: false, message: `Error interno al intentar iniciar sesión: ${error.message}` };
-  }
 });
 
-ipcMain.handle('get-database', async (event, idCliente) => {
+// --- RESTO DE LOS IPC HANDLERS (sin cambios) ---
+
+ipcMain.handle('get-list-empresas', async (event, idCliente) => {
+    try {
+        const empresas = await obtenerListadoEmpresas(idCliente);
+        return { success: true, data: empresas };
+    } catch (error) {
+        console.error('Error en main.js al obtener listado de empresas:', error);
+        return { success: false, message: error.message };
+    }
+});
+
+ipcMain.handle('get-empresa-by-id', async (event, idEmpresa) => {
   try {
-    return await obtenerDatosService(idCliente);
+    const datosEmpresa = await getDatosEmpresaById(idEmpresa);
+    return { success: true, data: datosEmpresa };
   } catch (error) {
-    writeToLog(`Error en IPC get-database: ${error.message}\n${error.stack}`);
-    console.error(error);
-    return { success: false, message: `Error al obtener datos de la base de datos: ${error.message}` };
+    console.error('Error en main.js al obtener datos de empresa por ID:', error);
+    return { success: false, message: error.message };
   }
 });
+
+ipcMain.handle('get-empresa-config', async (event, empresaData, idCliente) => {
+  try {
+    await guardarDatosEmpresaConfig(empresaData, idCliente);
+    return { success: true, message: 'Configuración guardada exitosamente.' };
+  } catch (error) {
+    console.error('Error en main.js al guardar configuración:', error);
+    return { success: false, message: error.message };
+  }
+});
+
 ipcMain.handle('get-modules', async (event, idCliente) => {
   try {
     return await obtenerModulosService(idCliente);
@@ -356,6 +378,7 @@ ipcMain.handle('get-modules', async (event, idCliente) => {
     return { success: false, message: `Error al obtener módulos: ${error.message}` };
   }
 });
+
 ipcMain.handle('obtener-cheques', async (event, id) => {
   try {
     return await obtenerChequeService(id);
@@ -524,6 +547,23 @@ ipcMain.handle('get-precios', async () => {
   }
 });
 
+ipcMain.handle('actualizar-precios', async () => {
+    try {
+        return await actualizarPreciosService();
+    } catch (error) {
+        console.error('Error en IPC al actualizar precios:', error);
+        return { success: false, message: error.message };
+    }
+});
+
+ipcMain.handle('get-precios-actualizados', async () => {
+    try {
+        return await obtenerPreciosActualizadosService();
+    } catch (error) {
+        console.error('Error en IPC al obtener precios actualizados:', error);
+        return { success: false, message: error.message };
+    }
+});
 // Abrir archivo Excel
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => {
   try {

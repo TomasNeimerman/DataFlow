@@ -5,67 +5,6 @@ const path = require('path');
 const { generarToken } = require('../jwtService');
 
 
-// Función para obtener la configuración de la base de datos de la empresa
-async function obtenerConfiguracionEmpresa(idCliente) {
-    let poolAdmin; // Declarar poolAdmin fuera del try para asegurar su cierre
-    try {
-        const dbConfigAdmin = require('../dbConfig').getDbConfig();
-        
-        // Adaptar la configuración para mysql2
-        const mysqlConfigAdmin = {
-            host: dbConfigAdmin.server,
-            port: dbConfigAdmin.port || 3306, // Puerto por defecto de MySQL es 3306
-            user: dbConfigAdmin.user,
-            password: dbConfigAdmin.password,
-            database: dbConfigAdmin.database,
-            waitForConnections: true,
-            connectionLimit: 10,
-            queueLimit: 0
-        };
-
-        poolAdmin = await mysql.createPool(mysqlConfigAdmin);
-
-        // Consulta MySQL: Usar '?' para los parámetros
-        const [rows] = await poolAdmin.execute(
-            `
-                SELECT Server, Port, InstanciaBD, Usuario, Contraseña
-                FROM Empresa
-                WHERE IdCliente = ?
-            `,
-            [idCliente]
-        );
-
-        if (rows.length > 0) {
-            const empresaData = rows[0];
-            const configContent = `DB_USER=${empresaData.Usuario}\nDB_PASSWORD=${empresaData.Contraseña}\nDB_SERVER=${empresaData.Server}\nDB_PORT=${empresaData.Port || 3306}\nDB_DATABASE=${empresaData.InstanciaBD}\n`;
-            const configPath = path.join(__dirname, '../../fileConfigUpdater/userDbConfig.properties'); // Nombre de archivo diferente para evitar confusión
-
-            try {
-                await fs.writeFile(configPath, configContent, 'utf-8');
-                console.log(`Archivo de configuración creado para el cliente ${idCliente} en: ${configPath}`);
-            } catch (err) {
-                console.error('Error al escribir el archivo de configuración:', err);
-            }
-
-            return {
-                server: empresaData.Server,
-                port: empresaData.Port ? parseInt(empresaData.Port, 10) : 3306,
-                database: empresaData.InstanciaBD, // Usar InstanciaBD para la base de datos
-                user: empresaData.Usuario,
-                password: empresaData.Contraseña,
-            };
-        } else {
-            return null;
-        }
-    } catch (error) {
-        console.error('Error al obtener configuración de la empresa:', error);
-        return null;
-    } finally {
-        if (poolAdmin) {
-            await poolAdmin.end(); // Cerrar el pool de conexiones
-        }
-    }
-}
 
 async function iniciarSesion({ usuario, contraseña }) {
     let poolAdmin; // Declarar poolAdmin fuera del try para asegurar su cierre
@@ -103,10 +42,6 @@ async function iniciarSesion({ usuario, contraseña }) {
         const user = loginRows[0];
         const idCliente = user.IdCliente;
 
-        const empresaConfig = await obtenerConfiguracionEmpresa(idCliente);
-        if (!empresaConfig) {
-            return { success: false, message: 'No se encontró la configuración de la base de datos para su empresa.' };
-        }
 
         let fechaActual = new Date();
         // No es necesario ajustar la hora aquí si el servidor MySQL está configurado correctamente con la zona horaria
@@ -121,7 +56,7 @@ async function iniciarSesion({ usuario, contraseña }) {
 
         const token = generarToken(user);
 
-        return { success: true, user, token, empresaConfig };
+        return { success: true, user, token };
     } catch (error) {
         console.error('Error en iniciarSesion:', error);
         return { success: false, message: error.message };

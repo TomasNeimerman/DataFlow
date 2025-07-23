@@ -18,8 +18,14 @@ export default function ChequesP() {
   const { importStatus, importMessage, validateExcelColumns, processChequeUpdates } = useChequesError();
 
   useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
+    // <-- MODIFICADO
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
   }, []);
 
   const formatFecha = (excelDateStr) => {
