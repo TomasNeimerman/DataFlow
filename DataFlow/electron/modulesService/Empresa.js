@@ -1,134 +1,100 @@
-// back/modulesService/Empresa.js
 const mysql = require('mysql2/promise');
-const fs = require('fs').promises;
-const path = require('path');
-const dbConfig = require('../dbConfig');
+
+// Importa la función para la DB principal/fija
+const { getDbConfig } = require('../dbConfig.js'); 
+// Importa la función para escribir la configuración del usuario/dinámica
+const { writeAdminDbConfig } = require('../userDbConfig.js');
 
 
-/**
- * Configura y retorna un pool de conexiones MySQL.
- * @param {object} config El objeto de configuración de la base de datos.
- * @returns {Promise<mysql.Pool>} Una promesa que resuelve con un pool de conexiones.
- */
-async function createMysqlPool(config) {
-    const mysqlConfig = {
-        host: config.server,
-        port: config.port || 3306,
-        user: config.user,
-        password: config.password,
-        database: config.database,
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0
-    };
-    return await mysql.createPool(mysqlConfig);
+async function obtenerListadoEmpresas(idCliente) {
+    let pool;
+    try {
+        const dbConfig = getDbConfig();
+        if (!dbConfig || !dbConfig.server) {
+            throw new Error("Configuración de la base de datos principal no encontrada.");
+        }
+        
+        const mysqlConfig = {
+            host: dbConfig.server,
+            port: dbConfig.port || 3306,
+            user: dbConfig.user,
+            password: dbConfig.password,
+            database: dbConfig.database,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0
+        };
+        
+        pool = await mysql.createPool(mysqlConfig);
+        
+        // Query corregida con la tabla y columnas nuevas
+        const [rows] = await pool.execute(
+            'SELECT Id, Nombre AS nombreEmpresa FROM Empresa WHERE IdCliente = ?',
+            [idCliente]
+        );
+
+        return rows;
+
+    } catch (error) {
+        console.error("Error en obtenerListadoEmpresas:", error);
+        throw error;
+    } finally {
+        if (pool) await pool.end();
+    }
 }
 
 /**
- * Obtiene los datos de configuración de UNA empresa específica desde la base de datos de administración.
- * @param {string} idCliente El ID del cliente para buscar la empresa.
- * @returns {Promise<object|null>} Una promesa que resuelve con los datos de la empresa (Server, Port, InstanciaBD, Usuario, Contraseña) o null si no se encuentra o hay un error.
+ * Obtiene los detalles de conexión de una empresa específica desde la base de datos principal.
  */
 async function getDatosEmpresaById(idEmpresa) {
-    let poolAdmin;
+    let pool;
     try {
-        const dbConfigAdmin = dbConfig.getDbConfig();
-        poolAdmin = await createMysqlPool(dbConfigAdmin);
+        const dbConfig = getDbConfig(); 
+        if (!dbConfig || !dbConfig.server) {
+            throw new Error("Configuración de la base de datos principal no encontrada.");
+        }
+        
+        const mysqlConfig = {
+            host: dbConfig.server,
+            port: dbConfig.port || 3306,
+            user: dbConfig.user,
+            password: dbConfig.password,
+            database: dbConfig.database
+        };
+        
+        pool = await mysql.createPool(mysqlConfig);
 
-        const [rows] = await poolAdmin.execute(
-            `
-                SELECT IdCliente, Nombre, Server, Port, InstanciaBD, Usuario, Contraseña
-                FROM Empresa
-                WHERE Id = ?
-            `,
+        // Query corregida con la tabla y columnas nuevas, usando alias para mantener la compatibilidad
+        const [rows] = await pool.execute(
+            'SELECT Id AS id, Nombre AS nombreEmpresa, Server AS server, Usuario AS user, Contraseña AS password, InstanciaBD AS database, Port AS port FROM Empresa WHERE Id = ?',
             [idEmpresa]
         );
 
-        if (rows.length > 0) {
-            const empresaData = rows[0];
-            return {
-                idCliente: empresaData.IdCliente, // Aseguramos que el idCliente también se retorna
-                nombreEmpresa: empresaData.Nombre, // Añadimos NombreEmpresa para el select
-                server: empresaData.Server,
-                port: empresaData.Port ? parseInt(empresaData.Port, 10) : 3306,
-                database: empresaData.InstanciaBD,
-                user: empresaData.Usuario,
-                password: empresaData.Contraseña,
-            };
-        } else {
-            return null;
-        }
+        return rows[0];
+
     } catch (error) {
-        console.error('Error al obtener los datos de la empresa por ID:', error);
+        console.error("Error en getDatosEmpresaById:", error);
         throw error;
     } finally {
-        if (poolAdmin) {
-            await poolAdmin.end();
-        }
+        if (pool) await pool.end();
     }
 }
 
 /**
- * Obtiene un listado de todas las empresas disponibles desde la base de datos de administración.
- * Esto es para poblar el <select> en el frontend.
- * @returns {Promise<Array<object>>} Una promesa que resuelve con un array de objetos { IdCliente, NombreEmpresa }.
+ * Guarda los detalles de la empresa seleccionada en el archivo de configuración del usuario.
  */
-async function obtenerListadoEmpresas(idCliente) {
-    let poolAdmin;
+async function guardarDatosEmpresaConfig(empresaData) {
     try {
-        const dbConfigAdmin = dbConfig.getDbConfig();
-        poolAdmin = await createMysqlPool(dbConfigAdmin);
-
-        const [rows] = await poolAdmin.execute(
-            `
-                SELECT Id, Nombre
-                FROM Empresa WHERE IdCliente = ?
-                ORDER BY Nombre
-            `,[idCliente]
-        );
-        return rows.map(row => ({
-            Id: row.Id,
-            nombreEmpresa: row.Nombre
-        }));
+        // Esta función escribe en userDbConfig.properties y no necesita cambios.
+        await writeAdminDbConfig(empresaData);
     } catch (error) {
-        console.error('Error al obtener el listado de empresas:', error);
+        console.error("Error en guardarDatosEmpresaConfig:", error);
         throw error;
-    } finally {
-        if (poolAdmin) {
-            await poolAdmin.end();
-        }
     }
 }
-
-
-/**
- * Guarda los datos de configuración de la empresa en un archivo .properties.
- * Este archivo se usará para que el cliente se conecte a su base de datos específica.
- * @param {object} empresaData Los datos de la empresa a guardar (server, port, database, user, password).
- * @param {string} idCliente El ID del cliente (para mensajes de log).
- * @returns {Promise<void>} Una promesa que resuelve cuando el archivo ha sido escrito.
- */
-async function guardarDatosEmpresaConfig(empresaData, idCliente) {
-    if (!empresaData) {
-        console.warn('No se proporcionaron datos de empresa para guardar el archivo de configuración.');
-        return;
-    }
-
-    const configContent = `DB_USER=${empresaData.user}\nDB_PASSWORD=${empresaData.password}\nDB_SERVER=${empresaData.server}\nDB_PORT=${empresaData.port || 3306}\nDB_DATABASE=${empresaData.database}\n`;
-    const configPath = path.join(__dirname, '../fileConfigUpdater/userDbConfig.properties');
-
-    try {
-        await fs.writeFile(configPath, configContent, 'utf-8');
-        console.log(`Archivo de configuración creado para el cliente ${idCliente} en: ${configPath}`);
-    } catch (err) {
-        console.error('Error al escribir el archivo de configuración para el cliente', idCliente, ':', err);
-        throw err;
-    }
-}
-
 
 module.exports = {
-    getDatosEmpresaById, // Cambié el nombre para ser más específico (antes obtenerDatosEmpresa)
-    obtenerListadoEmpresas, // Nueva función para el select
+    obtenerListadoEmpresas,
+    getDatosEmpresaById,
     guardarDatosEmpresaConfig
 };

@@ -62,11 +62,16 @@
       "templates/**/*",
       "app/**/*",
       "node_modules/**/*",
-      "fileConfigUpdater/**/*",
       "eslint.config.mjs",
       "next.config.mjs",
       "jsconfig.json",
       "package-lock.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/fileConfigUpdater",
+        "to": "fileConfigUpdater"
+      }
     ],
     "nsis": {
       "include": "electron/build/installer.nsh",

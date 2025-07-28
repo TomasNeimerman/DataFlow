@@ -3,17 +3,51 @@ const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('elect
 const { createServer } = require('http');
 const next = require('next');
 const url = require('url');
+const util = require('util');
 const fs = require('fs');
 const path = require('path');
+const { initializeConfig } = require('./userDbConfig.js');
+
+// --- INICIO DE CONFIGURACIÓN DE LOGS ---
+const userDataPath = app.getPath('userData');
+const logFilePath = path.join(userDataPath, 'app.log');
+
+// Borra el log anterior cada vez que se inicia la app para tener un registro limpio
+if (fs.existsSync(logFilePath)) {
+    fs.unlinkSync(logFilePath);
+}
+
+const logStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+
+// Redirigimos todo el output de la consola a nuestro archivo de log
+console.log = function (...args) {
+    const message = `[LOG] ${new Date().toISOString()} - ${util.format.apply(null, args)}\n`;
+    logStream.write(message);
+    process.stdout.write(message); // También lo muestra en la terminal de desarrollo
+};
+console.error = function (...args) {
+    const message = `[ERROR] ${new Date().toISOString()} - ${util.format.apply(null, args)}\n`;
+    logStream.write(message);
+    process.stderr.write(message);
+};
+console.warn = function (...args) {
+    const message = `[WARN] ${new Date().toISOString()} - ${util.format.apply(null, args)}\n`;
+    logStream.write(message);
+    process.stdout.write(message);
+};
+
+console.log('--- INICIO DE LA APLICACIÓN ---');
+console.log(`Ruta de datos de usuario (logs y config): ${userDataPath}`);
+// --- FIN DE CONFIGURACIÓN DE LOGS ---
 
 
+// Ahora, el resto de tu archivo main.js
+initializeConfig();
 app.disableHardwareAcceleration();
 
-// <-- MODIFICACIÓN: Inicializar el store para persistencia de datos
-let store
+let store;
 
-const userDataPath = app.getPath('userData');
-const logFilePath = path.join(userDataPath, 'app_error.log');
+
 
 function writeToLog(message) {
     const timestamp = new Date().toISOString();
@@ -61,8 +95,9 @@ const handle = nextApp.getRequestHandler();
 let mainWindow;
 
 async function createMainWindow() {
-      const { default: Store } = await import('electron-store');
+    const { default: Store } = await import('electron-store');
     store = new Store();  
+    store.clear()
   writeToLog('Iniciando createMainWindow...');
 
     try {
