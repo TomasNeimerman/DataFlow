@@ -3,7 +3,7 @@
 import logo from '../../public/logo_cone.png'
 import Image from 'next/image';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation'; // Importa useRouter desde 'next/navigation' en el directorio app
+import { useRouter } from 'next/router'; // Importa useRouter desde 'next/navigation' en el directorio app
 import styles from './styles.module.css'
 
 export default function LoginPage() {
@@ -31,11 +31,6 @@ export default function LoginPage() {
 
   return (
     <div className={styles.body}>
-    <Image
-    alt='CONE ERP'
-    className={styles.img}
-    src={logo}
-    />
     <div className={styles.container}>
       <h1 className={styles.title}>Actualizador</h1>
       <div className={styles.inputgroup}>

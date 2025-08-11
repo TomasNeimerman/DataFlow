@@ -1,0 +1,23 @@
+.select {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+.btn {
+    margin-bottom: 5px;
+    background-color: #e82c02;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn:hover{
+    background-color: #d42602;
+    border-color: white;
+    
+}

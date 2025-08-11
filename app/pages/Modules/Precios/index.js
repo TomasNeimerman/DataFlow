@@ -26,7 +26,6 @@ export default function Precios() {
   console.log(precios);
   return (
     <div className={pageStyles.body}>
-      <Image alt='CONE ERP' className={pageStyles.img} src='/logo_cone.png' width={200} height={50} />
         <CuadroPrecios precios = {precios} />
 
     </div>

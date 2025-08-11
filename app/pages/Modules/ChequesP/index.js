@@ -2,15 +2,19 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 import * as XLSX from 'xlsx'; // Necesitamos XLSX para leer el archivo y obtener los encabezados
 import styles from './styles.module.css';
-import logo from '../../../public/logo_cone.png';
-import ModuleForm from '@/app/components/ModulesForm';
-import ChequesActualizados from '@/app/components/CuadroChequesActualizados';
-import useChequesError from '@/app/hooks/chequesPError'; // Importa el hook
+import ModuleForm from '../../components/ModulesForm';
+import ChequesActualizados from '../../components/CuadroChequesActualizados';
+import useChequesError from '../../../public/hooks/chequesPError'; // Importa el hook
 
 export default function ChequesP() {
+  const idModulo = typeof window !== 'undefined'
+    ? (() => {
+        const param = new URLSearchParams(window.location.search).get('idModulo');
+        return param ? parseInt(param, 10) : undefined;
+      })()
+    : undefined;
   const [cheques, setCheques] = useState([]);
   const [idCliente, setIdCliente] = useState(null);
   const [validar, setValidar] = useState(false);
@@ -112,9 +116,8 @@ export default function ChequesP() {
 
   return (
     <div className={styles.body}>
-      <Image alt='CONE ERP' className={styles.img} src={logo} />
       <ModuleForm
-        nombreModulo="ChequesP"
+        idModulo={idModulo}
         onImportar={handleImportar}
         estadoImportar={importStatus} // Pasa el estado del hook
         mensajeImportacion={importMessage} // Pasa el mensaje detallado del hook

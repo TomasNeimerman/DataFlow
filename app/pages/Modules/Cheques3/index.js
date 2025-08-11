@@ -260,8 +260,6 @@ export default function Cheques3() {
 
   return (
     <div className={pageStyles.body}>
-      <Image alt='CONE ERP' className={pageStyles.img} src='/logo_cone.png' width={200} height={50} />
-
       <ChequesRechazados
         chequesRechazados={chequesRechazados}
         situaciones={situaciones}

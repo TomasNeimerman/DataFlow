@@ -1,6 +1,6 @@
 // app/components/CuadroChequesEdoR.js
 "use client"
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect } from "react";
 import styles from './styles.module.css';
 
 const ChequesRechazados = ({
@@ -154,9 +154,11 @@ const ChequesRechazados = ({
                   const situacionId = selectedChequesData[cheque.idCheque]?.situacionId || '';
 
                   // MODIFICACIÓN: Using optional chaining to safely access properties
-                  const id = parseInt(cheque.idCheque)
-                  // Find the specific update item for the current cheque
-                  const fechaActualizacion = updatedFechasById?.find(item => item.c3sch3_ID === id)?.c3s_FCmbio;
+                  const id = parseInt(cheque.idCheque);
+                  // Find the specific update item for the current cheque. Handle both array and object formats.
+                  const fechaActualizacion = Array.isArray(updatedFechasById)
+                    ? updatedFechasById.find(item => item.c3sch3_ID === id)?.c3s_FCmbio
+                    : updatedFechasById[id]?.c3s_FCmbio;
                   console.log("Fecha de actualización:", fechaActualizacion, "id cheque", id);
                   // Usamos tu clase tractualizado para la fila completa
                   const isUpdated = !!fechaActualizacion;

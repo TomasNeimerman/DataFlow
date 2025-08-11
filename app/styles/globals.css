@@ -1,0 +1,42 @@
+/* RUTA: styles/globals.css */
+
+html, body, #__next, .page-container {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', sans-serif;
+  height: 100%; /* Asegura que todo ocupe la altura completa */
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* El contenedor principal necesita ser relativo */
+.page-container {
+  position: relative;
+}
+
+/* Posiciona el logo en la esquina superior izquierda */
+.overlay-top-left {
+  position: absolute;
+  top: 0rem;  /* 24px desde arriba */
+  left: 2.5rem; /* 40px desde la izquierda */
+  z-index: 10;    /* Asegura que esté por encima del contenido */
+  width: 160px;
+}
+
+/* Posiciona la empresa en la esquina superior derecha */
+.overlay-top-right {
+  position: absolute;
+  top: 1.5rem;   /* 24px desde arriba */
+  right: 10rem; /* 40px desde la derecha */
+  z-index: 10;     /* Asegura que esté por encima del contenido */
+}
+
+
+/* --- Estilos para Componentes Específicos --- */
+/* Limita el tamaño del logo para que no sea gigante */
+.overlay-top-left img {
+    max-height: 160px;
+    width: auto;
+}

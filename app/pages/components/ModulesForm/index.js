@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import styles from "./styles.module.css";
 
 // Añadimos mensajeImportacion como prop
-const ModuleForm = ({ nombreModulo, onImportar, estadoImportar, mensajeImportacion }) => {
+const ModuleForm = ({ idModulo, nombreModulo, onImportar, estadoImportar, mensajeImportacion }) => {
   const [modulos, setModulos] = useState([]);
   const [idCliente, setIdCliente] = useState(null);
   const [fileName, setFileName] = useState("");
@@ -23,12 +23,21 @@ const ModuleForm = ({ nombreModulo, onImportar, estadoImportar, mensajeImportaci
       try {
         const response = await window.api.getModules(idCliente);
         if (response.success) {
-          const modulosFiltrados = response.modulos.filter(
-            (modulo) => modulo.nombre === nombreModulo
-          );
-          setModulos(modulosFiltrados);
+          let modulosFiltrados = [];
 
-          setTemplate(modulosFiltrados[0]?.pathExcel);
+          if (idModulo !== undefined && idModulo !== null) {
+            modulosFiltrados = response.modulos.filter(
+              (modulo) => modulo.id === idModulo
+            );
+          }
+
+          if (modulosFiltrados.length === 0 && nombreModulo) {
+            modulosFiltrados = response.modulos.filter(
+              (modulo) => modulo.nombre === nombreModulo
+            );
+          }
+
+          setModulos(modulosFiltrados);
         }
       } catch (err) {
         console.error("Fallo al obtener módulos:", err);
@@ -36,7 +45,7 @@ const ModuleForm = ({ nombreModulo, onImportar, estadoImportar, mensajeImportaci
     };
 
     fetchModulos();
-  }, [idCliente, nombreModulo]);
+  }, [idCliente,idModulo, nombreModulo]);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];

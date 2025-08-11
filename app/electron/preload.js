@@ -4,14 +4,18 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
     login: (usuario, contraseña) => ipcRenderer.invoke('login', { usuario, contraseña }),
+    onNavigate: (callback) => ipcRenderer.on('navigate-to', (event, path) => callback(path)),
+    getListadoEmpresas: (idCliente) => ipcRenderer.invoke('get-list-empresas', idCliente),
+    getDatosEmpresaById: (idEmpresa) => ipcRenderer.invoke('get-empresa-by-id', idEmpresa),
+    guardarConfiguracion: (empresaData, idCliente) => ipcRenderer.invoke('get-empresa-config', empresaData, idCliente),
     getModules: (idCliente) => ipcRenderer.invoke('get-modules', idCliente),
     obtenerCheques: (id) => ipcRenderer.invoke('obtener-cheques', id),
     updateCheques: (cheque) => ipcRenderer.invoke('update-cheques', cheque),
-    updateCheque3: (IDCheque,sit) => ipcRenderer.invoke('update-cheque3', {IDCheque, sit}),
+    updateCheque3: (IDCheque, sit) => ipcRenderer.invoke('update-cheque3', { IDCheque, sit }),
     abrirDevTools: () => ipcRenderer.send('abrir-dev-tools'),
     downloadAndOpenExcel: (url) => ipcRenderer.invoke('download-and-open-excel', url),
     getArticulos: () => ipcRenderer.invoke('get-articulos'),
-    getClases: () => ipcRenderer.invoke('get-clases'), 
+    getClases: () => ipcRenderer.invoke('get-clases'),
     getProveedores: () => ipcRenderer.invoke('get-proveedores'),
     getRubros: () => ipcRenderer.invoke('get-rubros'),
     getTasasIVA: () => ipcRenderer.invoke('get-tasas-iva'),
@@ -25,6 +29,10 @@ contextBridge.exposeInMainWorld('api', {
     obtenerCheque3Rechazado: () => ipcRenderer.invoke('cheque3-rechazado'),
     getUpdatedFecha: () => ipcRenderer.invoke('get-updated-fecha'),
     getPrecios: () => ipcRenderer.invoke('get-precios'),
+    actualizarPrecios: () => ipcRenderer.invoke('actualizar-precios'),
+    getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
+    getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),
+    setStoreValue: (key, value) => ipcRenderer.invoke('electron-store-set', { key, value }),
 });
 
 document.addEventListener('keydown', (e) => {

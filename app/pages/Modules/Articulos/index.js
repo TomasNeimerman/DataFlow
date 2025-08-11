@@ -3,12 +3,18 @@
 
 import styles from './styles.module.css';
 import logo from '../../../public/logo_cone.png';
-import ModuleForm from '@/app/components/ModulesForm';
+import ModuleForm from '../../components/ModulesForm';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 
+
 export default function Articulos() {
-    // Estados para almacenar los datos de las diferentes tablas
+    const idModulo = typeof window !== 'undefined'
+        ? (() => {
+            const param = new URLSearchParams(window.location.search).get('idModulo');
+            return param ? parseInt(param, 10) : undefined;
+        })()
+        : undefined;  
     const [articulos, setArticulos] = useState([]);
     const [clases, setClases] = useState([]);
     const [proveedores, setProveedores] = useState([]);
@@ -107,9 +113,8 @@ export default function Articulos() {
 
     return (
         <div className={styles.body}>
-            <Image alt='CONE ERP' className={styles.img} src={logo} />
             <ModuleForm
-                nombreModulo="Articulos"
+                idModulo={idModulo}
                 onImportar={false}
                 estadoImportar={false} // Pasa el estado del hook
                 mensajeImportacion={""} // Pasa el mensaje detallado del hook
