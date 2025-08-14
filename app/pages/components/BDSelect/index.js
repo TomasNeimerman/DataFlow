@@ -121,7 +121,7 @@ const BDSelect = () => {
           className={styles.btn}
           disabled={loading || !selectedEmpresaId}
         >
-          {loading ? 'Guardando...' : 'Guardar Configuración'}
+          {loading ? 'Ingresando...' : 'Ingresar'}
         </button>
 
         {/* --- Mensajes de estado para el usuario --- */}

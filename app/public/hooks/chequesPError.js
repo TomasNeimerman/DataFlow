@@ -18,7 +18,7 @@ const useChequesError = () => {
         "Cheq. / Doc. / Obl. - F. Vto.",
         "Cheq. / Doc. / Obl. - Nro.",
         "Nro Definitivo",
-        " IMPORTE "
+        "IMPORTE"
     ];
 
     /**

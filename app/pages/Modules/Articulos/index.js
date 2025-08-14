@@ -2,28 +2,32 @@
 "use client";
 
 import styles from './styles.module.css';
-import logo from '../../../public/logo_cone.png';
 import ModuleForm from '../../components/ModulesForm';
 import { useState, useEffect } from 'react';
-import Image from 'next/image';
 
 
 export default function Articulos() {
-    const idModulo = typeof window !== 'undefined'
-        ? (() => {
-            const param = new URLSearchParams(window.location.search).get('idModulo');
-            return param ? parseInt(param, 10) : undefined;
-        })()
-        : undefined;  
+    // Estados para almacenar los datos de las diferentes tablas
     const [articulos, setArticulos] = useState([]);
     const [clases, setClases] = useState([]);
     const [proveedores, setProveedores] = useState([]);
     const [rubros, setRubros] = useState([]);
     const [tasasIVA, setTasasIVA] = useState([]);
+    const [idCliente, setIdCliente] = useState(null);
 
     // Estado para manejar la carga de datos y errores
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    useEffect(() => {
+    // <-- MODIFICADO
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
+  }, []);
 
     useEffect(() => {
         const fetchAllData = async () => {
@@ -92,7 +96,7 @@ export default function Articulos() {
     if (loading) {
         return (
             <div className={styles.body}>
-                <Image alt='CONE ERP' className={styles.img} src={logo} />
+         
                 <p>Cargando datos de artículos...</p>
             </div>
         );
@@ -101,7 +105,6 @@ export default function Articulos() {
     if (error) {
         return (
             <div className={styles.body}>
-                <Image alt='CONE ERP' className={styles.img} src={logo} />
                 <p>Error al cargar los datos: {error.general || JSON.stringify(error)}</p>
                 {/* Puedes mostrar errores específicos si existen, por ejemplo: */}
                 {error.clases && <p>Error en Clases: {error.clases}</p>}
@@ -114,7 +117,8 @@ export default function Articulos() {
     return (
         <div className={styles.body}>
             <ModuleForm
-                idModulo={idModulo}
+                idCliente={idCliente}
+                nombreModulo="Articulos"
                 onImportar={false}
                 estadoImportar={false} // Pasa el estado del hook
                 mensajeImportacion={""} // Pasa el mensaje detallado del hook

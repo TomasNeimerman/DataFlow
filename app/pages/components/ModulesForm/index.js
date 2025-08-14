@@ -4,40 +4,29 @@ import { useEffect, useState } from "react";
 import styles from "./styles.module.css";
 
 // Añadimos mensajeImportacion como prop
-const ModuleForm = ({ idModulo, nombreModulo, onImportar, estadoImportar, mensajeImportacion }) => {
+const ModuleForm = ({ idCliente,nombreModulo, onImportar, estadoImportar, mensajeImportacion }) => {
   const [modulos, setModulos] = useState([]);
-  const [idCliente, setIdCliente] = useState(null);
   const [fileName, setFileName] = useState("");
   const [file, setFile] = useState("");
   const [isFileLoaded, setIsFileLoaded] = useState(false);
   const [template, setTemplate] = useState("");
 
-  useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
-  }, []);
+
 
   useEffect(() => {
     const fetchModulos = async () => {
       if (!idCliente) return;
       try {
         const response = await window.api.getModules(idCliente);
+        console.log("Módulos obtenidos:", response);
         if (response.success) {
-          let modulosFiltrados = [];
-
-          if (idModulo !== undefined && idModulo !== null) {
-            modulosFiltrados = response.modulos.filter(
-              (modulo) => modulo.id === idModulo
-            );
-          }
-
-          if (modulosFiltrados.length === 0 && nombreModulo) {
-            modulosFiltrados = response.modulos.filter(
-              (modulo) => modulo.nombre === nombreModulo
-            );
-          }
-
+          const modulosFiltrados = response.modulos.filter(
+            (modulo) => modulo.nombre === nombreModulo
+          );
+          console.log("Módulos filtrados:", modulosFiltrados, "por el nombre:", nombreModulo );
           setModulos(modulosFiltrados);
+
+          setTemplate(modulosFiltrados[0]?.pathExcel);
         }
       } catch (err) {
         console.error("Fallo al obtener módulos:", err);
@@ -45,7 +34,7 @@ const ModuleForm = ({ idModulo, nombreModulo, onImportar, estadoImportar, mensaj
     };
 
     fetchModulos();
-  }, [idCliente,idModulo, nombreModulo]);
+  }, [idCliente, nombreModulo]);
 
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
@@ -107,7 +96,7 @@ const ModuleForm = ({ idModulo, nombreModulo, onImportar, estadoImportar, mensaj
           <button
             className={styles.template}
             onClick={handleDownloadAndOpenTemplate}
-            title="Descargar y abrir plantilla de Excel"
+            title="Descargar Excel modelo"
           >
             ⇩
           </button>

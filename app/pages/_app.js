@@ -1,6 +1,6 @@
 // RUTA: pages/_app.js
 
-import '../styles/globals.css';
+import '../public/styles/globals.css';
 import Imagen from './components/Image';
 import EmpresaSelected from './components/EmpresaSelected';
 

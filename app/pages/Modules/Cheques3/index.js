@@ -164,7 +164,7 @@ export default function Cheques3() {
           situacionId: situacion
         };
       });
-      console.log("Cheques para actualizar:", chequesParaActualizar);
+      
 
     if (chequesParaActualizar.length === 0) {
       setImportStatus('info');
@@ -175,7 +175,7 @@ export default function Cheques3() {
 
     setImportStatus('loading');
     setImportMessage('Importando cheques seleccionados...');
-
+    console.log("Cheques seleccionados para importar:", chequesParaActualizar);
     try {
       if (window.api && window.api.updateCheque3) {
         const updateResults = await Promise.all(
@@ -254,7 +254,7 @@ export default function Cheques3() {
   };
 
 
-
+  console.log("Estado de chequesRechazados:", chequesRechazados);
   const isImportButtonDisabled = importStatus === 'loading' ||
     Object.values(selectedChequesData).every(data => !data.isSelected || data.situacionId == null || data.situacionId === '');
 

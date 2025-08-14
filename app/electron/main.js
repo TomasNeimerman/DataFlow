@@ -1,21 +1,23 @@
 // electron/main.js
+// ✅ Node 14 / Electron 13 friendly (CJS only)
+
 const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('electron');
-const { createServer } = require('http');
-const next = require('next');
-const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const Store = require('electron-store');
+const url = require('url');
+const Store = require('electron-store'); // ✅ único import
 const { initializeConfig } = require('./userDbConfig.js');
 
-// --- Detección de Windows Server 2012 o versiones anteriores ---
-const isLegacyWindows = process.platform === 'win32' &&
+// --- Detección de Windows Server 2012 o anteriores ---
+const isLegacyWindows =
+  process.platform === 'win32' &&
   (os.release().startsWith('6.2') || os.release().startsWith('6.1') || os.release().startsWith('6.0'));
 
 // --- Configuración temprana ---
 initializeConfig();
 app.disableHardwareAcceleration();
+
 if (isLegacyWindows) {
   app.commandLine.appendSwitch('--disable-gpu');
   app.commandLine.appendSwitch('--disable-software-rasterizer');
@@ -55,7 +57,7 @@ process.on('unhandledRejection', (reason, promise) => {
   writeToLog(`Unhandled Rejection: ${reason}\n${promise}`);
 });
 
-// --- Importación de servicios ---
+// --- Importación de servicios (tal cual los tenías) ---
 const { getDatosEmpresaById, obtenerListadoEmpresas, guardarDatosEmpresaConfig } = require('./modulesService/Empresa');
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
 const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
@@ -63,68 +65,67 @@ const { registroCheq3Sit: registro, actualizarCheque3: actualizarCheque3Service,
 const { getArticulos, getClases, getProveedores, getRubros, getTasasIVA, getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails } = require('./modulesService/Articulos');
 const { obtenerPrecios: obtenerPreciosService, actualizarListaDePrecios: actualizarPreciosService, obtenerPreciosActualizados: obtenerPreciosActualizadosService } = require('./modulesService/Precios');
 
-// --- Next.js + Electron ---
+// --- Estado global mínimo ---
 const isDev = !app.isPackaged;
-let currentPort = 3000;
-const MAX_PORT_ATTEMPTS = 10;
-const nextApp = next({ dev: isDev, dir: isDev ? path.join(__dirname, '..') : app.getAppPath() });
-const handle = nextApp.getRequestHandler();
-
 let mainWindow;
+let store;
+
+// --- Helper: esperar a que Next dev responda ---
+function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
+  const http = require('http');
+  const u = new URL(urlToPing);
+  const opts = { method: 'GET', hostname: u.hostname, port: u.port, path: '/' };
+
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const tick = () => {
+      const req = http.request(opts, (res) => {
+        res.resume();
+        resolve();
+      });
+      req.on('error', () => {
+        if (Date.now() - start > timeoutMs) return reject(new Error('Dev server no respondió a tiempo'));
+        setTimeout(tick, intervalMs);
+      });
+      req.end();
+    };
+    tick();
+  });
+}
 
 async function createMainWindow() {
-  const { default: Store } = await import('electron-store');
-    store = new Store();  
-    store.clear()
   writeToLog('Iniciando createMainWindow...');
-  try {
-    await nextApp.prepare();
-    writeToLog('Next.js listo.');
-  } catch (error) {
-    writeToLog(`Error al preparar Next.js: ${error.message}\n${error.stack}`);
-    return app.quit();
-  }
+  store = new Store(); // ✅ un solo Store
+  store.clear();
+  // 🔒 (Opcional) Single instance lock - descomentar si querés evitar dobles instancias
+  // const gotLock = app.requestSingleInstanceLock();
+  // if (!gotLock) return app.quit();
+  // app.on('second-instance', () => {
+  //   if (mainWindow) {
+  //     if (mainWindow.isMinimized()) mainWindow.restore();
+  //     mainWindow.focus();
+  //   }
+  // });
 
-  let server, portFound = false;
-  for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
-    try {
-      server = createServer((req, res) => handle(req, res));
-      await new Promise((resolve, reject) => {
-        server.listen(currentPort, () => {
-          writeToLog(`Servidor en http://localhost:${currentPort}`);
-          portFound = true;
-          resolve();
-        });
-        server.once('error', (err) => {
-          if (err.code === 'EADDRINUSE') {
-            writeToLog(`Puerto ${currentPort} en uso`);
-            currentPort++;
-            server.close();
-            reject(err);
-          } else reject(err);
-        });
-      });
-      if (portFound) break;
-    } catch (error) {
-      if (error.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) {
-        writeToLog(`Error crítico de servidor: ${error.message}`);
-        return app.quit();
-      }
-    }
+  // Preload opcional (no rompas si no existe)
+  const preloadPath = path.join(__dirname, 'preload.js');
+  const preloadExists = fs.existsSync(preloadPath);
+  if (!preloadExists) {
+    writeToLog(`PRELOAD no encontrado: ${preloadPath}. Continuo sin preload.`);
   }
 
   const windowOptions = {
     width: 1280,
     height: 920,
+    show: true, // 👈 mostrar de una en DEV para evitar que quede "invisible"
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadExists ? preloadPath : undefined,
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
       experimentalFeatures: false,
       enableRemoteModule: false,
     },
-    show: false,
   };
 
   if (isLegacyWindows) {
@@ -140,39 +141,108 @@ async function createMainWindow() {
     if (!isLegacyWindows && !isDev) mainWindow.maximize();
   });
 
-  mainWindow.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
-    writeToLog(`Carga fallida: ${url} (${code}): ${desc}`);
-    if (isLegacyWindows && isMainFrame) {
-      setTimeout(() => {
-        writeToLog('Recargando después de fallo...');
-        mainWindow.loadURL(`http://localhost:${currentPort}/Login`);
-      }, 2000);
-    }
+  mainWindow.webContents.on('did-fail-load', (e, code, desc, theUrl, isMainFrame) => {
+    writeToLog(`Carga fallida: ${theUrl} (${code}): ${desc} (mainFrame=${isMainFrame})`);
+    console.error('[Electron] did-fail-load', code, desc, theUrl);
   });
 
   mainWindow.webContents.on('render-process-gone', (_, details) => {
     writeToLog(`Render terminado: ${details.reason}, Código: ${details.exitCode}`);
-    if (isLegacyWindows) {
-      setTimeout(() => {
-        writeToLog('Intentando recuperar proceso...');
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.loadURL(`http://localhost:${currentPort}/Login`);
-        }
-      }, 3000);
-    }
+    console.error('[Electron] render-process-gone', details);
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
     writeToLog('Carga web finalizada.');
   });
 
-  mainWindow.loadURL(`http://localhost:${currentPort}/Login`);
-  setTimeout(() => {
-    if (!mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
-      writeToLog('Página cargada a tiempo.');
-    }
-  }, isLegacyWindows ? 30000 : 15000);
+  // --- DEV: NO embebemos Next. Usamos el next dev externo en :3000 ---
+  if (isDev) {
+    const DEV_BASE = 'http://localhost:3000';
+    const DEV_URL = DEV_BASE + '/Login';
 
+    // Extra: si ".next/trace" quedó mal tipado como carpeta, limpiarlo
+    try {
+      const projectRoot = path.resolve(__dirname, '..');
+      const tracePath = path.join(projectRoot, '.next', 'trace');
+      if (fs.existsSync(tracePath)) {
+        const st = fs.statSync(tracePath);
+        if (st.isDirectory()) {
+          fs.rmSync(tracePath, { recursive: true, force: true });
+          writeToLog('DEV: se removió carpeta .next/trace inválida');
+        }
+      }
+    } catch (_) {}
+
+    try {
+      writeToLog('DEV: esperando http://localhost:3000 ...');
+      await waitForUrl(DEV_BASE, 30000, 500);
+      writeToLog('DEV: dev server OK, cargando /Login');
+      await mainWindow.loadURL(DEV_URL);
+    } catch (e) {
+      writeToLog(`ERROR cargando DEV URL: ${e.message}\n${e.stack}`);
+      await mainWindow.loadURL('data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>');
+    }
+
+    // DevTools en dev
+    try { mainWindow.webContents.openDevTools(); } catch (_) {}
+  } else {
+    // --- PROD: Embebemos Next + servidor interno ---
+    const { createServer } = require('http');
+    const next = require('next');
+
+    const MAX_PORT_ATTEMPTS = 10;
+    let currentPort = 3000;
+
+    try {
+      const nextApp = next({ dev: false, dir: app.getAppPath() });
+      await nextApp.prepare();
+      writeToLog('Next.js listo (PROD).');
+
+      const handle = nextApp.getRequestHandler();
+
+      let server;
+      let portFound = false;
+
+      for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
+        try {
+          server = createServer((req, res) => handle(req, res));
+          await new Promise((resolve, reject) => {
+            server.listen(currentPort, () => {
+              writeToLog(`Servidor en http://localhost:${currentPort}`);
+              portFound = true;
+              resolve();
+            });
+            server.once('error', (err) => {
+              if (err && err.code === 'EADDRINUSE') {
+                writeToLog(`Puerto ${currentPort} en uso`);
+                currentPort++;
+                try { server.close(); } catch (_) {}
+                reject(err);
+              } else {
+                reject(err);
+              }
+            });
+          });
+          if (portFound) break;
+        } catch (error) {
+          if (!error || error.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) {
+            writeToLog(`Error crítico de servidor: ${error ? error.message : 'desconocido'}`);
+            throw error;
+          }
+        }
+      }
+
+      const PROD_URL = `http://localhost:${currentPort}/Login`;
+      await mainWindow.loadURL(PROD_URL);
+    } catch (error) {
+      writeToLog(`Error al preparar Next (PROD): ${error.message}\n${error.stack}`);
+      await mainWindow.loadURL('data:text/html,<h1>Error iniciando servidor interno</h1>');
+      setTimeout(() => app.quit(), 1500);
+      return;
+    }
+  }
+
+  // Menú base
   const template = [{
     label: 'Menú',
     submenu: [
@@ -186,7 +256,6 @@ async function createMainWindow() {
           }
         }
       },
-      { label: 'Salir', role: 'quit', accelerator: 'Esc' },
       {
         label: 'Reload',
         accelerator: 'F5',
@@ -196,22 +265,28 @@ async function createMainWindow() {
             writeToLog('Ventana recargada.');
           }
         }
-      }
+      },
+      { type: 'separator' },
+      { label: 'Salir', role: 'quit', accelerator: 'Esc' },
     ]
   }];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-  if (isDev) mainWindow.webContents.openDevTools();
 }
 
+// --- Ciclo de vida de la app ---
 app.whenReady().then(() => {
   writeToLog('App lista.');
 
   // Crear carpeta temporal
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
   if (!fs.existsSync(tempFolderPath)) {
-    fs.mkdirSync(tempFolderPath);
-    writeToLog(`Carpeta temporal creada: ${tempFolderPath}`);
+    try {
+      fs.mkdirSync(tempFolderPath);
+      writeToLog(`Carpeta temporal creada: ${tempFolderPath}`);
+    } catch (e) {
+      writeToLog(`Error creando carpeta temporal: ${e.message}`);
+    }
   }
 
   setTimeout(() => {
@@ -238,12 +313,16 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
 });
+
+// --- Electron Store IPC ---
 ipcMain.handle('electron-store-get', (event, key) => {
-    return store.get(key);
+  return store ? store.get(key) : undefined;
 });
 ipcMain.handle('electron-store-set', (event, { key, value }) => {
-    store.set(key, value);
+  if (store) store.set(key, value);
 });
+
+// --- Login e inyección de menú dinámico ---
 ipcMain.handle('login', async (event, { usuario, contraseña }) => {
   writeToLog(`IPC: Intento de login para usuario: ${usuario}`);
   try {
@@ -251,7 +330,7 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
 
     if (result.success && result.user && result.token && result.user.IdCliente) {
       writeToLog(`Login exitoso para IdCliente: ${result.user.IdCliente}`);
-      
+
       store.set("idCliente", result.user.IdCliente);
       store.set("jwtToken", result.token);
       store.set("fechaInicio", new Date().toISOString());
@@ -272,7 +351,8 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
         countClientesPorModulo: modulo.countClientesPorModulo,
       }));
 
-      // Reconstruir el menú después del login
+      const currentPort = (isDev ? 3000 : (new URL(mainWindow.webContents.getURL()).port)) || 3000;
+
       const template = [
         {
           label: 'Menú',
@@ -281,7 +361,8 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
               label: modulo.nombre,
               click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}&idModulo=${modulo.id}`);
+                  const base = isDev ? `http://localhost:3000` : `http://localhost:${currentPort}`;
+                  mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}`);
                   writeToLog(`Navegando a módulo: ${modulo.link}`);
                 }
               },
@@ -290,9 +371,10 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
             {
               label: 'Inicio',
               accelerator: 'Home',
-                click: () => {
+              click: () => {
                 if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.loadURL(`http://localhost:${currentPort}/Index`);
+                  const base = isDev ? `http://localhost:3000` : new URL(mainWindow.webContents.getURL()).origin;
+                  mainWindow.loadURL(`${base}/Index`);
                 }
               }
             },
@@ -305,7 +387,6 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
                   writeToLog('DevTools toggled via menu.');
                 }
               },
-              
             },
             {
               label: 'Actualizar',
@@ -317,11 +398,7 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
                 }
               },
             },
-            {
-              role: 'quit',
-              label: 'Salir',
-              accelerator: 'Esc',
-            },
+            { role: 'quit', label: 'Salir', accelerator: 'Esc' },
           ],
         },
       ];
@@ -343,7 +420,7 @@ ipcMain.handle('login', async (event, { usuario, contraseña }) => {
   }
 });
 
-// --- Otros IPC HANDLERS con manejo de errores mejorado ---
+// --- Helper para registrar handlers con try/catch ---
 const createIpcHandler = (name, handler) => {
   ipcMain.handle(name, async (event, ...args) => {
     try {
@@ -358,36 +435,37 @@ const createIpcHandler = (name, handler) => {
   });
 };
 
-// Registrar todos los handlers con manejo de errores
+// --- Otros IPC HANDLERS (tus servicios) ---
 ipcMain.handle('get-list-empresas', async (event, idCliente) => {
-    try {
-        const empresas = await obtenerListadoEmpresas(idCliente);
-        return { success: true, data: empresas };
-    } catch (error) {
-        writeToLog(`Error en IPC get-list-empresas: ${error.message}`);
-        return { success: false, message: error.message };
-    }
+  try {
+    const empresas = await obtenerListadoEmpresas(idCliente);
+    return { success: true, data: empresas };
+  } catch (error) {
+    writeToLog(`Error en IPC get-list-empresas: ${error.message}`);
+    return { success: false, message: error.message };
+  }
 });
 
 ipcMain.handle('get-empresa-by-id', async (event, idEmpresa) => {
-    try {
-        const datosEmpresa = await getDatosEmpresaById(idEmpresa);
-        return { success: true, data: datosEmpresa };
-    } catch (error) {
-        writeToLog(`Error en IPC get-empresa-by-id: ${error.message}`);
-        return { success: false, message: error.message };
-    }
+  try {
+    const datosEmpresa = await getDatosEmpresaById(idEmpresa);
+    return { success: true, data: datosEmpresa };
+  } catch (error) {
+    writeToLog(`Error en IPC get-empresa-by-id: ${error.message}`);
+    return { success: false, message: error.message };
+  }
 });
 
 ipcMain.handle('get-empresa-config', async (event, empresaData) => {
-    try {
-        await guardarDatosEmpresaConfig(empresaData);
-        return { success: true, message: 'Configuración guardada exitosamente.' };
-    } catch (error) {
-        writeToLog(`Error en IPC get-empresa-config: ${error.message}`);
-        return { success: false, message: error.message };
-    }
+  try {
+    await guardarDatosEmpresaConfig(empresaData);
+    return { success: true, message: 'Configuración guardada exitosamente.' };
+  } catch (error) {
+    writeToLog(`Error en IPC get-empresa-config: ${error.message}`);
+    return { success: false, message: error.message };
+  }
 });
+
 createIpcHandler('get-modules', obtenerModulosService);
 createIpcHandler('obtener-cheques', obtenerChequeService);
 createIpcHandler('update-cheques', actualizarChequeService);
@@ -409,6 +487,7 @@ createIpcHandler('get-updated-fecha', getupdreg);
 createIpcHandler('get-precios', obtenerPreciosService);
 createIpcHandler('actualizar-precios', actualizarPreciosService);
 createIpcHandler('get-precios-actualizados', obtenerPreciosActualizadosService);
+
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => {
   try {
     if (!relativeFilePath) throw new Error("No se proporcionó ruta.");

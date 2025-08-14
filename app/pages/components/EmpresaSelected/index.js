@@ -30,7 +30,7 @@ const EmpresaSelected = () => {
   return (
     <div className={styles.container}>
       {idCliente != null ?
-        <h4>Empresa Seleccionada: {empresaSeleccionada}</h4> :
+        <h4>Empresa Seleccionada: <span className={styles.empresa}>{empresaSeleccionada}</span></h4> :
         <></>
       }
     </div>

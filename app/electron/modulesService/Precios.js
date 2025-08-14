@@ -33,146 +33,200 @@ async function actualizarListaDePrecios() {
 
         // El script SQL que proporcionaste. Es largo, así que lo mantenemos como una constante.
         const scriptActualizacion = `
--- Iniciar una transacción para poder hacer commit de los cambios
 BEGIN TRANSACTION;
+SET NOCOUNT ON;
 
--- Tabla temporal para almacenar los resultados de la actualización
+---------------------------------------------------------------------
+-- 1) Tabla temporal con collation explícito (evita conflictos)
+---------------------------------------------------------------------
 IF OBJECT_ID('tempdb..#ResultadosActualizacion') IS NOT NULL
     DROP TABLE #ResultadosActualizacion;
 
 CREATE TABLE #ResultadosActualizacion (
-    lprdlp_Cod VARCHAR(3) NOT NULL,
-    lprart_CodGen VARCHAR(20) NOT NULL,
-    lprart_CodEle1 VARCHAR(6) NOT NULL,
-    lprart_CodEle2 VARCHAR(6) NOT NULL,
-    lprart_CodEle3 VARCHAR(6) NOT NULL,
-    CostoOriginal MONEY NULL,
-    MonedaOriginal VARCHAR(3) NULL,
-    TipoCambioOriginal VARCHAR(3) NULL,
-    FechaCotizacionAplicada DATETIME NULL,
-    CotizacionAplicada FLOAT NULL,
-    CostoBasePesos MONEY NULL,
-    PrecioFinal MONEY NULL,
-    PrecioOriginal MONEY NULL,
-    InfoCotizacion VARCHAR(100) NULL
+    lprdlp_Cod           VARCHAR(3)   COLLATE DATABASE_DEFAULT NOT NULL,
+    lprart_CodGen        VARCHAR(20)  COLLATE DATABASE_DEFAULT NOT NULL,
+    lprart_CodEle1       VARCHAR(6)   COLLATE DATABASE_DEFAULT NOT NULL,
+    lprart_CodEle2       VARCHAR(6)   COLLATE DATABASE_DEFAULT NOT NULL,
+    lprart_CodEle3       VARCHAR(6)   COLLATE DATABASE_DEFAULT NOT NULL,
+    CostoOriginal        MONEY        NULL,
+    MonedaOriginal       VARCHAR(3)   COLLATE DATABASE_DEFAULT NULL,
+    TipoCambioOriginal   VARCHAR(3)   COLLATE DATABASE_DEFAULT NULL,
+    FechaCotizacionAplicada DATETIME  NULL,
+    CotizacionAplicada   FLOAT        NULL,
+    CostoBasePesos       MONEY        NULL,
+    PrecioFinal          MONEY        NULL,
+    PrecioOriginal       MONEY        NULL,
+    InfoCotizacion       VARCHAR(100) COLLATE DATABASE_DEFAULT NULL
 );
 
--- Calcular la fecha de ayer y hoy
+---------------------------------------------------------------------
+-- 2) Fechas útiles
+---------------------------------------------------------------------
 DECLARE @FechaAyer DATE = DATEADD(day, -1, CAST(GETDATE() AS DATE));
-DECLARE @FechaHoy DATE = CAST(GETDATE() AS DATE);
+DECLARE @FechaHoy  DATE = CAST(GETDATE() AS DATE);
 
--- Paso 1: Insertar nuevos artículos en la lista LBC si no existen
-INSERT INTO dbo.ListaPrec (lprdlp_Cod, lprart_CodGen, lprart_CodEle1, lprart_CodEle2, lprart_CodEle3, lpr_Precio, lpr_Imprime, lpr_FecMod, lprusu_Codigo)
+---------------------------------------------------------------------
+-- 3) Insertar nuevos artículos en LBC si no existen
+---------------------------------------------------------------------
+INSERT INTO dbo.ListaPrec (
+    lprdlp_Cod, lprart_CodGen, lprart_CodEle1, lprart_CodEle2, lprart_CodEle3,
+    lpr_Precio, lpr_Imprime, lpr_FecMod, lprusu_Codigo
+)
 SELECT
-    'LBC', -- Insertar en la lista LBC
-    a.art_CodGen,
-    a.art_CodEle1,
-    a.art_CodEle2,
-    a.art_CodEle3,
-    0, -- Precio inicial en cero
-    1, -- Asumimos que se imprime por defecto
+    'LBC',
+    a.art_CodGen, a.art_CodEle1, a.art_CodEle2, a.art_CodEle3,
+    0,
+    1,
     GETDATE(),
     'ADMIN'
 FROM dbo.Articulos a
 LEFT JOIN dbo.DtsArticulos da
     ON a.art_CodGen = da.art_CodGen
-    AND a.art_CodEle1 = da.art_CodEle1
-    AND a.art_CodEle2 = da.art_CodEle2
-    AND a.art_CodEle3 = da.art_CodEle3
+   AND a.art_CodEle1 = da.art_CodEle1
+   AND a.art_CodEle2 = da.art_CodEle2
+   AND a.art_CodEle3 = da.art_CodEle3
 WHERE a.art_CircVta = 1
   AND a.art_InclEnLisP = 1
   AND da.Dart_ActualizarListaPrec = 'S'
-  AND NOT EXISTS (SELECT 1 FROM dbo.ListaPrec lp
-                  WHERE lp.lprdlp_Cod = 'LBC'
-                    AND lp.lprart_CodGen = a.art_CodGen
-                    AND lp.lprart_CodEle1 = a.art_CodEle1
-                    AND lp.lprart_CodEle2 = a.art_CodEle2
-                    AND lp.lprart_CodEle3 = a.art_CodEle3);
+  AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.ListaPrec lp
+        WHERE lp.lprdlp_Cod      = 'LBC'
+          AND lp.lprart_CodGen   = a.art_CodGen
+          AND lp.lprart_CodEle1  = a.art_CodEle1
+          AND lp.lprart_CodEle2  = a.art_CodEle2
+          AND lp.lprart_CodEle3  = a.art_CodEle3
+  );
 
--- Paso 2: Calcular los nuevos precios y guardarlos en la tabla temporal (versión optimizada)
-INSERT INTO #ResultadosActualizacion (lprdlp_Cod, lprart_CodGen, lprart_CodEle1, lprart_CodEle2, lprart_CodEle3, CostoOriginal, MonedaOriginal, TipoCambioOriginal, FechaCotizacionAplicada, CotizacionAplicada, CostoBasePesos, PrecioFinal, PrecioOriginal, InfoCotizacion)
+---------------------------------------------------------------------
+-- 4) Calcular precios y registrar resultados (solo LBC, artículos R-%)
+--    Usamos CROSS APPLY para obtener el último ArtProv + cotizaciones
+---------------------------------------------------------------------
+INSERT INTO #ResultadosActualizacion (
+    lprdlp_Cod, lprart_CodGen, lprart_CodEle1, lprart_CodEle2, lprart_CodEle3,
+    CostoOriginal, MonedaOriginal, TipoCambioOriginal,
+    FechaCotizacionAplicada, CotizacionAplicada,
+    CostoBasePesos, PrecioFinal, PrecioOriginal, InfoCotizacion
+)
 SELECT
     lp.lprdlp_Cod,
-    lp.lprart_CodGen,
-    lp.lprart_CodEle1,
-    lp.lprart_CodEle2,
-    lp.lprart_CodEle3,
-    ap.apr_PrProv AS CostoOriginal,
-    ap.aprmon_CodigoPrProv AS MonedaOriginal,
-    ap.aprmtca_CodigoPrProv AS TipoCambioOriginal,
+    lp.lprart_CodGen, lp.lprart_CodEle1, lp.lprart_CodEle2, lp.lprart_CodEle3,
+
+    ap.apr_PrProv                                    AS CostoOriginal,
+    ap.aprmon_CodigoPrProv                           AS MonedaOriginal,
+    ap.aprmtca_CodigoPrProv                          AS TipoCambioOriginal,
+
     CASE
         WHEN ap.aprmon_CodigoPrProv = '1' THEN @FechaHoy
-        ELSE ISNULL(mc_ayer.mcot_fecha, mc_anterior.mcot_fecha)
-    END AS FechaCotizacionAplicada,
+        ELSE ISNULL(mc_ayer.mcot_fecha, mc_ant.mcot_fecha)
+    END                                              AS FechaCotizacionAplicada,
+
     CASE
         WHEN ap.aprmon_CodigoPrProv = '1' THEN 1
-        WHEN ap.aprmon_CodigoPrProv = '2' THEN ISNULL(mc_ayer.mcot_cotiza, mc_anterior.mcot_cotiza)
+        WHEN ap.aprmon_CodigoPrProv = '2' THEN ISNULL(mc_ayer.mcot_cotiza, mc_ant.mcot_cotiza)
         ELSE 1
-    END AS CotizacionAplicada,
-    ap.apr_PrProv *
+    END                                              AS CotizacionAplicada,
+
     CASE
-        WHEN ap.aprmon_CodigoPrProv = '1' THEN 1
-        WHEN ap.aprmon_CodigoPrProv = '2' THEN ISNULL(mc_ayer.mcot_cotiza, mc_anterior.mcot_cotiza)
-        ELSE 1
-    END AS CostoBasePesos,
-    (ap.apr_PrProv *
+        WHEN ap.aprmon_CodigoPrProv = '1' THEN ap.apr_PrProv
+        WHEN ap.aprmon_CodigoPrProv = '2' THEN ap.apr_PrProv * ISNULL(mc_ayer.mcot_cotiza, mc_ant.mcot_cotiza)
+        ELSE ap.apr_PrProv
+    END                                              AS CostoBasePesos,
+
+    /* PrecioFinal = costo base en pesos * (1 + margen mayorista/100) */
     CASE
-        WHEN ap.aprmon_CodigoPrProv = '1' THEN 1
-        WHEN ap.aprmon_CodigoPrProv = '2' THEN ISNULL(mc_ayer.mcot_cotiza, mc_anterior.mcot_cotiza)
-        ELSE 1
-    END) * (1 + ar2.ar2_MargenMay / 100) AS PrecioFinal,
-    lp.lpr_Precio AS PrecioOriginal,
+        WHEN ap.aprmon_CodigoPrProv = '1' THEN ap.apr_PrProv * (1 + ar2.ar2_MargenMay / 100.0)
+        WHEN ap.aprmon_CodigoPrProv = '2' THEN (ap.apr_PrProv * ISNULL(mc_ayer.mcot_cotiza, mc_ant.mcot_cotiza)) * (1 + ar2.ar2_MargenMay / 100.0)
+        ELSE ap.apr_PrProv * (1 + ar2.ar2_MargenMay / 100.0)
+    END                                              AS PrecioFinal,
+
+    lp.lpr_Precio                                    AS PrecioOriginal,
+
     CASE
         WHEN ap.aprmon_CodigoPrProv = '1' THEN 'Costo en Pesos (Cotización = 1)'
         WHEN mc_ayer.mcot_fecha IS NOT NULL THEN 'Cotización del día anterior'
-        WHEN mc_anterior.mcot_fecha IS NOT NULL THEN 'Cotización anterior (más antigua)'
+        WHEN mc_ant.mcot_fecha  IS NOT NULL THEN 'Cotización anterior (más antigua)'
         ELSE 'No se encontró cotización'
-    END AS InfoCotizacion
+    END                                              AS InfoCotizacion
 FROM dbo.ListaPrec lp
-INNER JOIN dbo.Articulos a ON lp.lprart_CodGen = a.art_CodGen AND lp.lprart_CodEle1 = a.art_CodEle1 AND lp.lprart_CodEle2 = a.art_CodEle2 AND lp.lprart_CodEle3 = a.art_CodEle3
-INNER JOIN dbo.Articulos2 ar2 ON a.art_CodGen = ar2.ar2art_CodGen AND a.art_CodEle1 = ar2.ar2art_CodEle1 AND a.art_CodEle2 = ar2.ar2art_CodEle2 AND a.art_CodEle3 = ar2.ar2art_CodEle3
-OUTER APPLY (
-    SELECT TOP 1 apr_PrProv, aprmon_CodigoPrProv, aprmtca_CodigoPrProv
-    FROM dbo.ArtProv
-    WHERE aprart_CodGen = lp.lprart_CodGen
-      AND aprart_CodEle1 = lp.lprart_CodEle1
-      AND aprart_CodEle2 = lp.lprart_CodEle2
-      AND aprart_CodEle3 = lp.lprart_CodEle3
-    ORDER BY apr_FecMod DESC
+INNER JOIN dbo.Articulos a
+    ON lp.lprart_CodGen  = a.art_CodGen
+   AND lp.lprart_CodEle1 = a.art_CodEle1
+   AND lp.lprart_CodEle2 = a.art_CodEle2
+   AND lp.lprart_CodEle3 = a.art_CodEle3
+INNER JOIN dbo.Articulos2 ar2
+    ON a.art_CodGen  = ar2.ar2art_CodGen
+   AND a.art_CodEle1 = ar2.ar2art_CodEle1
+   AND a.art_CodEle2 = ar2.ar2art_CodEle2
+   AND a.art_CodEle3 = ar2.ar2art_CodEle3
+-- último proveedor habitual para ese artículo
+CROSS APPLY (
+    SELECT TOP 1 ap.*
+    FROM dbo.ArtProv ap
+    WHERE ap.aprart_CodGen  = lp.lprart_CodGen
+      AND ap.aprart_CodEle1 = lp.lprart_CodEle1
+      AND ap.aprart_CodEle2 = lp.lprart_CodEle2
+      AND ap.aprart_CodEle3 = lp.lprart_CodEle3
+    ORDER BY ap.apr_FecMod DESC
 ) ap
-LEFT JOIN manager.dbo.mon_cam mc_ayer ON ap.aprmon_CodigoPrProv = mc_ayer.mon_codigo COLLATE DATABASE_DEFAULT AND ap.aprmtca_CodigoPrProv = mc_ayer.mtca_codigo COLLATE DATABASE_DEFAULT AND CAST(mc_ayer.mcot_fecha AS DATE) = @FechaAyer
-LEFT JOIN manager.dbo.mon_cam mc_anterior ON ap.aprmon_CodigoPrProv = mc_anterior.mon_codigo COLLATE DATABASE_DEFAULT AND ap.aprmtca_CodigoPrProv = mc_anterior.mtca_codigo COLLATE DATABASE_DEFAULT
-    AND mc_anterior.mcot_fecha = (
-        SELECT MAX(mca.mcot_fecha)
-        FROM manager.dbo.mon_cam mca
-        WHERE mca.mon_codigo = ap.aprmon_CodigoPrProv COLLATE DATABASE_DEFAULT
-          AND mca.mtca_codigo = ap.aprmtca_CodigoPrProv COLLATE DATABASE_DEFAULT
-          AND mca.mcot_fecha < @FechaAyer
-    )
+-- cotización del día anterior (ayer)
+OUTER APPLY (
+    SELECT TOP 1 m.*
+    FROM manager.dbo.mon_cam m
+    WHERE m.mon_codigo COLLATE DATABASE_DEFAULT = ap.aprmon_CodigoPrProv  COLLATE DATABASE_DEFAULT
+      AND m.mtca_codigo COLLATE DATABASE_DEFAULT = ap.aprmtca_CodigoPrProv COLLATE DATABASE_DEFAULT
+      AND CAST(m.mcot_fecha AS DATE) = @FechaAyer
+    ORDER BY m.mcot_fecha DESC
+) mc_ayer
+-- última cotización anterior a ayer
+OUTER APPLY (
+    SELECT TOP 1 m.*
+    FROM manager.dbo.mon_cam m
+    WHERE m.mon_codigo COLLATE DATABASE_DEFAULT = ap.aprmon_CodigoPrProv  COLLATE DATABASE_DEFAULT
+      AND m.mtca_codigo COLLATE DATABASE_DEFAULT = ap.aprmtca_CodigoPrProv COLLATE DATABASE_DEFAULT
+      AND m.mcot_fecha < @FechaAyer
+    ORDER BY m.mcot_fecha DESC
+) mc_ant
 WHERE lp.lprdlp_Cod = 'LBC'
   AND lp.lprart_CodGen LIKE 'R-%';
 
--- Paso 3: Actualizar la tabla ListaPrec con el nuevo precio (versión corregida)
+---------------------------------------------------------------------
+-- 5) Actualizar ListaPrec (collation-safe en el JOIN)
+---------------------------------------------------------------------
 UPDATE lp
-SET lp.lpr_Precio = CASE WHEN ra.PrecioFinal IS NULL THEN 0 ELSE ra.PrecioFinal END,
-    lp.lpr_FecMod = GETDATE(),
-    lp.lprusu_Codigo = 'ADMIN'
+SET lp.lpr_Precio     = ISNULL(ra.PrecioFinal, 0),
+    lp.lpr_FecMod     = GETDATE(),
+    lp.lprusu_Codigo  = 'ADMIN'
 FROM dbo.ListaPrec lp
 INNER JOIN #ResultadosActualizacion ra
-    ON lp.lprdlp_Cod = ra.lprdlp_Cod COLLATE DATABASE_DEFAULT
-    AND lp.lprart_CodGen = ra.lprart_CodGen COLLATE DATABASE_DEFAULT
-    AND lp.lprart_CodEle1 = ra.lprart_CodEle1 COLLATE DATABASE_DEFAULT
-    AND lp.lprart_CodEle2 = ra.lprart_CodEle2 COLLATE DATABASE_DEFAULT
-    AND lp.lprart_CodEle3 = ra.lprart_CodEle3 COLLATE DATABASE_DEFAULT
+    ON lp.lprdlp_Cod      COLLATE DATABASE_DEFAULT = ra.lprdlp_Cod
+   AND lp.lprart_CodGen   COLLATE DATABASE_DEFAULT = ra.lprart_CodGen
+   AND lp.lprart_CodEle1  COLLATE DATABASE_DEFAULT = ra.lprart_CodEle1
+   AND lp.lprart_CodEle2  COLLATE DATABASE_DEFAULT = ra.lprart_CodEle2
+   AND lp.lprart_CodEle3  COLLATE DATABASE_DEFAULT = ra.lprart_CodEle3
 WHERE lp.lprdlp_Cod = 'LBC'
   AND lp.lprart_CodGen LIKE 'R-%';
 
--- Paso 4: Insertar el registro de la actualización en la tabla de log
+---------------------------------------------------------------------
+-- 6) Registrar auditoría de cambios
+---------------------------------------------------------------------
 INSERT INTO dbo.CONE_RegistroActualizacionPrecios (
-    ListaPrecioCod, ArticuloCodGen, ArticuloCodEle1, ArticuloCodEle2, ArticuloCodEle3,
-    PrecioOriginal, PrecioNuevo, CostoOriginal, MonedaOriginal, TipoCambioOriginal,
-    FechaCotizacionAplicada, CotizacionAplicada, CostoBasePesos, MarkupAplicadoPorcentaje,
-    InfoCotizacion, UsuarioEjecucion
+    ListaPrecioCod,
+    ArticuloCodGen,
+    ArticuloCodEle1,
+    ArticuloCodEle2,
+    ArticuloCodEle3,
+    PrecioOriginal,
+    PrecioNuevo,
+    CostoOriginal,
+    MonedaOriginal,
+    TipoCambioOriginal,
+    FechaCotizacionAplicada,
+    CotizacionAplicada,
+    CostoBasePesos,
+    MarkupAplicadoPorcentaje,
+    InfoCotizacion,
+    UsuarioEjecucion
 )
 SELECT
     ra.lprdlp_Cod,
@@ -188,24 +242,21 @@ SELECT
     ra.FechaCotizacionAplicada,
     ra.CotizacionAplicada,
     ra.CostoBasePesos,
-    ISNULL(CASE
-        WHEN ra.CostoBasePesos <> 0 THEN (ra.PrecioFinal / ra.CostoBasePesos - 1) * 100
-        ELSE 0
-    END, 0),
+    ISNULL(CASE WHEN ra.CostoBasePesos <> 0 THEN (ra.PrecioFinal / ra.CostoBasePesos - 1) * 100 ELSE 0 END, 0),
     ra.InfoCotizacion,
     SUSER_SNAME()
 FROM #ResultadosActualizacion ra
 WHERE ra.lprdlp_Cod = 'LBC'
   AND ra.lprart_CodGen LIKE 'R-%';
 
--- Limpiar la tabla temporal
+---------------------------------------------------------------------
+-- 7) Limpieza y commit
+---------------------------------------------------------------------
 DROP TABLE #ResultadosActualizacion;
 
--- Aplicar los cambios de forma permanente
+--ROLLBACK TRANSACTION; -- <- para pruebas
 COMMIT TRANSACTION;
--- Si algo falla, puedes cancelar con: ROLLBACK TRANSACTION;
 
-GO
         `;
         
         const request = new sql.Request(transaction);

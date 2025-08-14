@@ -9,12 +9,6 @@ import ChequesActualizados from '../../components/CuadroChequesActualizados';
 import useChequesError from '../../../public/hooks/chequesPError'; // Importa el hook
 
 export default function ChequesP() {
-  const idModulo = typeof window !== 'undefined'
-    ? (() => {
-        const param = new URLSearchParams(window.location.search).get('idModulo');
-        return param ? parseInt(param, 10) : undefined;
-      })()
-    : undefined;
   const [cheques, setCheques] = useState([]);
   const [idCliente, setIdCliente] = useState(null);
   const [validar, setValidar] = useState(false);
@@ -24,8 +18,14 @@ export default function ChequesP() {
   const { importStatus, importMessage, validateExcelColumns, processChequeUpdates } = useChequesError();
 
   useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
+    // <-- MODIFICADO
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
   }, []);
 
   const formatFecha = (excelDateStr) => {
@@ -117,7 +117,8 @@ export default function ChequesP() {
   return (
     <div className={styles.body}>
       <ModuleForm
-        idModulo={idModulo}
+        idCliente = {idCliente}
+        nombreModulo="Cheques Propios"
         onImportar={handleImportar}
         estadoImportar={importStatus} // Pasa el estado del hook
         mensajeImportacion={importMessage} // Pasa el mensaje detallado del hook
