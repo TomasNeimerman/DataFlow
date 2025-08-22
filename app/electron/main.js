@@ -1,13 +1,19 @@
 // electron/main.js
 // ✅ Node 14 / Electron 13 friendly (CJS only)
 
-const { app, BrowserWindow, ipcMain, Menu, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const url = require('url');
-const Store = require('electron-store'); // ✅ único import
+const Store = require('electron-store');
 const { initializeConfig } = require('./userDbConfig.js');
+
+// Helpers (carpeta electron/helpers)
+const { buildAppMenu } = require('./helpers/menu');
+const { tryAutoResume } = require('./helpers/autoResume');
+const { getDeviceId, bindUserLocally } = require('./helpers/device');
+const { startSessionHeartbeat, stopSessionHeartbeat } = require('./helpers/session');
 
 // --- Detección de Windows Server 2012 o anteriores ---
 const isLegacyWindows =
@@ -36,9 +42,7 @@ const logFilePath = path.join(userDataPath, 'app_error.log');
 function writeToLog(message) {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] ${message}\n`;
-  try {
-    fs.appendFileSync(logFilePath, logMessage);
-  } catch (logError) {
+  try { fs.appendFileSync(logFilePath, logMessage); } catch (logError) {
     console.error(`Error al escribir en el log: ${logError.message}`);
   }
 }
@@ -52,25 +56,50 @@ process.on('uncaughtException', (error) => {
   writeToLog(`Uncaught Exception: ${error.message}\n${error.stack}`);
   setTimeout(() => app.quit(), 1000);
 });
-
 process.on('unhandledRejection', (reason, promise) => {
   writeToLog(`Unhandled Rejection: ${reason}\n${promise}`);
 });
 
-// --- Importación de servicios (tal cual los tenías) ---
+// --- Servicios ---
 const { getDatosEmpresaById, obtenerListadoEmpresas, guardarDatosEmpresaConfig } = require('./modulesService/Empresa');
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
-const { iniciarSesion: iniciarSesionService, obtenerModulos: obtenerModulosService } = require('./modulesService/Login');
-const { registroCheq3Sit: registro, actualizarCheque3: actualizarCheque3Service, obtenerCheque3Rechazado: cheque3R, getSituacion: situacion, getUpdatedbyRegistro: getupdreg } = require('./modulesService/Cheques3');
-const { getArticulos, getClases, getProveedores, getRubros, getTasasIVA, getArticuloDetailsById, claseExiste, rubroExiste, getProveedorDetails, getTasaIVADetails } = require('./modulesService/Articulos');
-const { obtenerPrecios: obtenerPreciosService, actualizarListaDePrecios: actualizarPreciosService, obtenerPreciosActualizados: obtenerPreciosActualizadosService } = require('./modulesService/Precios');
+const {
+  iniciarSesion: iniciarSesionService,
+  obtenerModulos: obtenerModulosService,
+  verificarSesionActiva: verificarSesionActivaService,
+  registrarSesionActiva: registrarSesionActivaService,
+  finalizarSesionActiva: finalizarSesionActivaService,
+  heartbeatSesionActiva: heartbeatSesionActivaService
+} = require('./modulesService/Login');
+const {
+  registroCheq3Sit: registro,
+  actualizarCheque3: actualizarCheque3Service,
+  obtenerCheque3Rechazado: cheque3R,
+  getSituacion: situacion,
+  getUpdatedbyRegistro: getupdreg
+} = require('./modulesService/Cheques3');
+const {
+  getArticulos, getClases, getProveedores, getRubros,
+  getTasasIVA, getArticuloDetailsById, claseExiste, rubroExiste,
+  getProveedorDetails, getTasaIVADetails
+} = require('./modulesService/Articulos');
+const {
+  obtenerPrecios: obtenerPreciosService,
+  actualizarListaDePrecios: actualizarPreciosService,
+  obtenerPreciosActualizados: obtenerPreciosActualizadosService,
+  obtenerPrecioActualizador: obtenerPrecioActualizadorService,
+  updatePrecioActualizador: updatePrecioActualizadorService,
+} = require('./modulesService/Precios');
 
-// --- Estado global mínimo ---
+// --- Estado global ---
 const isDev = !app.isPackaged;
 let mainWindow;
 let store;
+let activeSession = null;  // { usuario, deviceId, token }
+let menuWasSet = false;    // 👈 para no pisar el menú dinámico
+let stopHeartbeatFn = null;
 
-// --- Helper: esperar a que Next dev responda ---
+// --- Helpers locales ---
 function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
   const http = require('http');
   const u = new URL(urlToPing);
@@ -79,10 +108,7 @@ function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const tick = () => {
-      const req = http.request(opts, (res) => {
-        res.resume();
-        resolve();
-      });
+      const req = http.request(opts, (res) => { res.resume(); resolve(); });
       req.on('error', () => {
         if (Date.now() - start > timeoutMs) return reject(new Error('Dev server no respondió a tiempo'));
         setTimeout(tick, intervalMs);
@@ -93,31 +119,29 @@ function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
   });
 }
 
+// Aplica menú dinámico y marca bandera (para no pisarlo luego)
+function applyDynamicMenu(modulos) {
+  try {
+    buildAppMenu(mainWindow, isDev, modulos || []);
+    menuWasSet = true;
+    writeToLog(`Menú dinámico aplicado (${(modulos || []).length} módulos).`);
+  } catch (e) {
+    writeToLog(`Error al aplicar menú dinámico: ${e.message}`);
+  }
+}
+
 async function createMainWindow() {
   writeToLog('Iniciando createMainWindow...');
-  store = new Store(); // ✅ un solo Store
-  store.clear();
-  // 🔒 (Opcional) Single instance lock - descomentar si querés evitar dobles instancias
-  // const gotLock = app.requestSingleInstanceLock();
-  // if (!gotLock) return app.quit();
-  // app.on('second-instance', () => {
-  //   if (mainWindow) {
-  //     if (mainWindow.isMinimized()) mainWindow.restore();
-  //     mainWindow.focus();
-  //   }
-  // });
+  store = new Store(); // NO hacer store.clear()
 
-  // Preload opcional (no rompas si no existe)
   const preloadPath = path.join(__dirname, 'preload.js');
   const preloadExists = fs.existsSync(preloadPath);
-  if (!preloadExists) {
-    writeToLog(`PRELOAD no encontrado: ${preloadPath}. Continuo sin preload.`);
-  }
+  if (!preloadExists) writeToLog(`PRELOAD no encontrado: ${preloadPath}. Continuo sin preload.`);
 
   const windowOptions = {
     width: 1280,
     height: 920,
-    show: true, // 👈 mostrar de una en DEV para evitar que quede "invisible"
+    show: true,
     webPreferences: {
       preload: preloadExists ? preloadPath : undefined,
       contextIsolation: true,
@@ -127,7 +151,6 @@ async function createMainWindow() {
       enableRemoteModule: false,
     },
   };
-
   if (isLegacyWindows) {
     windowOptions.webPreferences.enableBlinkFeatures = '';
     windowOptions.webPreferences.disableBlinkFeatures = 'Auxclick';
@@ -143,50 +166,58 @@ async function createMainWindow() {
 
   mainWindow.webContents.on('did-fail-load', (e, code, desc, theUrl, isMainFrame) => {
     writeToLog(`Carga fallida: ${theUrl} (${code}): ${desc} (mainFrame=${isMainFrame})`);
-    console.error('[Electron] did-fail-load', code, desc, theUrl);
   });
-
   mainWindow.webContents.on('render-process-gone', (_, details) => {
     writeToLog(`Render terminado: ${details.reason}, Código: ${details.exitCode}`);
-    console.error('[Electron] render-process-gone', details);
   });
-
   mainWindow.webContents.on('did-finish-load', () => {
     writeToLog('Carga web finalizada.');
   });
 
-  // --- DEV: NO embebemos Next. Usamos el next dev externo en :3000 ---
+  // --- DEV / PROD + Auto-Resume ---
+  const loadStartUrl = async (base) => {
+    // intentamos auto-resume y construimos menú dinámico si corresponde
+    const { startPath, active, modulos } = await tryAutoResume({
+      store,
+      getDeviceId: () => getDeviceId(store),
+      verificarSesionActiva: (payload) => verificarSesionActivaService(payload),
+      registrarSesionActiva: (payload) => registrarSesionActivaService(payload),
+      obtenerModulos: (idCliente) => obtenerModulosService(idCliente),
+      buildAppMenu: (mods) => applyDynamicMenu(mods),
+      startSessionHeartbeat: ({ usuario, deviceId }) => {
+        stopHeartbeatFn?.(); // cancela si hubiera uno corriendo
+        stopHeartbeatFn = startSessionHeartbeat({ usuario, deviceId, onTick: heartbeatSesionActivaService });
+      },
+      writeToLog
+    });
+
+    const target = `${base}${startPath || '/Login'}`;
+    writeToLog(`Navegando a: ${target} (autoResume=${active ? 'sí' : 'no'})`);
+    await mainWindow.loadURL(target);
+  };
+
   if (isDev) {
     const DEV_BASE = 'http://localhost:3000';
-    const DEV_URL = DEV_BASE + '/Login';
-
-    // Extra: si ".next/trace" quedó mal tipado como carpeta, limpiarlo
     try {
-      const projectRoot = path.resolve(__dirname, '..');
-      const tracePath = path.join(projectRoot, '.next', 'trace');
-      if (fs.existsSync(tracePath)) {
-        const st = fs.statSync(tracePath);
-        if (st.isDirectory()) {
+      // sanity fix para .next/trace corrupto
+      try {
+        const projectRoot = path.resolve(__dirname, '..');
+        const tracePath = path.join(projectRoot, '.next', 'trace');
+        if (fs.existsSync(tracePath) && fs.statSync(tracePath).isDirectory()) {
           fs.rmSync(tracePath, { recursive: true, force: true });
           writeToLog('DEV: se removió carpeta .next/trace inválida');
         }
-      }
-    } catch (_) {}
+      } catch {}
 
-    try {
       writeToLog('DEV: esperando http://localhost:3000 ...');
       await waitForUrl(DEV_BASE, 30000, 500);
-      writeToLog('DEV: dev server OK, cargando /Login');
-      await mainWindow.loadURL(DEV_URL);
+      await loadStartUrl(DEV_BASE);
+      try { mainWindow.webContents.openDevTools(); } catch {}
     } catch (e) {
       writeToLog(`ERROR cargando DEV URL: ${e.message}\n${e.stack}`);
       await mainWindow.loadURL('data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>');
     }
-
-    // DevTools en dev
-    try { mainWindow.webContents.openDevTools(); } catch (_) {}
   } else {
-    // --- PROD: Embebemos Next + servidor interno ---
     const { createServer } = require('http');
     const next = require('next');
 
@@ -196,31 +227,17 @@ async function createMainWindow() {
     try {
       const nextApp = next({ dev: false, dir: app.getAppPath() });
       await nextApp.prepare();
-      writeToLog('Next.js listo (PROD).');
-
       const handle = nextApp.getRequestHandler();
 
-      let server;
-      let portFound = false;
-
+      let server, portFound = false;
       for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
         try {
           server = createServer((req, res) => handle(req, res));
           await new Promise((resolve, reject) => {
-            server.listen(currentPort, () => {
-              writeToLog(`Servidor en http://localhost:${currentPort}`);
-              portFound = true;
-              resolve();
-            });
+            server.listen(currentPort, () => { writeToLog(`Servidor en http://localhost:${currentPort}`); portFound = true; resolve(); });
             server.once('error', (err) => {
-              if (err && err.code === 'EADDRINUSE') {
-                writeToLog(`Puerto ${currentPort} en uso`);
-                currentPort++;
-                try { server.close(); } catch (_) {}
-                reject(err);
-              } else {
-                reject(err);
-              }
+              if (err && err.code === 'EADDRINUSE') { writeToLog(`Puerto ${currentPort} en uso`); currentPort++; try { server.close(); } catch {} reject(err); }
+              else reject(err);
             });
           });
           if (portFound) break;
@@ -232,8 +249,8 @@ async function createMainWindow() {
         }
       }
 
-      const PROD_URL = `http://localhost:${currentPort}/Login`;
-      await mainWindow.loadURL(PROD_URL);
+      const PROD_BASE = `http://localhost:${currentPort}`;
+      await loadStartUrl(PROD_BASE);
     } catch (error) {
       writeToLog(`Error al preparar Next (PROD): ${error.message}\n${error.stack}`);
       await mainWindow.loadURL('data:text/html,<h1>Error iniciando servidor interno</h1>');
@@ -242,71 +259,50 @@ async function createMainWindow() {
     }
   }
 
-  // Menú base
-  const template = [{
+  // Menú base: solo si NO se aplicó el dinámico antes
+  const baseTemplate = [{
     label: 'Menú',
     submenu: [
-      {
-        label: 'Toggle DevTools',
-        accelerator: 'F12',
-        click: () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.toggleDevTools();
-            writeToLog('DevTools toggled.');
-          }
-        }
-      },
-      {
-        label: 'Reload',
-        accelerator: 'F5',
-        click: () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.reload();
-            writeToLog('Ventana recargada.');
-          }
-        }
-      },
+      { label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
+      { label: 'Reload', accelerator: 'F5', click: () => mainWindow?.reload() },
       { type: 'separator' },
       { label: 'Salir', role: 'quit', accelerator: 'Esc' },
     ]
   }];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  if (!menuWasSet) {
+    Menu.setApplicationMenu(Menu.buildFromTemplate(baseTemplate));
+    writeToLog('Menú base aplicado (no había menú dinámico).');
+  }
 }
 
-// --- Ciclo de vida de la app ---
+// --- Ciclo de vida ---
 app.whenReady().then(() => {
   writeToLog('App lista.');
-
-  // Crear carpeta temporal
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
   if (!fs.existsSync(tempFolderPath)) {
-    try {
-      fs.mkdirSync(tempFolderPath);
-      writeToLog(`Carpeta temporal creada: ${tempFolderPath}`);
-    } catch (e) {
-      writeToLog(`Error creando carpeta temporal: ${e.message}`);
-    }
+    try { fs.mkdirSync(tempFolderPath); writeToLog(`Carpeta temporal creada: ${tempFolderPath}`); }
+    catch (e) { writeToLog(`Error creando carpeta temporal: ${e.message}`); }
   }
+  setTimeout(() => { try { createMainWindow(); } catch (e) { writeToLog(`Error en createMainWindow: ${e.message}\n${e.stack}`); } }, isLegacyWindows ? 2000 : 0);
+});
 
-  setTimeout(() => {
-    try {
-      createMainWindow();
-    } catch (e) {
-      writeToLog(`Error en createMainWindow: ${e.message}\n${e.stack}`);
+app.on('before-quit', async () => {
+  try {
+    if (activeSession?.usuario && activeSession?.deviceId) {
+      await finalizarSesionActivaService?.({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
     }
-  }, isLegacyWindows ? 2000 : 0);
+  } catch (e) {
+    writeToLog(`finalizarSesionActiva on quit: ${e?.message}`);
+  } finally {
+    try { stopHeartbeatFn?.(); } catch {}
+  }
 });
 
 app.on('window-all-closed', () => {
   writeToLog('Cerrando ventanas...');
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
-  try {
-    fs.rmSync(tempFolderPath, { recursive: true, force: true });
-    writeToLog(`Carpeta temporal eliminada: ${tempFolderPath}`);
-  } catch (e) {
-    writeToLog(`Error eliminando temp: ${e.message}`);
-  }
+  try { fs.rmSync(tempFolderPath, { recursive: true, force: true }); writeToLog(`Carpeta temporal eliminada: ${tempFolderPath}`); }
+  catch (e) { writeToLog(`Error eliminando temp: ${e.message}`); }
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -315,160 +311,155 @@ app.on('activate', () => {
 });
 
 // --- Electron Store IPC ---
-ipcMain.handle('electron-store-get', (event, key) => {
-  return store ? store.get(key) : undefined;
-});
-ipcMain.handle('electron-store-set', (event, { key, value }) => {
-  if (store) store.set(key, value);
+ipcMain.handle('electron-store-get', (event, key) => store ? store.get(key) : undefined);
+ipcMain.handle('electron-store-set', (event, { key, value }) => { if (store) store.set(key, value); });
+ipcMain.handle('whoami', () => ({
+  user: store?.get('user') || null,
+  boundUser: store?.get('boundUser') || null,
+  deviceId: store?.get('deviceId') || null
+}));
+
+// (Opcional) refrescar menú dinámico desde el renderer
+ipcMain.handle('menu:set-modules', (event, modulos) => {
+  applyDynamicMenu(Array.isArray(modulos) ? modulos : []);
+  return { success: true };
 });
 
-// --- Login e inyección de menú dinámico ---
+ipcMain.handle('logout', async () => {
+  try {
+    if (activeSession?.usuario && activeSession?.deviceId) {
+      await finalizarSesionActivaService?.({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
+    }
+    try { stopHeartbeatFn?.(); } catch {}
+    activeSession = null;
+    store.delete('jwtToken');
+    // si querés permitir cambiar de usuario en esta máquina:
+    // store.delete('boundUser');
+    menuWasSet = false; // el próximo arranque aplicará base o lo que corresponda
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+// --- Login + menú dinámico ---
 ipcMain.handle('login', async (event, { usuario, contraseña }) => {
   writeToLog(`IPC: Intento de login para usuario: ${usuario}`);
   try {
-    const result = await iniciarSesionService({ usuario, contraseña });
-
-    if (result.success && result.user && result.token && result.user.IdCliente) {
-      writeToLog(`Login exitoso para IdCliente: ${result.user.IdCliente}`);
-
-      store.set("idCliente", result.user.IdCliente);
-      store.set("jwtToken", result.token);
-      store.set("fechaInicio", new Date().toISOString());
-
-      const modulesResult = await obtenerModulosService(result.user.IdCliente);
-      if (!modulesResult.success) {
-        writeToLog(`Error al obtener módulos después del login: ${modulesResult.message}`);
-        return { success: false, message: modulesResult.message };
-      }
-
-      const modulos = modulesResult.modulos.map(modulo => ({
-        id: modulo.id,
-        nombre: modulo.nombre,
-        texto: modulo.texto,
-        icono: modulo.icono,
-        link: modulo.link,
-        path: modulo.pathExcel,
-        countClientesPorModulo: modulo.countClientesPorModulo,
-      }));
-
-      const currentPort = (isDev ? 3000 : (new URL(mainWindow.webContents.getURL()).port)) || 3000;
-
-      const template = [
-        {
-          label: 'Menú',
-          submenu: [
-            ...modulos.map(modulo => ({
-              label: modulo.nombre,
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  const base = isDev ? `http://localhost:3000` : `http://localhost:${currentPort}`;
-                  mainWindow.loadURL(`${modulo.link}?modulo=${encodeURIComponent(modulo.nombre)}`);
-                  writeToLog(`Navegando a módulo: ${modulo.link}`);
-                }
-              },
-            })),
-            { type: 'separator' },
-            {
-              label: 'Inicio',
-              accelerator: 'Home',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  const base = isDev ? `http://localhost:3000` : new URL(mainWindow.webContents.getURL()).origin;
-                  mainWindow.loadURL(`${base}/Index`);
-                }
-              }
-            },
-            {
-              label: 'Toggle DevTools',
-              accelerator: 'F12',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.toggleDevTools();
-                  writeToLog('DevTools toggled via menu.');
-                }
-              },
-            },
-            {
-              label: 'Actualizar',
-              accelerator: 'F5',
-              click: () => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.reload();
-                  writeToLog('Window reloaded via menu.');
-                }
-              },
-            },
-            { role: 'quit', label: 'Salir', accelerator: 'Esc' },
-          ],
-        },
-      ];
-
-      const menu = Menu.buildFromTemplate(template);
-      Menu.setApplicationMenu(menu);
-      writeToLog('Menú de la aplicación actualizado con módulos.');
-
-      return { success: true, user: result.user, modulos, token: result.token };
+    // (A) Binding local
+    const bind = bindUserLocally(store, usuario);
+    if (!bind.ok) {
+      writeToLog(`Login bloqueado por vinculación local: ${bind.message}`);
+      return { success: false, message: bind.message };
     }
 
-    writeToLog(`Login fallido: ${result.message || 'Credenciales inválidas'}`);
-    return result;
+    // (B) Autenticación
+    const result = await iniciarSesionService({ usuario, contraseña });
+    if (!(result?.success && result.user && result.token && result.user.IdCliente)) {
+      const msg = result?.message || 'Credenciales inválidas';
+      writeToLog(`Login fallido: ${msg}`);
+      return { success: false, message: msg };
+    }
+
+    // (C) Sesión única global (otra máquina)
+    const deviceId = getDeviceId(store);
+    const check = await verificarSesionActivaService?.({ usuario, deviceId });
+    if (check && check.success === false) {
+      const msg = check.message || 'Esta cuenta ya tiene una sesión activa en otro equipo.';
+      writeToLog(`Login bloqueado por sesión activa: ${msg}`);
+      return { success: false, message: msg, code: 'SESSION_ACTIVE_ELSEWHERE' };
+    }
+    const lock = await registrarSesionActivaService?.({ usuario, deviceId, token: result.token });
+    if (lock && lock.success === false) {
+      const msg = lock.message || 'No fue posible registrar la sesión (ya activa en otro equipo).';
+      writeToLog(`No se pudo registrar sesión: ${msg}`);
+      return { success: false, message: msg, code: 'SESSION_LOCK_FAILED' };
+    }
+
+    // (D) Persistencia local
+    store.set("idCliente", result.user.IdCliente);
+    store.set("user", usuario);
+    store.set("jwtToken", result.token);
+    store.set("fechaInicio", new Date().toISOString());
+    store.set("deviceId", deviceId);
+    store.set("boundUser", usuario);
+
+    // Heartbeat
+    activeSession = { usuario, deviceId, token: result.token };
+    try { stopHeartbeatFn?.(); } catch {}
+    stopHeartbeatFn = startSessionHeartbeat({ usuario, deviceId, onTick: heartbeatSesionActivaService });
+
+    // (E) Módulos + menú
+    const modulesResult = await obtenerModulosService(result.user.IdCliente);
+    if (!modulesResult?.success) {
+      writeToLog(`Error al obtener módulos después del login: ${modulesResult?.message}`);
+      try { await finalizarSesionActivaService?.({ usuario, deviceId }); } catch {}
+      try { stopHeartbeatFn?.(); } catch {}
+      activeSession = null;
+      return { success: false, message: modulesResult?.message || 'No se pudo cargar módulos.' };
+    }
+
+    const modulos = modulesResult.modulos.map(m => ({
+      id: m.id,
+      nombre: m.nombre,
+      texto: m.texto,
+      icono: m.icono,
+      link: m.link,
+      pathExcel: m.pathExcel,
+      countClientesPorModulo: m.countClientesPorModulo,
+    }));
+
+    applyDynamicMenu(modulos);
+
+    return { success: true, user: result.user, modulos, token: result.token };
   } catch (error) {
     const errorMessage = `Error en IPC login handler: ${error.message}\n${error.stack}`;
     writeToLog(errorMessage);
-    console.error(errorMessage);
+    try {
+      if (activeSession?.usuario && activeSession?.deviceId) {
+        await finalizarSesionActivaService?.({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
+      }
+    } catch {}
+    try { stopHeartbeatFn?.(); } catch {}
+    activeSession = null;
     return { success: false, message: `Error interno al intentar iniciar sesión: ${error.message}` };
   }
 });
 
-// --- Helper para registrar handlers con try/catch ---
+// --- Otros IPC HANDLERS ---
 const createIpcHandler = (name, handler) => {
   ipcMain.handle(name, async (event, ...args) => {
-    try {
-      const result = await handler(...args);
-      return result;
-    } catch (error) {
+    try { return await handler(...args); }
+    catch (error) {
       const errorMessage = `Error en IPC ${name}: ${error.message}\n${error.stack}`;
       writeToLog(errorMessage);
-      console.error(errorMessage);
       return { success: false, message: `Error en ${name}: ${error.message}` };
     }
   });
 };
 
-// --- Otros IPC HANDLERS (tus servicios) ---
 ipcMain.handle('get-list-empresas', async (event, idCliente) => {
-  try {
-    const empresas = await obtenerListadoEmpresas(idCliente);
-    return { success: true, data: empresas };
-  } catch (error) {
-    writeToLog(`Error en IPC get-list-empresas: ${error.message}`);
-    return { success: false, message: error.message };
-  }
+  try { const empresas = await obtenerListadoEmpresas(idCliente); return { success: true, data: empresas }; }
+  catch (error) { writeToLog(`Error en IPC get-list-empresas: ${error.message}`); return { success: false, message: error.message }; }
 });
-
 ipcMain.handle('get-empresa-by-id', async (event, idEmpresa) => {
-  try {
-    const datosEmpresa = await getDatosEmpresaById(idEmpresa);
-    return { success: true, data: datosEmpresa };
-  } catch (error) {
-    writeToLog(`Error en IPC get-empresa-by-id: ${error.message}`);
-    return { success: false, message: error.message };
-  }
+  try { const datosEmpresa = await getDatosEmpresaById(idEmpresa); return { success: true, data: datosEmpresa }; }
+  catch (error) { writeToLog(`Error en IPC get-empresa-by-id: ${error.message}`); return { success: false, message: error.message }; }
 });
-
 ipcMain.handle('get-empresa-config', async (event, empresaData) => {
-  try {
-    await guardarDatosEmpresaConfig(empresaData);
-    return { success: true, message: 'Configuración guardada exitosamente.' };
-  } catch (error) {
-    writeToLog(`Error en IPC get-empresa-config: ${error.message}`);
-    return { success: false, message: error.message };
-  }
+  try { await guardarDatosEmpresaConfig(empresaData); return { success: true, message: 'Configuración guardada exitosamente.' }; }
+  catch (error) { writeToLog(`Error en IPC get-empresa-config: ${error.message}`); return { success: false, message: error.message }; }
 });
 
 createIpcHandler('get-modules', obtenerModulosService);
 createIpcHandler('obtener-cheques', obtenerChequeService);
-createIpcHandler('update-cheques', actualizarChequeService);
+createIpcHandler('update-cheques', (payload) =>
+  actualizarChequeService({
+    ...payload,
+    usuario: (store && store.get?.('user')) || payload?.usuario || 'desconocido'
+  })
+);
+
 createIpcHandler('update-cheque3', ({ IDCheque, sit }) => actualizarCheque3Service(IDCheque, sit));
 createIpcHandler('cheque3-rechazado', cheque3R);
 createIpcHandler('cheque3-situacion', situacion);
@@ -485,39 +476,73 @@ createIpcHandler('get-proveedor-details', getProveedorDetails);
 createIpcHandler('get-tasa-iva-details', getTasaIVADetails);
 createIpcHandler('get-updated-fecha', getupdreg);
 createIpcHandler('get-precios', obtenerPreciosService);
-createIpcHandler('actualizar-precios', actualizarPreciosService);
 createIpcHandler('get-precios-actualizados', obtenerPreciosActualizadosService);
+ipcMain.handle('precios-actualizador-get', async (_event, keys) => {
+  try {
+    return await obtenerPrecioActualizadorService(keys);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+ipcMain.handle('precios-actualizador-update', async (_event, payload) => {
+  try {
+    return await updatePrecioActualizadorService(payload);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+
+ipcMain.handle('actualizar-precios', async (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const send = (percent, stage, message) => {
+    try {
+      event.sender.send('precios:update-progress', { percent, stage, message });
+      if (win && !win.isDestroyed()) {
+        const clamped = Math.max(0, Math.min(100, percent)) / 100;
+        win.setProgressBar(clamped);
+      }
+    } catch {}
+  };
+
+  try {
+    send(3, 'Preparando', 'Iniciando actualización…');
+    const result = await actualizarPreciosService({ onProgress: send });
+    send(100, 'Finalizado', 'Completado');
+    setTimeout(() => { try { win?.setProgressBar(-1); } catch {} }, 500);
+    return result;
+  } catch (e) {
+    send(100, 'Error', e.message || 'Error');
+    try { win?.setProgressBar(-1); } catch {}
+    return { success: false, message: e.message || 'Error al actualizar precios' };
+  }
+});
 
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => {
   try {
     if (!relativeFilePath) throw new Error("No se proporcionó ruta.");
     const appBasePath = app.getAppPath();
     const absoluteFilePath = path.resolve(appBasePath, relativeFilePath);
-    writeToLog(`Abriendo archivo: ${absoluteFilePath}`);
-
     if (!fs.existsSync(absoluteFilePath)) throw new Error("Archivo no encontrado.");
 
-    if (isLegacyWindows) {
-      const { exec } = require('child_process');
-      exec(`start "" "${absoluteFilePath}"`, (error) => {
-        if (error) writeToLog(`exec error: ${error.message}`);
-        else writeToLog("Archivo abierto con exec.");
+    const fileUrl = `file://${absoluteFilePath}`;
+    const win = event.sender.getOwnerBrowserWindow();
+    win.webContents.downloadURL(fileUrl);
+
+    session.defaultSession.once('will-download', (event, item) => {
+      const fileName = item.getFilename();
+      const downloadsPath = app.getPath('downloads');
+      const savePath = path.join(downloadsPath, fileName);
+      item.setSavePath(savePath);
+      item.once('done', (e, state) => {
+        if (state === 'completed') shell.openPath(savePath);
+        else console.error(`Descarga fallida: ${state}`);
       });
-      return { success: true, message: "Plantilla abierta." };
-    } else {
-      const result = await shell.openPath(absoluteFilePath);
-      if (result) {
-        const { exec } = require('child_process');
-        exec(`start "" "${absoluteFilePath}"`, (error) => {
-          if (error) writeToLog(`Fallback exec error: ${error.message}`);
-          else writeToLog("Fallback Excel abierto.");
-        });
-        return { success: true, message: "Plantilla abierta con fallback." };
-      }
-      return { success: true, message: "Plantilla abierta automáticamente." };
-    }
+    });
+
+    return { success: true, message: "Descarga iniciada automáticamente." };
   } catch (error) {
-    writeToLog(`download-and-open-excel error: ${error.message}`);
     return { success: false, message: error.message };
   }
 });

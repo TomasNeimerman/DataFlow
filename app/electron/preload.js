@@ -1,5 +1,6 @@
 // electron/preload.js
 const { contextBridge, ipcRenderer } = require('electron');
+const { default: build } = require('next/dist/build');
 
 
 contextBridge.exposeInMainWorld('api', {
@@ -31,8 +32,16 @@ contextBridge.exposeInMainWorld('api', {
     getPrecios: () => ipcRenderer.invoke('get-precios'),
     actualizarPrecios: () => ipcRenderer.invoke('actualizar-precios'),
     getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
+    obtenerPrecioActualizador: (keys) => ipcRenderer.invoke('precios-actualizador-get', keys),
+    updatePrecioActualizador: (payload) => ipcRenderer.invoke('precios-actualizador-update', payload),
     getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),
     setStoreValue: (key, value) => ipcRenderer.invoke('electron-store-set', { key, value }),
+    buildMenu: (modulos) => ipcRenderer.invoke('build-menu', modulos),
+    on: (cb) => {
+    const handler = (_evt, payload) => cb(payload); // { percent, stage, message }
+    ipcRenderer.on('precios:update-progress', handler);
+    return () => ipcRenderer.removeListener('precios:update-progress', handler);
+  }
 });
 
 document.addEventListener('keydown', (e) => {

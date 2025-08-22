@@ -12,7 +12,7 @@ const EmpresaSelected = () => {
       if (window.api) {
         // <-- MODIFICADO: Obtener ambos valores con la API de store
         const id = await window.api.getStoreValue('idCliente');
-        const nombreEmpresa = await window.api.getStoreValue('selectedEmpresaId');
+        const nombreEmpresa = await window.api.getStoreValue('selectedEmpresaNombre');
         
         setIdCliente(id);
 

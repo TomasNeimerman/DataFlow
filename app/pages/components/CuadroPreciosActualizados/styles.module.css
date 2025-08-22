@@ -1,0 +1,69 @@
+.container {
+  padding: 2rem;
+  background-color: #fff;
+  margin-top: 5px;
+  border-radius: 12px;
+  width: 40%;
+  margin-bottom: 20px;
+  font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+  overflow-y: auto;
+  overflow-x: auto;
+  max-height: 400px;
+}
+.container::-webkit-scrollbar{
+  display: none;
+}
+.title {
+  font-size: 1.6rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+  color: #111;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid #ddd;
+}
+.headerRow {
+  background-color: #f0f0f0;
+}
+.ok {
+  color: #007700;
+}
+.error {
+  color: #d00;
+  font-weight: bold;
+}
+.noResults {
+  text-align: center;
+  color: #6c757d;
+  font-style: italic;
+}
+.headerContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.toggleButton {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 5px;
+  background-color: #e82c02;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.3s ease;
+}
+.toggleButton:hover {
+  background-color: #d42602;
+}
+.tractualizado {
+  background-color: #d8ffd8;
+}

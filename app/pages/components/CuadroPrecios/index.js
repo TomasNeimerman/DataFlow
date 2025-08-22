@@ -1,100 +1,68 @@
-"use client"
-import React, { useState, useEffect } from "react";
+"use client";
+import React, { useState } from "react";
 import styles from './styles.module.css';
 
-const CuadroPrecios = ({ precios, onActualizar, isUpdating, error, successMessage }) => {
-// Estados para el ordenamiento
-const [sortColumn, setSortColumn] = useState(null);
-const [sortDirection, setSortDirection] = useState('asc');
-const [sortedPrecios, setSortedPrecios] = useState([]);
+const CuadroPrecios = ({ precios, onActualizar, isUpdating, progress, error, successMessage }) => {
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
 
-// useEffect para aplicar el ordenamiento
-useEffect(() => {
-    if (!precios || precios.length === 0) {
-        setSortedPrecios([]);
-        return;
-    }
+  const handleSort = (columnName) => {
+    if (sortColumn === columnName) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    else { setSortColumn(columnName); setSortDirection('asc'); }
+  };
 
-    const sortablePrecios = [...precios];
+  const renderSortArrow = (columnName) => (
+    <span style={{ marginLeft: 5 }}>
+      <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'asc' ? 'bold' : 'normal' }}>▲</span>
+      <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'desc' ? 'bold' : 'normal' }}>▼</span>
+    </span>
+  );
 
-    if (sortColumn) {
-        sortablePrecios.sort((a, b) => {
-            let valA = a?.[sortColumn];
-            let valB = b?.[sortColumn];
+  const pct = Math.max(0, Math.min(100, progress?.percent ?? 0));
 
-            if (sortColumn === 'lpr_Precio') {
-                valA = parseFloat(String(valA).replace(/[^0-9,-]+/g, "").replace(",", "."));
-                valB = parseFloat(String(valB).replace(/[^0-9,-]+/g, "").replace(",", "."));
-                if (isNaN(valA)) valA = 0;
-                if (isNaN(valB)) valB = 0;
-            } else if (sortColumn === 'lpr_FecMod') {
-                valA = new Date(valA)?.getTime() || 0;
-                valB = new Date(valB)?.getTime() || 0;
-            } else if (typeof valA === 'string' && typeof valB === 'string') {
-                valA = valA.toLowerCase();
-                valB = valB.toLowerCase();
-            }
-
-            if (valA < valB) {
-                return sortDirection === 'asc' ? -1 : 1;
-            }
-            if (valA > valB) {
-                return sortDirection === 'asc' ? 1 : -1;
-            }
-            return 0;
-        });
-    }
-    setSortedPrecios(sortablePrecios);
-}, [precios, sortColumn, sortDirection]);
-
-// Función para manejar el clic en el encabezado
-const handleSort = (columnName) => {
-    if (sortColumn === columnName) {
-        setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-        setSortColumn(columnName);
-        setSortDirection('asc');
-    }
-};
-
-// Función para renderizar las flechas de ordenamiento
-const renderSortArrow = (columnName) => {
-    return (
-        <span style={{ marginLeft: '5px' }}>
-            <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'asc' ? 'bold' : 'normal' }}>▲</span>
-            <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'desc' ? 'bold' : 'normal' }}>▼</span>
-        </span>
-    );
-};
-
-return (
+  return (
     <div className={styles.container}>
-        <div className={styles.headerContainer}>
-            <h2 className={styles.title}>Actualizador de Precios</h2>
-            {/* Botón de actualizar dentro del headerContainer */}
-            
-        </div>
+      <div className={styles.headerContainer}>
+        <h2 className={styles.title}>Generador de Listas de Precios Avanzado</h2>
+      </div>
 
-        {/* Mensajes de estado justo debajo del botón */}
-       
-        <>
-        
-        <div className={styles.importButtonContainer}>
-            <button
-                className={styles.btn}
-                onClick={onActualizar}
-                disabled={isUpdating}
-            >
-                {isUpdating ? 'Actualizando...' : 'Actualizar Precios'}
-            </button>
+      {/* Botón + barra de progreso */}
+      <div className={styles.importButtonContainer}>
+        <button className={styles.btn} onClick={onActualizar} disabled={isUpdating}>
+          {isUpdating ? 'Actualizando...' : 'Actualizar Precios'}
+        </button>
+      </div>
+
+      {/* Barra determinística cuando hay progreso */}
+      {progress && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4}}>
+            <span>{progress.stage || 'Procesando'}</span>
+            <span>{Math.round(pct)}%</span>
+          </div>
+          <div style={{height:8, background:'#e5e7eb', borderRadius:4, overflow:'hidden'}}>
+            <div style={{
+              width: `${pct}%`,
+              height:'100%',
+              background:'#3b82f6',
+              transition:'width .25s ease'
+            }}/>
+          </div>
+          {progress.message && (
+            <div style={{fontSize:12, opacity:.8, marginTop:6}}>
+              {progress.message}
             </div>
-             <div className={styles.statusMessages}>
-            {error && <div className={styles.error}>{error}</div>}
-            {successMessage && <div className={styles.success}>{successMessage}</div>}
+          )}
         </div>
-        </>
+      )}
+
+      {/* Mensajes de estado */}
+      <div className={styles.statusMessages}>
+        {error && <div className={styles.error}>{error}</div>}
+        {successMessage && <div className={styles.success}>{successMessage}</div>}
+      </div>
     </div>
-);
+  );
 };
 
 export default CuadroPrecios;

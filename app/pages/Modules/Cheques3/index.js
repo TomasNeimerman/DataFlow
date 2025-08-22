@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
 import pageStyles from './styles.module.css';
 import ChequesRechazados from '../../components/CuadroChequesEdoR'; // Import the visual component
 
@@ -16,10 +15,15 @@ export default function Cheques3() {
 
 
   useEffect(() => {
-    const storedIdCliente = localStorage.getItem("idCliente");
-    setIdCliente(storedIdCliente);
+    // <-- MODIFICADO
+    const fetchIdCliente = async () => {
+      if (window.api) {
+        const storedId = await window.api.getStoreValue("idCliente");
+        setIdCliente(storedId);
+      }
+    };
+    fetchIdCliente();
   }, []);
-
   useEffect(() => {
     const fetchData = async () => {
       if (!idCliente) return;
@@ -80,7 +84,7 @@ export default function Cheques3() {
               };
             });
             setChequesRechazados(chequesData);
-
+            console.log("Cheques rechazados obtenidos:", chequesData);
             const initialSelectedChequesData = {};
             chequesData.forEach(cheque => {
               initialSelectedChequesData[cheque.idCheque] = {
@@ -164,7 +168,7 @@ export default function Cheques3() {
           situacionId: situacion
         };
       });
-      
+      console.log("Cheques para actualizar:", chequesParaActualizar);
 
     if (chequesParaActualizar.length === 0) {
       setImportStatus('info');
@@ -175,7 +179,7 @@ export default function Cheques3() {
 
     setImportStatus('loading');
     setImportMessage('Importando cheques seleccionados...');
-    console.log("Cheques seleccionados para importar:", chequesParaActualizar);
+
     try {
       if (window.api && window.api.updateCheque3) {
         const updateResults = await Promise.all(
@@ -254,7 +258,7 @@ export default function Cheques3() {
   };
 
 
-  console.log("Estado de chequesRechazados:", chequesRechazados);
+
   const isImportButtonDisabled = importStatus === 'loading' ||
     Object.values(selectedChequesData).every(data => !data.isSelected || data.situacionId == null || data.situacionId === '');
 

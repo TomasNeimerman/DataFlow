@@ -29,7 +29,7 @@ html, body, #__next, .page-container {
 .overlay-top-right {
   position: absolute;
   top: 3rem;   /* 24px desde arriba */
-  right: 1rem; /* 40px desde la derecha */
+  right: 2rem; /* 40px desde la derecha */
   z-index: 10;     /* Asegura que esté por encima del contenido */
 }
 

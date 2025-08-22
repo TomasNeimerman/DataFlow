@@ -12,8 +12,8 @@ const ChequesActualizados = ({ cheques, validar }) => {
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
-        <h2 className={styles.title}>Actualización de Cheques</h2>
-        <button onClick={toggleMostrarCuadro} className={styles.toggleButton}>
+        <h2 className={styles.title}>Cheques Actualizados</h2>
+        <button onClick={toggleMostrarCuadro} className={styles.toggleButton} placeholder="Mostrar actualizados/ocultar actualizados" title="Mostrar/ocultar cheques actualizados">
           {mostrarCuadro ? "–" : '▭'}
         </button>
       </div>

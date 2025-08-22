@@ -1,30 +1,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import CuadroPrecios from "../../components/CuadroPrecios";
-import PreciosActualizados from "../../components/PreciosActualizados";
+import CuadroPrecios from "../../../components/CuadroPrecios";
+import PreciosActualizados from "../../../components/PreciosActualizados";
 import pageStyles from "./styles.module.css";
 
-export default function Precios() {
+export default function Generador() {
   const [precios, setPrecios] = useState([]);
   const [preciosActualizados, setPreciosActualizados] = useState([]);
   const [showActualizados, setShowActualizados] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [progress, setProgress] = useState(null); // {percent, stage, message}
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
 
-  // Carga inicial: solo lista de precios base
   const loadPrecios = async () => {
     setError(null);
     try {
-      const preciosResponse = await window.api.getPrecios();
-      if (preciosResponse?.success) {
-        setPrecios(preciosResponse.precios || preciosResponse.data || []);
-      } else {
-        setError(preciosResponse?.message || "No se pudieron obtener los precios.");
-      }
-    } catch (err) {
-      console.error(err);
+      const r = await window.api.getPrecios();
+      if (r?.success) setPrecios(r.precios || r.data || []);
+      else setError(r?.message || "No se pudieron obtener los precios.");
+    } catch (e) {
+      console.error(e);
       setError("Error de conexión al inicializar la página.");
     }
   };
@@ -33,23 +30,28 @@ export default function Precios() {
     loadPrecios();
   }, []);
 
-  // Al hacer click en "Actualizar" -> ejecuta actualización y switchea a la vista de actualizados
+  // Hook a los eventos de progreso enviados por main
+  useEffect(() => {
+    const off = window.preciosProgress?.on?.((p) => setProgress(p));
+    return () => off && off();
+  }, []);
+
   const handleUpdatePrices = async () => {
     setIsUpdating(true);
     setError(null);
     setSuccessMessage("");
+    setProgress({ percent: 0, stage: 'Preparando', message: 'Iniciando…' });
 
     try {
-      const updateResponse = await window.api.actualizarPrecios();
+      const updateResponse = await window.api.actualizarPrecios(); // invoke('actualizar-precios')
       if (!updateResponse?.success) {
         throw new Error(updateResponse?.message || "Ocurrió un error durante la actualización.");
       }
 
-      // Traer precios actualizados
       const updated = await window.api.getPreciosActualizados();
       if (updated?.success) {
         setPreciosActualizados(updated.preciosActualizados || updated.data || []);
-        setShowActualizados(true); // 👈 Cambiamos de vista
+        setShowActualizados(true);
         setSuccessMessage(updateResponse.message || "Precios actualizados.");
       } else {
         throw new Error(updated?.message || "No se pudieron obtener los precios actualizados.");
@@ -59,10 +61,11 @@ export default function Precios() {
       setError(err.message || "Error de conexión al actualizar los precios.");
     } finally {
       setIsUpdating(false);
+      // Limpio la barra unos ms después de terminar (si ya estamos en 100)
+      setTimeout(() => setProgress(null), 800);
     }
   };
 
-  // Opcional: volver a la vista original y recargar lista base
   const handleVolver = async () => {
     setShowActualizados(false);
     setPreciosActualizados([]);
@@ -75,7 +78,7 @@ export default function Precios() {
         {showActualizados ? (
           <PreciosActualizados
             precios={preciosActualizados}
-            onVolver={handleVolver}   // si tu componente lo soporta; si no, podés agregar un botón acá
+            onVolver={handleVolver}
             successMessage={successMessage}
             error={error}
           />
@@ -84,6 +87,7 @@ export default function Precios() {
             precios={precios}
             onActualizar={handleUpdatePrices}
             isUpdating={isUpdating}
+            progress={progress}          
             error={error}
             successMessage={successMessage}
           />
