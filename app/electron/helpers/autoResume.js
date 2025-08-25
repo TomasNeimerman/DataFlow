@@ -6,53 +6,104 @@ async function tryAutoResume({
   registrarSesionActiva,
   obtenerModulos,
   buildAppMenu,
-  startSessionHeartbeat,
+  startSessionHeartbeat, // en main se pasa una función que recibe { usuario, deviceId }
   writeToLog
 }) {
-  const usuario   = store?.get('user');
-  const idCliente = store?.get('idCliente');
-  const token     = store?.get('jwtToken');
-  const deviceId  = getDeviceId(store);
+  const usuario   = store?.get?.('user');
+  const idCliente = store?.get?.('idCliente');
+  const token     = store?.get?.('jwtToken');
+  const deviceId  = getDeviceId?.(store);
 
-  if (!usuario || !idCliente || !token || !deviceId) return { startPath: null, active: null };
+  // Si falta info básica -> ir a Login
+  if (!usuario || !idCliente || !token || !deviceId) {
+    return { startPath: '/Login', active: false, modulos: [] };
+  }
 
-  const bound = store.get('boundUser');
-  if (bound && bound !== usuario) return { startPath: null, active: null };
+  // Respetar boundUser
+  const bound = store?.get?.('boundUser');
+  if (bound && bound !== usuario) {
+    return { startPath: '/Login', active: false, modulos: [] };
+  }
 
+  // 1) Estado de sesión en DB
+  let chk;
   try {
-    // nunca bloquear por errores de verificación
-    let ok = true;
-    try {
-      const check = await verificarSesionActiva({ usuario, deviceId });
-      if (check && check.success === false) ok = false;
-    } catch { ok = true; }
-    if (!ok) return { startPath: null, active: null };
+    chk = await verificarSesionActiva({ usuario, deviceId });
+  } catch (e) {
+    writeToLog?.(`[AutoResume] Error verificando sesión: ${e.message}`);
+    return { startPath: '/Login', active: false, modulos: [] };
+  }
 
-    try {
-      const reg = await registrarSesionActiva({ usuario, deviceId, token });
-      if (reg && reg.success === false) return { startPath: null, active: null };
-    } catch { /* seguimos igual */ }
+  if (!chk?.success) {
+    writeToLog?.(`[AutoResume] verificarSesionActiva -> success=false`);
+    return { startPath: '/Login', active: false, modulos: [] };
+  }
 
-    // menú
+  if (chk.code === 'ACTIVE_OTHER_DEVICE') {
+    writeToLog?.('[AutoResume] Sesión activa en OTRO device. Mostrando Login.');
+    return { startPath: '/Login', active: false, modulos: [] };
+  }
+
+  // 2) Si NO_ACTIVE, activamos acá mismo en este device
+  if (chk.code === 'NO_ACTIVE') {
+    try {
+      // guardamos un snapshot del store en StoreData (base64)
+      let storeBlob = null;
+      try {
+        const snapshot = {
+          user: usuario,
+          idCliente,
+          deviceId,
+          jwtToken: token,
+          fechaInicio: new Date().toISOString(),
+          boundUser: bound || null
+        };
+        storeBlob = Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64');
+      } catch {}
+
+      await registrarSesionActiva({
+        usuario,
+        deviceId,
+        token,
+        storeBlob    // 👈 nombre correcto esperado por el servicio
+      });
+      writeToLog?.('[AutoResume] No había sesión activa. Registrada en este device.');
+    } catch (e) {
+      writeToLog?.(`[AutoResume] Error registrando sesión: ${e.message}`);
+      // No bloqueamos el auto-login por esto
+    }
+  }
+  // Si era ACTIVE_SAME_DEVICE seguimos de largo.
+
+  // 3) Cargar módulos y armar menú
+  let modulos = [];
+  try {
     const modulesResult = await obtenerModulos(idCliente);
-    if (modulesResult?.success) {
-      const modulos = modulesResult.modulos.map(m => ({
-        id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
-        link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
+    if (modulesResult?.success && Array.isArray(modulesResult.modulos)) {
+      modulos = modulesResult.modulos.map(m => ({
+        id: m.id,
+        nombre: m.nombre,
+        texto: m.texto,
+        icono: m.icono,
+        link: m.link,
+        pathExcel: m.pathExcel,
+        countClientesPorModulo: m.countClientesPorModulo
       }));
       buildAppMenu(modulos);
     }
-
-    startSessionHeartbeat({ usuario, deviceId, onTick: async (payload) => {
-      try { await require('../modulesService/Login').heartbeatSesionActiva(payload); } catch (_) {}
-    }});
-
-    writeToLog?.(`Auto-resume OK para usuario: ${usuario}`);
-    return { startPath: '/Index', active: { usuario, deviceId, token } };
   } catch (e) {
-    writeToLog?.(`Auto-resume falló: ${e.message}`);
-    return { startPath: null, active: null };
+    writeToLog?.(`[AutoResume] Error cargando módulos: ${e.message}`);
   }
+
+  // 4) Heartbeat (usa la firma que pasás desde main)
+  try {
+    startSessionHeartbeat({ usuario, deviceId }); // 👈 tu main espera solo el payload
+  } catch (e) {
+    writeToLog?.(`[AutoResume] Error iniciando heartbeat: ${e.message}`);
+  }
+
+  writeToLog?.(`[AutoResume] OK para usuario: ${usuario}`);
+  return { startPath: '/Index', active: { usuario, deviceId, token }, modulos };
 }
 
 module.exports = { tryAutoResume };

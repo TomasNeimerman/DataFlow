@@ -4,7 +4,8 @@ const crypto = require('crypto');
 
 function uuidv4() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : ((r & 0x3) | 0x8);
     return v.toString(16);
   });
 }
@@ -12,8 +13,9 @@ function uuidv4() {
 function computeDeviceId() {
   try {
     const ifaces = os.networkInterfaces();
-    const macs = Object.values(ifaces)
-      .flat()
+    const macs = Object.keys(ifaces)
+      .map(k => ifaces[k])
+      .reduce((acc, arr) => acc.concat(arr || []), [])
       .filter(Boolean)
       .map(n => n.mac)
       .filter(m => m && m !== '00:00:00:00:00:00');
@@ -24,14 +26,33 @@ function computeDeviceId() {
   }
 }
 
-// Usa SIEMPRE el mismo store que te pasan (no instancies otro).
+/** Obtiene (y persiste si no existe) el deviceId en electron-store */
 function getDeviceId(store) {
-  let id = store && store.get('deviceId');
+  let id = store?.get?.('deviceId');
   if (!id) {
     id = computeDeviceId() || uuidv4();
-    if (store) store.set('deviceId', id);
+    try { store?.set?.('deviceId', id); } catch {}
   }
   return id;
 }
 
-module.exports = { uuidv4, computeDeviceId, getDeviceId };
+/** Vincula esta instalación a un solo usuario */
+function bindUserLocally(store, usuario) {
+  const boundUser = store?.get?.('boundUser');
+  if (!boundUser) {
+    try { store?.set?.('boundUser', usuario); } catch {}
+    return { ok: true };
+  }
+  if (boundUser !== usuario) {
+    return {
+      ok: false,
+      message: `Esta instalación ya está vinculada al usuario "${boundUser}". Pedí al admin un reseteo si querés cambiar.`
+    };
+  }
+  return { ok: true };
+}
+
+module.exports = {
+  getDeviceId,
+  bindUserLocally,
+};

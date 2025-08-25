@@ -1,7 +1,6 @@
 // app/Login/page.js
 'use client'; // Indica que este componente utiliza funcionalidades del cliente como useState y useRouter
-import logo from '../../public/logo_cone.png'
-import Image from 'next/image';
+
 import { useState } from 'react';
 import { useRouter } from 'next/router'; // Importa useRouter desde 'next/navigation' en el directorio app
 import styles from './styles.module.css'

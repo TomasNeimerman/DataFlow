@@ -4,8 +4,9 @@ const fs = require('fs').promises;
 const path = require('path');
 const { generarToken } = require('../jwtService');
 
-const SESSION_TTL_SECONDS = 300; // 5 min
-
+/*==============================================================================
+// Helpers de conexión a la DB “admin”
+==============================================================================*/
 async function withAdminPool(fn) {
   const dbConfigAdmin = require('../dbConfig').getDbConfig();
   const mysqlConfigAdmin = {
@@ -22,18 +23,9 @@ async function withAdminPool(fn) {
   try { return await fn(pool); } finally { await pool.end(); }
 }
 
-async function ensureSessionsTable(pool) {
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS SesionesActivas (
-      Usuario    VARCHAR(190) NOT NULL PRIMARY KEY,
-      DeviceId   VARCHAR(64)  NOT NULL,
-      Token      VARCHAR(255) NULL,
-      LastSeen   DATETIME     NOT NULL
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-  `);
-}
-
-/* ========= Config de conexión empresa ========= */
+/*==============================================================================
+// Config de conexión por empresa (para módulos)
+==============================================================================*/
 async function obtenerConfiguracionEmpresa(idCliente) {
   let poolAdmin;
   try {
@@ -60,7 +52,7 @@ async function obtenerConfiguracionEmpresa(idCliente) {
 
     const empresaData = rows[0];
     const configContent =
-      `DB_USER=${empresaData.Usuario}
+`DB_USER=${empresaData.Usuario}
 DB_PASSWORD=${empresaData.Contraseña}
 DB_SERVER=${empresaData.Server}
 DB_PORT=${empresaData.Port || 3306}
@@ -68,6 +60,7 @@ DB_DATABASE=${empresaData.InstanciaBD}
 `;
     const configPath = path.join(__dirname, '../../fileConfigUpdater/userDbConfig.properties');
     try { await fs.writeFile(configPath, configContent, 'utf-8'); } catch {}
+
     return {
       server: empresaData.Server,
       port: empresaData.Port ? parseInt(empresaData.Port, 10) : 3306,
@@ -83,32 +76,18 @@ DB_DATABASE=${empresaData.InstanciaBD}
   }
 }
 
-/* ========= Login con control de expiración ========= */
-function toYMD(dateObj) {
-  // normaliza a AAAA-MM-DD en local
-  const y = dateObj.getFullYear();
-  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const d = String(dateObj.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+/*==============================================================================
+// Login (revisa expiración/estado; no toca SesionesActivas acá)
+==============================================================================*/
+function toYMD(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-async function iniciarSesion({ usuario, contraseña }) {
-  let poolAdmin;
-  try {
-    const dbConfigAdmin = require('../dbConfig').getDbConfig();
-    const mysqlConfigAdmin = {
-      host: dbConfigAdmin.server,
-      port: dbConfigAdmin.port || 3306,
-      user: dbConfigAdmin.user,
-      password: dbConfigAdmin.password,
-      database: dbConfigAdmin.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    };
-    poolAdmin = await mysql.createPool(mysqlConfigAdmin);
-
-    // Traigo el usuario por nombre (para poder chequear expiración/estado)
+async function iniciarSesion({ usuario, contraseña, deviceId }) {
+  return withAdminPool(async (poolAdmin) => {
     const [usrRows] = await poolAdmin.execute(`
       SELECT Id, Nombre, Apellido, Email, IdCliente, Usuario, Contraseña,
              FechaExpiracionClave, Estado
@@ -117,97 +96,70 @@ async function iniciarSesion({ usuario, contraseña }) {
       LIMIT 1
     `, [usuario]);
 
-    if (!usrRows.length) {
-      return { success: false, message: 'Usuario o contraseña incorrectos.' };
-    }
+    if (!usrRows.length) return { success: false, message: 'Usuario o contraseña incorrectos.' };
 
     const row = usrRows[0];
 
-    // 1) ¿Contraseña expirada?
-    // La regla: si HOY >= FechaExpiracionClave → expirada
+    // Expirada
     let expired = false;
     if (row.FechaExpiracionClave) {
-      const hoyLocal = new Date(); hoyLocal.setHours(0,0,0,0);
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
       const exp = new Date(row.FechaExpiracionClave); exp.setHours(0,0,0,0);
-      expired = (hoyLocal.getTime() >= exp.getTime());
+      expired = hoy.getTime() >= exp.getTime();
     }
-
     if (expired) {
-      // Deshabilito la cuenta (Estado = 0) y NO dejo continuar
-      await poolAdmin.execute(
-        'UPDATE Usuarios SET Estado = 0 WHERE Usuario = ?',
-        [usuario]
-      );
-      const expStr = toYMD(new Date(row.FechaExpiracionClave));
-      return { success: false, message: `Tu contraseña expiró el ${expStr}. Contactá al admin para renovarla.` };
+      try { await poolAdmin.execute('UPDATE Usuarios SET Estado = 0 WHERE Usuario = ?', [usuario]); } catch {}
+      const expStr = `${new Date(row.FechaExpiracionClave).toISOString().slice(0,10)}`;
+      return { success: false, message: `Tu contraseña expiró el ${expStr}. Contactá al admin.` };
     }
 
-    // 2) ¿Usuario habilitado?
-    if (row.Estado !== 1) {
-      return { success: false, message: 'Usuario deshabilitado. Contactá al admin.' };
-    }
-
-    // 3) Password check (sin hash en este esquema)
+    // Password
     if (String(row.Contraseña) !== String(contraseña)) {
       return { success: false, message: 'Usuario o contraseña incorrectos.' };
     }
 
-    const idCliente = row.IdCliente;
-    const empresaConfig = await obtenerConfiguracionEmpresa(idCliente);
+    // 👇 override: si Estado!=1, permitir SOLO si hay Sesión Activa=1 en este device
+    const estado = Number(row.Estado ?? 1);
+    if (estado !== 1) {
+      if (!deviceId) return { success: false, message: 'Usuario deshabilitado. Contactá al admin.' };
+
+      const [okSame] = await poolAdmin.execute(
+        `SELECT 1 FROM SesionesActivas WHERE Usuario=? AND DeviceId=? AND Activa=1 LIMIT 1`,
+        [usuario, deviceId]
+      );
+      if (!okSame.length) {
+        return { success: false, message: 'Usuario deshabilitado. Contactá al admin.' };
+      }
+      // si existe, seguimos (permitimos)
+    }
+
+    const empresaConfig = await obtenerConfiguracionEmpresa(row.IdCliente);
     if (!empresaConfig) {
       return { success: false, message: 'No se encontró la configuración de la base de datos para su empresa.' };
     }
 
-    // Fecha último acceso (ajuste TZ si lo venías usando)
     let fechaActual = new Date();
     fechaActual.setHours(fechaActual.getHours() - 3);
-    await poolAdmin.execute(
-      'UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?',
-      [fechaActual, usuario]
-    );
+    try { await poolAdmin.execute('UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?', [fechaActual, usuario]); } catch {}
 
     const user = {
-      Id: row.Id,
-      Nombre: row.Nombre,
-      Apellido: row.Apellido,
-      Email: row.Email,
-      IdCliente: row.IdCliente,
-      Usuario: row.Usuario,
-      FechaExpiracionClave: row.FechaExpiracionClave,
-      Estado: row.Estado
+      Id: row.Id, Nombre: row.Nombre, Apellido: row.Apellido, Email: row.Email,
+      IdCliente: row.IdCliente, Usuario: row.Usuario, FechaExpiracionClave: row.FechaExpiracionClave, Estado: estado
     };
 
     const token = generarToken(user);
     return { success: true, user, token, empresaConfig };
-  } catch (error) {
-    console.error('Error en iniciarSesion:', error);
-    return { success: false, message: error.message };
-  } finally {
-    if (poolAdmin) await poolAdmin.end();
-  }
+  });
 }
 
-/* ========= Módulos ========= */
+/*==============================================================================
+// Módulos
+==============================================================================*/
 async function obtenerModulos(idCliente) {
   if (!idCliente) return { success: false, message: 'Falta idCliente' };
-  const dbConfigAdmin = require('../dbConfig').getDbConfig();
-  if (!dbConfigAdmin) return { success: false, message: 'No se pudo obtener la configuración de la base de datos.' };
 
-  let poolEmpresa;
-  try {
-    const mysqlConfigAdmin = {
-      host: dbConfigAdmin.server,
-      port: dbConfigAdmin.port || 3306,
-      user: dbConfigAdmin.user,
-      password: dbConfigAdmin.password,
-      database: dbConfigAdmin.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    };
-    poolEmpresa = await mysql.createPool(mysqlConfigAdmin);
-
-    const [rows] = await poolEmpresa.execute(`
+  return withAdminPool(async (pool) => {
+    const [rows] = await pool.execute(`
       SELECT
         m.Id AS ModuloId,
         m.Nombre AS ModuloNombre,
@@ -221,95 +173,110 @@ async function obtenerModulos(idCliente) {
       WHERE mx.IdCliente = ?
     `, [idCliente]);
 
-    const modulos = rows.map(modulo => ({
-      id: modulo.ModuloId,
-      nombre: modulo.ModuloNombre,
-      texto: modulo.Texto,
-      icono: modulo.Icono,
-      link: modulo.Link,
-      pathExcel: modulo.PathExcelModelo,
-      countClientesPorModulo: modulo.countClientesPorModulo
+    const modulos = rows.map(m => ({
+      id: m.ModuloId,
+      nombre: m.ModuloNombre,
+      texto: m.Texto,
+      icono: m.Icono,
+      link: m.Link,
+      pathExcel: m.PathExcelModelo,
+      countClientesPorModulo: m.countClientesPorModulo
     }));
     return { success: true, modulos };
-  } catch (error) {
-    console.error('Error en obtenerModulos:', error);
-    return { success: false, message: 'Error en la base de datos de la empresa.' };
-  } finally {
-    if (poolEmpresa) await poolEmpresa.end();
-  }
+  });
 }
 
-/* ========= Control de sesión única ========= */
+/*==============================================================================
+// SesionesActivas
+==============================================================================*/
 async function verificarSesionActiva({ usuario, deviceId }) {
-  try {
-    return await withAdminPool(async (pool) => {
-      await ensureSessionsTable(pool);
-      const [rows] = await pool.execute(
-        `SELECT DeviceId, TIMESTAMPDIFF(SECOND, LastSeen, NOW()) AS Age
-         FROM SesionesActivas WHERE Usuario = ?`,
-        [usuario]
-      );
-      if (rows.length === 0) return { success: true }; // sin lock
-      const { DeviceId, Age } = rows[0];
-      const expired = Age > SESSION_TTL_SECONDS;
-      if (expired) return { success: true };
-      if (DeviceId !== deviceId) {
-        return { success: false, message: 'La cuenta ya está en uso en otro equipo.' };
-      }
-      return { success: true };
-    });
-  } catch (_) {
-    // ante cualquier error de DB, no bloquear
-    return { success: true };
-  }
-}
-
-async function registrarSesionActiva({ usuario, deviceId, token }) {
   return withAdminPool(async (pool) => {
-    await ensureSessionsTable(pool);
     const [rows] = await pool.execute(
-      `SELECT DeviceId, TIMESTAMPDIFF(SECOND, LastSeen, NOW()) AS Age
-       FROM SesionesActivas WHERE Usuario = ?`,
+      `SELECT Usuario, DeviceId, Activa
+       FROM SesionesActivas
+       WHERE Usuario = ? AND Activa = 1
+       LIMIT 1`,
       [usuario]
     );
-    if (rows.length) {
-      const { DeviceId, Age } = rows[0];
-      const expired = Age > SESSION_TTL_SECONDS;
-      if (!expired && DeviceId !== deviceId) {
-        return { success: false, message: 'Sesión activa en otro equipo.' };
-      }
+
+    if (!rows.length) return { success: true, code: 'NO_ACTIVE' };
+
+    const row = rows[0];
+    if (String(row.DeviceId) === String(deviceId)) {
+      return { success: true, code: 'ACTIVE_SAME_DEVICE' };
     }
-    await pool.execute(
-      `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, LastSeen)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE DeviceId = VALUES(DeviceId), Token = VALUES(Token), LastSeen = NOW()`,
-      [usuario, deviceId, token || null]
-    );
-    return { success: true };
+    return { success: false, code: 'ACTIVE_OTHER_DEVICE', message: 'La cuenta ya está activa en otro equipo.' };
   });
 }
-async function heartbeatSesionActiva({ usuario, deviceId }) {
+
+async function registrarSesionActiva({ usuario, deviceId, token, storeBlob }) {
   return withAdminPool(async (pool) => {
-    await ensureSessionsTable(pool);
     await pool.execute(
-      `UPDATE SesionesActivas SET LastSeen = NOW() WHERE Usuario = ? AND DeviceId = ?`,
+      `UPDATE SesionesActivas SET Activa = 0 WHERE Usuario = ? AND DeviceId <> ?`,
       [usuario, deviceId]
     );
+
+    const [ex] = await pool.execute(
+      `SELECT 1 FROM SesionesActivas WHERE Usuario = ? AND DeviceId = ? LIMIT 1`,
+      [usuario, deviceId]
+    );
+
+    if (ex.length) {
+      await pool.execute(
+        `UPDATE SesionesActivas
+         SET Token = ?, StoreData = ?, LastSeen = NOW(), Activa = 1
+         WHERE Usuario = ? AND DeviceId = ?`,
+        [token || null, storeBlob || null, usuario, deviceId]
+      );
+    } else {
+      await pool.execute(
+        `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, StoreData, LastSeen, Activa)
+         VALUES (?, ?, ?, ?, NOW(), 1)`,
+        [usuario, deviceId, token || null, storeBlob || null]
+      );
+    }
+
     return { success: true };
   });
 }
-async function finalizarSesionActiva({ usuario, deviceId }) {
+
+async function obtenerSesionPorDevice({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
-    await ensureSessionsTable(pool);
+    const [rows] = await pool.execute(
+      `SELECT Usuario, DeviceId, Token, StoreData, LastSeen, Activa
+       FROM SesionesActivas
+       WHERE Usuario = ? AND DeviceId = ?
+       LIMIT 1`,
+      [usuario, deviceId]
+    );
+    if (!rows.length) return { success: false, code: 'NOT_FOUND' };
+    return { success: true, row: rows[0] };
+  });
+}
+
+async function heartbeatSesionActiva({ usuario, deviceId }) {
+  return withAdminPool(async (pool) => {
     await pool.execute(
-      `DELETE FROM SesionesActivas WHERE Usuario = ? AND DeviceId = ?`,
+      `UPDATE SesionesActivas
+         SET LastSeen = NOW()
+       WHERE Usuario = ? AND DeviceId = ? AND Activa = 1`,
       [usuario, deviceId]
     );
     return { success: true };
   });
 }
 
-/* ========= Bloqueo explícito por expiración (usado desde main en runtime) ========= */
+async function finalizarSesionActiva({ usuario, deviceId }) {
+  return withAdminPool(async (pool) => {
+    await pool.execute(
+      `UPDATE SesionesActivas SET Activa = 0, LastSeen = NOW()
+       WHERE Usuario = ? AND DeviceId = ?`,
+      [usuario, deviceId]
+    );
+    return { success: true };
+  });
+}
+
 async function deshabilitarUsuario(usuario) {
   return withAdminPool(async (pool) => {
     await pool.execute('UPDATE Usuarios SET Estado = 0 WHERE Usuario = ?', [usuario]);
@@ -317,12 +284,24 @@ async function deshabilitarUsuario(usuario) {
   });
 }
 
+function decodeStoreBlob(storeBlob) {
+  if (!storeBlob) return null;
+  try {
+    const json = Buffer.from(String(storeBlob), 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   iniciarSesion,
   obtenerModulos,
   verificarSesionActiva,
   registrarSesionActiva,
+  obtenerSesionPorDevice,
   heartbeatSesionActiva,
   finalizarSesionActiva,
-  deshabilitarUsuario
+  deshabilitarUsuario,
+  decodeStoreBlob
 };
