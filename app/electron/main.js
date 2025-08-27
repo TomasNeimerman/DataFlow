@@ -335,14 +335,17 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
     }
 
     // Política de sesión única
-    const check = await verificarSesionActivaService({ usuario, deviceId });
-    if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') { // 👈 código correcto
-      return {
-        success: false,
-        message: check?.message || 'Sesión activa en otro equipo',
-        code: check?.code || 'ACTIVE_OTHER_DEVICE'
-      };
-    }
+    // Política de sesión única
+const check = await verificarSesionActivaService({ usuario, deviceId });
+if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
+  const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
+  return {
+    success: false,
+    message: check?.message || `Usuario activo. Intente en el dispositivo que está en uso${dev}.`,
+    code: 'ACTIVE_OTHER_DEVICE'
+  };
+}
+
 
     const lock = await registrarSesionActivaService({ usuario, deviceId, token: result.token });
     if (!lock?.success) {

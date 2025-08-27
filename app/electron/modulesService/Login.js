@@ -90,17 +90,19 @@ async function iniciarSesion({ usuario, contraseña, deviceId }) {
   return withAdminPool(async (poolAdmin) => {
     const [usrRows] = await poolAdmin.execute(`
       SELECT Id, Nombre, Apellido, Email, IdCliente, Usuario, Contraseña,
-             FechaExpiracionClave, Estado
+             FechaExpiracionClave, COALESCE(Estado, 1) AS Estado
       FROM Usuarios
       WHERE Usuario = ?
       LIMIT 1
     `, [usuario]);
 
-    if (!usrRows.length) return { success: false, message: 'Usuario o contraseña incorrectos.' };
+    if (!usrRows.length) {
+      return { success: false, message: 'Usuario o contraseña incorrectos.' };
+    }
 
     const row = usrRows[0];
 
-    // Expirada
+    // ¿expirada?
     let expired = false;
     if (row.FechaExpiracionClave) {
       const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -109,28 +111,39 @@ async function iniciarSesion({ usuario, contraseña, deviceId }) {
     }
     if (expired) {
       try { await poolAdmin.execute('UPDATE Usuarios SET Estado = 0 WHERE Usuario = ?', [usuario]); } catch {}
-      const expStr = `${new Date(row.FechaExpiracionClave).toISOString().slice(0,10)}`;
+      const expStr = new Date(row.FechaExpiracionClave).toISOString().slice(0,10);
       return { success: false, message: `Tu contraseña expiró el ${expStr}. Contactá al admin.` };
     }
 
-    // Password
+    // Password (sin hash en este esquema)
     if (String(row.Contraseña) !== String(contraseña)) {
       return { success: false, message: 'Usuario o contraseña incorrectos.' };
     }
 
-    // 👇 override: si Estado!=1, permitir SOLO si hay Sesión Activa=1 en este device
+    // 🔐 Política de "Estado" (habilitado/deshabilitado)
+    // - Si Estado != 1, permitimos login si NO hay sesión activa en ningún device.
+    // - Si hay sesión activa en OTRO device, bloqueamos con mensaje claro.
+    // - Si la sesión activa es en ESTE mismo device, permitimos (override).
     const estado = Number(row.Estado ?? 1);
     if (estado !== 1) {
-      if (!deviceId) return { success: false, message: 'Usuario deshabilitado. Contactá al admin.' };
-
-      const [okSame] = await poolAdmin.execute(
-        `SELECT 1 FROM SesionesActivas WHERE Usuario=? AND DeviceId=? AND Activa=1 LIMIT 1`,
-        [usuario, deviceId]
+      const [act] = await poolAdmin.execute(
+        `SELECT DeviceId FROM SesionesActivas WHERE Usuario=? AND Activa=1 LIMIT 1`,
+        [usuario]
       );
-      if (!okSame.length) {
-        return { success: false, message: 'Usuario deshabilitado. Contactá al admin.' };
+
+      if (act.length) {
+        const devEnUso = String(act[0].DeviceId || '');
+        if (deviceId && devEnUso === String(deviceId)) {
+          // Activa en este equipo → permitir
+        } else {
+          return {
+            success: false,
+            code: 'ACTIVE_OTHER_DEVICE',
+            message: `Usuario activo. Intente en el dispositivo que está en uso${devEnUso ? ` ("${devEnUso}")` : ''}.`
+          };
+        }
       }
-      // si existe, seguimos (permitimos)
+      // Si NO hay sesión activa en ningún lado → PERMITIR login aun con Estado!=1
     }
 
     const empresaConfig = await obtenerConfiguracionEmpresa(row.IdCliente);
@@ -138,19 +151,27 @@ async function iniciarSesion({ usuario, contraseña, deviceId }) {
       return { success: false, message: 'No se encontró la configuración de la base de datos para su empresa.' };
     }
 
+    // Fecha último acceso (ajuste -3h)
     let fechaActual = new Date();
     fechaActual.setHours(fechaActual.getHours() - 3);
     try { await poolAdmin.execute('UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?', [fechaActual, usuario]); } catch {}
 
     const user = {
-      Id: row.Id, Nombre: row.Nombre, Apellido: row.Apellido, Email: row.Email,
-      IdCliente: row.IdCliente, Usuario: row.Usuario, FechaExpiracionClave: row.FechaExpiracionClave, Estado: estado
+      Id: row.Id,
+      Nombre: row.Nombre,
+      Apellido: row.Apellido,
+      Email: row.Email,
+      IdCliente: row.IdCliente,
+      Usuario: row.Usuario,
+      FechaExpiracionClave: row.FechaExpiracionClave,
+      Estado: estado
     };
 
     const token = generarToken(user);
     return { success: true, user, token, empresaConfig };
   });
 }
+
 
 /*==============================================================================
 // Módulos
@@ -203,11 +224,19 @@ async function verificarSesionActiva({ usuario, deviceId }) {
 
     const row = rows[0];
     if (String(row.DeviceId) === String(deviceId)) {
-      return { success: true, code: 'ACTIVE_SAME_DEVICE' };
+      return { success: true, code: 'ACTIVE_SAME_DEVICE', deviceId: row.DeviceId };
     }
-    return { success: false, code: 'ACTIVE_OTHER_DEVICE', message: 'La cuenta ya está activa en otro equipo.' };
+
+    return {
+      success: false,
+      code: 'ACTIVE_OTHER_DEVICE',
+      deviceId: row.DeviceId,
+      message: `Usuario activo. Intente en el dispositivo que está en uso${row.DeviceId ? ` ("${row.DeviceId}")` : ''}.`
+    };
   });
 }
+
+
 
 async function registrarSesionActiva({ usuario, deviceId, token, storeBlob }) {
   return withAdminPool(async (pool) => {
