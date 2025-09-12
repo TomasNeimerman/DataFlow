@@ -1,3 +1,4 @@
+// app/PreciosActualizador/page.js
 "use client";
 
 import { useState, useEffect } from "react";
@@ -23,47 +24,66 @@ export default function PreciosActualizador() {
 
   useEffect(() => {
     (async () => {
-      const storedId = await window.api?.getStoreValue?.("idCliente");
-      setIdCliente(storedId || null);
+      try {
+        const storedId = await window?.api?.getStoreValue?.("idCliente");
+        setIdCliente(storedId ?? null);
+      } catch {
+        setIdCliente(null);
+      }
     })();
   }, []);
 
   const handleImportar = async (file) => {
+    // Reset de la vista de resultados
     setMostrarPreciosActualizados(false);
+    setPrecios([]);
+    setValidar(false);
 
     const reader = new FileReader();
+
     reader.onload = async (e) => {
       try {
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false });
+        // defval: '' para no obtener undefined en celdas vacías
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
 
-        if (!json || !json.length) {
+        if (!json || json.length === 0) {
+          // Fuerza mensaje de columnas faltantes
           validateExcelColumns([]);
           return;
         }
 
+        // ✅ Validación SOLO de la primera fila (encabezados) por “contiene”
         const headers = json[0];
         if (!validateExcelColumns(headers)) return;
 
-        const res = await processPriceUpdates(
+        // ✅ Procesamiento: valida filas, busca precio actual y actualiza si corresponde
+        const result = await processPriceUpdates(
           json,
-          // APIs del preload
-          (keys) => window.api.obtenerPrecioActualizador(keys),
-          (payload) => window.api.updatePrecioActualizador(payload)
+          (keys) => window?.api?.obtenerPrecioActualizador?.(keys),   // { lprdlp_Cod, lprart_CodGen, Ele1..3 }
+          (payload) => window?.api?.updatePrecioActualizador?.(payload) // { ...keys, precio }
         );
 
-        setPrecios(res.preciosProcesados || []);
-        setValidar(!!res.huboCambios);
+        setPrecios(result?.preciosProcesados || []);
+        setValidar(!!result?.huboCambios);
         setMostrarPreciosActualizados(true);
       } catch (err) {
-        console.error("Error al procesar Excel (Actualizador):", err);
+        console.error("Error al procesar Excel (PreciosActualizador):", err);
         setPrecios([]);
         setValidar(false);
         setMostrarPreciosActualizados(false);
       }
     };
+
+    reader.onerror = (err) => {
+      console.error("Error leyendo el archivo:", err);
+      setPrecios([]);
+      setValidar(false);
+      setMostrarPreciosActualizados(false);
+    };
+
     reader.readAsArrayBuffer(file);
   };
 

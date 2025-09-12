@@ -1,11 +1,12 @@
 {
   "name": "dataflow",
   "version": "0.1.0",
+  "description": "Consultora de Negocios Empresrios S.R.L.",
   "private": true,
   "author": "Bejerman",
   "main": "electron/main.js",
   "engines": {
-    "node": "16.x"
+    "node": "16.20.2"
   },
   "scripts": {
     "dev": "next dev",
@@ -15,7 +16,16 @@
     "electrondev": "npm-run-all -p dev electron",
     "electron-build": "npm run build:web && electron-builder",
     "build:web": "next build",
-    "dist": "npm run build:web && electron-builder --win"
+    "clear:store:local": "electron ./electron/helpers/clear-store.js",
+    "rebuild-native:x64": "cross-env npm_config_msvs_version=2022 GYP_MSVS_VERSION=2022 npm_config_openssl_fips=0 openssl_fips=0 npm_config_napi_build_version=7 NAPI_BUILD_VERSION=7 npx @electron/rebuild -f -w odbc --arch=x64 -v 13.6.9",
+    "rebuild-native:ia32": "cross-env npm_config_msvs_version=2022 GYP_MSVS_VERSION=2022 npm_config_openssl_fips=0 openssl_fips=0 npm_config_napi_build_version=7 NAPI_BUILD_VERSION=7 npx @electron/rebuild -f -w odbc --arch=ia32 -v 13.6.9",
+    "rebuild-native": "npm run rebuild-native:x64 && npm run rebuild-native:ia32",
+    "dist": "npm run build:web && npm run rebuild-native && electron-builder --win --x64 --ia32",
+    "dist:fresh": "npm run clear:store:local && electron-builder --win",
+    "dist:fresh:bound": "npm run clear:store:local && cross-env APP_RESET_POLICY=BOUND_ONLY electron-builder --win",
+    "dist:fresh:full": "npm run clear:store:local && cross-env APP_RESET_POLICY=FULL electron-builder --win",
+    "dist:run:reset-store": "dist\\win-unpacked\\<TuApp>.exe --reset-store",
+    "dist:run:reset-bound": "dist\\win-unpacked\\<TuApp>.exe --reset-bound"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -24,11 +34,14 @@
     "mssql": "^7.3.0",
     "mysql2": "^2.3.3",
     "next": "^12.3.4",
+    "odbc": "^2.4.9",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "cross-env": "^7.0.3",
     "electron": "^13.6.9",
     "electron-builder": "^23.6.0",
     "electron-packager": "^17.1.2",
@@ -37,6 +50,7 @@
   "build": {
     "appId": "com.DataFlow.updater",
     "productName": "DataFlow",
+    "npmRebuild": false,
     "asar": false,
     "directories": {
       "output": "dist",
@@ -63,8 +77,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],

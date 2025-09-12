@@ -5,14 +5,13 @@ const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron'
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
-const url  = require('url'); // por si lo necesitás en el futuro
+const url  = require('url');
 const Store = require('electron-store');
 const { initializeConfig } = require('./userDbConfig.js');
 
-// Helpers
-const { buildAppMenu } = require('./helpers/menu');
+// Helpers (existentes)
 const { tryAutoResume } = require('./helpers/autoResume');
-const { getDeviceId, bindUserLocally } = require('./helpers/device');
+const { getDeviceId } = require('./helpers/device');
 const { startSessionHeartbeat, stopSessionHeartbeat } = require('./helpers/session');
 
 // --- Detección de Windows legacy ---
@@ -48,9 +47,9 @@ process.on('uncaughtException', (err) => { writeToLog(`Uncaught: ${err.message}\
 process.on('unhandledRejection', (r,p) => { writeToLog(`Rejection: ${r}`); });
 
 // --- Servicios ---
+const { getLocalEmpresasODBC, compareEmpresasAgainstCloud } = require('./helpers/odbcManager');
 const { getDatosEmpresaById, obtenerListadoEmpresas, guardarDatosEmpresaConfig } = require('./modulesService/Empresa');
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
-
 const {
   iniciarSesion: iniciarSesionService,
   obtenerModulos: obtenerModulosService,
@@ -61,7 +60,6 @@ const {
   finalizarSesionActiva: finalizarSesionActivaService,
   decodeStoreBlob: decodeStoreBlobService
 } = require('./modulesService/Login');
-
 const {
   registroCheq3Sit: registro,
   actualizarCheque3: actualizarCheque3Service,
@@ -69,17 +67,19 @@ const {
   getSituacion: situacion,
   getUpdatedbyRegistro: getupdreg
 } = require('./modulesService/Cheques3');
-
 const {
   getArticulos, getClases, getProveedores, getRubros,
   getTasasIVA, getArticuloDetailsById, claseExiste, rubroExiste,
   getProveedorDetails, getTasaIVADetails
 } = require('./modulesService/Articulos');
 
+// ⬇️ SOLO estas tres funciones de precios (como pediste)
 const {
   obtenerPrecios: obtenerPreciosService,
   actualizarListaDePrecios: actualizarPreciosService,
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
+  // ⚠️ Si estás usando los handlers granulares, los podés dejar,
+  // pero no son parte del pedido actual:
   obtenerPrecioActualizador: obtenerPrecioActualizadorService,
   updatePrecioActualizador:   updatePrecioActualizadorService,
 } = require('./modulesService/Precios');
@@ -89,7 +89,7 @@ const isDev = !app.isPackaged;
 let mainWindow;
 let store;
 let activeSession = null; // { usuario, deviceId, token }
-let menuWasSet = false;
+let modulosCache = [];    // cache de módulos para el menú hamburguesa
 
 // --- Utils ---
 function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
@@ -110,29 +110,65 @@ function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
   });
 }
 
-function applyDynamicMenu(modulos) {
-  try {
-    buildAppMenu(mainWindow, isDev, modulos || []);
-    menuWasSet = true;
-    writeToLog(`Menú dinámico aplicado (${(modulos || []).length} módulos)`);
-  } catch (e) {
-    writeToLog(`Error aplicando menú: ${e.message}`);
-  }
-}
-
 function clearStoreForLogin() {
   if (!store) return;
-  const keep = { deviceId: store.get('deviceId'), boundUser: store.get('boundUser') };
+  const keep = { deviceId: store.get('deviceId') };
   try {
     store.clear();
     if (keep.deviceId) store.set('deviceId', keep.deviceId);
-    if (keep.boundUser) store.set('boundUser', keep.boundUser);
     writeToLog('electron-store limpiado por navegación a /Login');
   } catch (e) {
     writeToLog(`Error limpiando store: ${e.message}`);
   }
 }
 
+function getBaseOrigin() {
+  try {
+    if (isDev) return 'http://localhost:3000';
+    const current = mainWindow?.webContents?.getURL();
+    if (current && current.startsWith('http')) {
+      const { origin } = new URL(current);
+      return origin;
+    }
+  } catch {}
+  return 'http://localhost:3000';
+}
+
+function navigateTo(pathname) {
+  try {
+    const base = getBaseOrigin();
+    const target = `${base}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+    if (target.endsWith('/Login')) clearStoreForLogin();
+    writeToLog(`Navegando a: ${target}`);
+    mainWindow?.loadURL(target);
+  } catch (e) {
+    writeToLog(`navigateTo error: ${e.message}`);
+  }
+}
+
+async function refreshModulosCache() {
+  try {
+    const idCliente = store?.get('idCliente');
+    if (!idCliente) { modulosCache = []; return; }
+    const res = await obtenerModulosService(idCliente);
+    if (res?.success) {
+      modulosCache = (res.modulos || []).map(m => ({
+        id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
+        link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
+      }));
+    } else {
+      modulosCache = [];
+    }
+  } catch (e) {
+    writeToLog(`refreshModulosCache error: ${e.message}`);
+    modulosCache = [];
+  }
+}
+
+// --- Menú Hamburguesa (popup) ---
+// (tu implementación previa va aquí si la estás usando)
+
+// --- Ventana principal ---
 async function createMainWindow() {
   writeToLog('createMainWindow...');
   store = new Store();
@@ -159,6 +195,9 @@ async function createMainWindow() {
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, theUrl, isMainFrame) => writeToLog(`did-fail-load ${theUrl} (${code}) ${desc} MF=${isMainFrame}`));
   mainWindow.webContents.on('render-process-gone', (_ , details) => writeToLog(`render gone: ${details.reason} (${details.exitCode})`));
 
+  // 🔕 Ocultar completamente el menú de aplicación nativo
+  Menu.setApplicationMenu(null);
+
   const loadWithAutoResume = async (base) => {
     const { startPath, active, modulos } = await tryAutoResume({
       store,
@@ -166,9 +205,8 @@ async function createMainWindow() {
       verificarSesionActiva: (payload) => verificarSesionActivaService(payload),
       registrarSesionActiva: (payload) => registrarSesionActivaService(payload),
       obtenerModulos: (idCliente) => obtenerModulosService(idCliente),
-      buildAppMenu: (mods) => applyDynamicMenu(mods),
+      buildAppMenu: (mods) => { modulosCache = Array.isArray(mods) ? mods : []; }, // cacheamos, no aplicamos menú
       startSessionHeartbeat: ({ usuario, deviceId }) => {
-        // inicia heartbeat con nuestro helper (limpia anterior si existiera)
         stopSessionHeartbeat();
         startSessionHeartbeat(
           heartbeatSesionActivaService,
@@ -180,25 +218,21 @@ async function createMainWindow() {
     });
 
     const target = `${base}${startPath || '/Login'}`;
-
-    // Si vamos a /Login limpiamos el store antes
     if (target.endsWith('/Login')) clearStoreForLogin();
 
     writeToLog(`Navegando a: ${target}`);
     await mainWindow.loadURL(target);
 
-    if (active) {
-      activeSession = active; // para cerrar sesión bien en before-quit
-    }
-
-    if (Array.isArray(modulos) && modulos.length && !menuWasSet) {
-      applyDynamicMenu(modulos);
+    if (active) activeSession = active;
+    if (Array.isArray(modulos) && modulos.length) {
+      modulosCache = modulos;
     }
   };
 
   if (isDev) {
     const DEV_BASE = 'http://localhost:3000';
     try {
+      // limpiar .next/trace corrupto (si pasa)
       try {
         const projectRoot = path.resolve(__dirname, '..');
         const tracePath   = path.join(projectRoot, '.next', 'trace');
@@ -249,24 +283,10 @@ async function createMainWindow() {
       return;
     }
   }
-
-  // Menú base (si no hubo dinámico)
-  if (!menuWasSet) {
-    const baseTemplate = [{
-      label: 'Menú',
-      submenu: [
-        { label: 'Toggle DevTools', accelerator: 'F12', click: () => mainWindow?.webContents.toggleDevTools() },
-        { label: 'Reload', accelerator: 'F5',  click: () => mainWindow?.reload() },
-        { type: 'separator' },
-        { label: 'Salir', role: 'quit', accelerator: 'Esc' },
-      ]
-    }];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(baseTemplate));
-  }
 }
 
 // --- Ciclo de vida ---
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
   try { if (!fs.existsSync(tempFolderPath)) fs.mkdirSync(tempFolderPath); } catch {}
   createMainWindow().catch(e => writeToLog(`createMainWindow error: ${e.message}`));
@@ -294,14 +314,31 @@ ipcMain.handle('electron-store-get', (_e, key) => store ? store.get(key) : undef
 ipcMain.handle('electron-store-set', (_e, { key, value }) => { if (store) store.set(key, value); });
 ipcMain.handle('whoami', () => ({
   user: store?.get('user') || null,
-  boundUser: store?.get('boundUser') || null,
   deviceId: store?.get('deviceId') || null
 }));
+// …en electron/main.js, junto con otros ipcMain.handle
+ipcMain.handle('hamburger:open', async (_e, coords) => {
+  try {
+    await showHamburgerMenu(coords || {});
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
 
-// Alias por si algún front llama a 'build-menu'
-ipcMain.handle('build-menu', (_e, modulos) => { applyDynamicMenu(Array.isArray(modulos) ? modulos : []); return { success: true }; });
-ipcMain.handle('menu:set-modules', (_e, modulos) => { applyDynamicMenu(Array.isArray(modulos) ? modulos : []); return { success: true }; });
+// --- IPC: menú hamburguesa ---
+ipcMain.handle('ui:show-hamburger', async (_e, coords) => {
+  try { await showHamburgerMenu(coords || {}); return { success: true }; }
+  catch (e) { writeToLog(`ui:show-hamburger error: ${e.message}`); return { success: false, message: e.message }; }
+});
 
+// --- IPC: construir/actualizar cache de módulos (opcional) ---
+ipcMain.handle('menu:set-modules', async (_e, modulos) => {
+  modulosCache = Array.isArray(modulos) ? modulos : [];
+  return { success: true };
+});
+
+// --- IPC: logout directo ---
 ipcMain.handle('logout', async () => {
   try {
     if (activeSession?.usuario && activeSession?.deviceId) {
@@ -310,42 +347,36 @@ ipcMain.handle('logout', async () => {
     stopSessionHeartbeat();
     activeSession = null;
     if (store) {
-      const did = store.get('deviceId'); const bound = store.get('boundUser');
-      store.clear(); if (did) store.set('deviceId', did); if (bound) store.set('boundUser', bound);
+      const did = store.get('deviceId');
+      store.clear(); if (did) store.set('deviceId', did);
     }
-    menuWasSet = false;
     return { success: true };
   } catch (e) {
     return { success: false, message: e.message };
   }
 });
 
-// --- IPC: Login + menú dinámico ---
+// --- IPC: Login (sin menú de app; sólo cache y popup) ---
 ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
   writeToLog(`Login intento: ${usuario}`);
   try {
-    const bind = bindUserLocally(store, usuario);
-    if (!bind.ok) return { success: false, message: bind.message };
-
-    const deviceId = getDeviceId(store); // 👈 primero el device
-    const result = await iniciarSesionService({ usuario, contraseña, deviceId }); // 👈 pasar deviceId
+    const deviceId = getDeviceId(store); // hostname o huella
+    const result = await iniciarSesionService({ usuario, contraseña, deviceId });
 
     if (!(result?.success && result.user && result.token && result.user.IdCliente)) {
       return { success: false, message: result?.message || 'Credenciales inválidas' };
     }
 
-    // Política de sesión única
-    // Política de sesión única
-const check = await verificarSesionActivaService({ usuario, deviceId });
-if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
-  const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
-  return {
-    success: false,
-    message: check?.message || `Usuario activo. Intente en el dispositivo que está en uso${dev}.`,
-    code: 'ACTIVE_OTHER_DEVICE'
-  };
-}
-
+    // Sesión única / Activa
+    const check = await verificarSesionActivaService({ usuario, deviceId });
+    if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
+      const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
+      return {
+        success: false,
+        message: check?.message || `Usuario activo. Intente en el dispositivo que está en uso${dev}.`,
+        code: 'ACTIVE_OTHER_DEVICE'
+      };
+    }
 
     const lock = await registrarSesionActivaService({ usuario, deviceId, token: result.token });
     if (!lock?.success) {
@@ -358,28 +389,25 @@ if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
     store.set('jwtToken', result.token);
     store.set('fechaInicio', new Date().toISOString());
     store.set('deviceId', deviceId);
-    store.set('boundUser', usuario);
 
-    // 🔓 Decodificar StoreData de la sesión (si existe) y guardar en store
+    // Decodificar StoreData si existe
     try {
       const ses = await obtenerSesionPorDeviceService({ usuario, deviceId });
-      if (ses?.success && ses.row?.StoreData) {                     // 👈 row, no data
-        const decoded = decodeStoreBlobService(ses.row.StoreData);  // 👈 row.StoreData
+      if (ses?.success && ses.row?.StoreData) {
+        const decoded = decodeStoreBlobService(ses.row.StoreData);
         if (decoded && typeof decoded === 'object') {
           Object.entries(decoded).forEach(([k,v]) => { try { store.set(k, v); } catch {} });
           writeToLog('StoreData decodificado y aplicado.');
         }
       }
-    } catch (e) {
-      writeToLog(`decode StoreData error (no bloqueante): ${e.message}`);
-    }
+    } catch (e) { writeToLog(`decode StoreData error (no bloqueante): ${e.message}`); }
 
     // Heartbeat
     activeSession = { usuario, deviceId, token: result.token };
     stopSessionHeartbeat();
     startSessionHeartbeat(heartbeatSesionActivaService, { usuario, deviceId }, 30_000);
 
-    // Menú + módulos
+    // Módulos → cache para el popup
     const modulesResult = await obtenerModulosService(result.user.IdCliente);
     if (!modulesResult?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
@@ -387,14 +415,12 @@ if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
       activeSession = null;
       return { success: false, message: modulesResult?.message || 'No se pudo cargar módulos.' };
     }
-
-    const modulos = modulesResult.modulos.map(m => ({
+    modulosCache = modulesResult.modulos.map(m => ({
       id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
       link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
     }));
-    applyDynamicMenu(modulos);
 
-    return { success: true, user: result.user, modulos, token: result.token };
+    return { success: true, user: result.user, modulos: modulosCache, token: result.token };
   } catch (e) {
     writeToLog(`login IPC error: ${e.message}`);
     try {
@@ -453,37 +479,118 @@ safeIpc('get-proveedor-details', getProveedorDetails);
 safeIpc('get-tasa-iva-details', getTasaIVADetails);
 safeIpc('get-updated-fecha', getupdreg);
 
-ipcMain.handle('get-precios',            () => obtenerPreciosService());
-ipcMain.handle('get-precios-actualizados', () => obtenerPreciosActualizadosService());
-
-ipcMain.handle('precios-actualizador-get', async (_e, keys) => {
-  try { return await obtenerPrecioActualizadorService(keys); }
-  catch (e) { return { success: false, message: e.message }; }
-});
-ipcMain.handle('precios-actualizador-update', async (_e, payload) => {
-  try { return await updatePrecioActualizadorService(payload); }
-  catch (e) { return { success: false, message: e.message }; }
+// 🧩 PRECIOS: lectura simple
+ipcMain.handle('get-precios', async () => {
+  writeToLog('[IPC] get-precios');
+  return obtenerPreciosService();
 });
 
+// 🧩 PRECIOS: última corrida/auditoría
+ipcMain.handle('get-precios-actualizados', async () => {
+  writeToLog('[IPC] get-precios-actualizados');
+  return obtenerPreciosActualizadosService();
+});
+
+// 🧩 PRECIOS: actualización masiva con progreso (VOLVIÓ)
 ipcMain.handle('actualizar-precios', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const send = (percent, stage, message) => {
     try {
       event.sender.send('precios:update-progress', { percent, stage, message });
-      if (win && !win.isDestroyed()) win.setProgressBar(Math.max(0, Math.min(100, percent))/100);
-    } catch {}
+      if (win && !win.isDestroyed()) {
+        const clamped = Math.max(0, Math.min(100, Number(percent) || 0)) / 100;
+        win.setProgressBar(clamped);
+      }
+      writeToLog(`[actualizar-precios] ${percent}% | ${stage} | ${message}`);
+    } catch (e) {
+      writeToLog(`[actualizar-precios][progress error] ${e.message}`);
+    }
   };
+
   try {
-    send(3, 'Preparando', 'Iniciando actualización…');
+    send(1, 'Iniciando', 'Preparando actualización…');
     const result = await actualizarPreciosService({ onProgress: send });
     send(100, 'Finalizado', 'Completado');
-    setTimeout(()=> { try { win?.setProgressBar(-1); } catch {} }, 500);
+    setTimeout(() => { try { win?.setProgressBar(-1); } catch {} }, 500);
     return result;
   } catch (e) {
-    send(100, 'Error', e.message || 'Error');
+    writeToLog(`[actualizar-precios][ERROR] ${e?.message}`);
+    send(100, 'Error', e?.message || 'Error al actualizar precios');
     try { win?.setProgressBar(-1); } catch {}
-    return { success: false, message: e.message || 'Error al actualizar precios' };
+    return { success: false, message: e?.message || 'Error al actualizar precios' };
   }
+});
+
+// (Opcional) Handlers granulares ya existentes; dejalos si el front los usa:
+const normStr = (v) => (v ?? '').toString().trim();
+const normalizePrecioKeys = (obj = {}) => ({
+  lprdlp_Cod:     normStr(obj.lprdlp_Cod),
+  lprart_CodGen:  normStr(obj.lprart_CodGen),
+  lprart_CodEle1: normStr(obj.lprart_CodEle1),
+  lprart_CodEle2: normStr(obj.lprart_CodEle2),
+  lprart_CodEle3: normStr(obj.lprart_CodEle3),
+  ...(Object.prototype.hasOwnProperty.call(obj, 'precio') ? { precio: obj.precio } : {})
+});
+
+ipcMain.handle('precios-actualizador-get', async (_e, keys) => {
+  try {
+    writeToLog('[IPC] precios-actualizador-get');
+    const k = normalizePrecioKeys(keys);
+    return await obtenerPrecioActualizadorService(k);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+ipcMain.handle('precios-actualizador-update', async (_e, payload) => {
+  try {
+    writeToLog('[IPC] precios-actualizador-update');
+    const p = normalizePrecioKeys(payload);
+    return await updatePrecioActualizadorService(p);
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+ipcMain.handle('empresas:local:list', async () => {
+  try {
+    const res = await getLocalEmpresasODBC();
+    return res;
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+// Comparar nube vs local (usa modulesService/Empresa.obtenerListadoEmpresas)
+ipcMain.handle('empresas:compare-cloud', async (_e, maybeIdCliente) => {
+  try {
+    const idCliente = maybeIdCliente ?? store?.get?.('idCliente') ?? null;
+    const res = await compareEmpresasAgainstCloud(obtenerListadoEmpresas, idCliente);
+    return res;
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+ipcMain.handle('env:is-dev', () => isDev);
+ipcMain.handle('app:toggle-devtools', () => {
+  try {
+    if (!isDev) return { success: false, message: 'DevTools deshabilitado en producción' };
+    (BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])?.webContents.toggleDevTools();
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+});
+
+ipcMain.handle('app:reload', () => {
+  try { (BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])?.reload(); return { success: true }; }
+  catch (e) { return { success: false, message: e.message }; }
+});
+
+ipcMain.handle('app:quit', () => {
+  try { app.quit(); return { success: true }; }
+  catch (e) { return { success: false, message: e.message }; }
 });
 
 ipcMain.handle('download-and-open-excel', async (event, relativeFilePath) => {

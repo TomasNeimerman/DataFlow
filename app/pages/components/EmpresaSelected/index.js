@@ -1,5 +1,5 @@
 // EmpresaSelect
-"use client"
+"use client";
 import styles from './styles.module.css';
 import { useState, useEffect } from 'react';
 
@@ -10,21 +10,28 @@ const EmpresaSelected = () => {
   useEffect(() => {
     const fetchDatos = async () => {
       if (window.api) {
-        // <-- MODIFICADO: Obtener ambos valores con la API de store
         const id = await window.api.getStoreValue('idCliente');
         const nombreEmpresa = await window.api.getStoreValue('selectedEmpresaNombre');
-        
-        setIdCliente(id);
 
-        if (nombreEmpresa) {
-          setEmpresaSeleccionada(nombreEmpresa);
-        } else {
-          setEmpresaSeleccionada("No hay empresa seleccionada");
-        }
+        setIdCliente(id);
+        setEmpresaSeleccionada(nombreEmpresa || "No hay empresa seleccionada");
       }
     };
-    
+
     fetchDatos();
+
+    // 👇 Suscripción a cambios en caliente
+    const handler = (e) => {
+      const { id, nombre } = e.detail || {};
+      // (opcional) si querés, podrías obtener de store de nuevo:
+      // pero con el nombre del evento alcanza para UX instantánea
+      setEmpresaSeleccionada(nombre || "No hay empresa seleccionada");
+      // idCliente no cambia acá; si querés refrescarlo:
+      // window.api.getStoreValue('idCliente').then(setIdCliente).catch(()=>{});
+    };
+
+    window.addEventListener('empresa:selected', handler);
+    return () => window.removeEventListener('empresa:selected', handler);
   }, []);
 
   return (
@@ -35,6 +42,6 @@ const EmpresaSelected = () => {
       }
     </div>
   );
-}
+};
 
 export default EmpresaSelected;

@@ -1,193 +1,418 @@
-// app/hooks/preciosActualizador.js
-import { useState } from 'react';
+// public/hooks/preciosActualizador.js
+import { useState } from "react";
 
-const normalize = (s) =>
-  (s ?? '')
-    .toString()
-    .trim()
-    .replace(/\s+/g, ' ')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
+const usePreciosActualizador = () => {
+  const [importStatus, setImportStatus] = useState("");
+  const [importMessage, setImportMessage] = useState("");
 
-const EXPECTED = [
-  'Lista de Precios - Cód.',
-  'Lista de Precios',
-  'Artículo - Cód. Genérico',
-  'Artículo - Cód. Elemento 1',
-  'Artículo - Cód. Elemento 2',
-  'Artículo - Cód. Elemento 3',
-  'Artículo - Desc.Genérica',
-  'Artículo - Elemento 1',
-  'Artículo - Elemento 2',
-  'Artículo - Elemento 3',
-  'Precio',
-];
+  // -------------------------
+  // Normalización y helpers
+  // -------------------------
+  const norm = (s) =>
+    String(s ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // quita acentos
+      .replace(/[$]/g, "")             // quita símbolo moneda
+      .replace(/[.\-_/]/g, " ")        // separadores → espacio
+      .replace(/\s+/g, " ")
+      .trim();
 
-const wantedMap = {
-  lprdlp_Cod: 'Lista de Precios - Cód.',
-  lprart_CodGen: 'Artículo - Cód. Genérico',
-  lprart_CodEle1: 'Artículo - Cód. Elemento 1',
-  lprart_CodEle2: 'Artículo - Cód. Elemento 2',
-  lprart_CodEle3: 'Artículo - Cód. Elemento 3',
-  precio: 'Precio',
-};
+  const toNumber = (v) => {
+    if (v === null || v === undefined || v === "") return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    // soporta "12.345,67" / "$ 12.345,67"
+    const cleaned = String(v).replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
 
-function buildIndexMap(headers) {
-  const normHeaders = headers.map(normalize);
-  const map = {};
-  for (const [key, label] of Object.entries(wantedMap)) {
-    map[key] = normHeaders.indexOf(normalize(label));
-  }
-  const missingKeys = Object.entries(map)
-    .filter(([, idx]) => idx < 0)
-    .map(([k]) => `${k} (${wantedMap[k]})`);
-  return { map, missingKeys };
-}
+  const nowIso = () => new Date().toISOString();
 
-function parsePrecioCell(value) {
-  if (value === null || value === undefined || value === '') return null;
-  let str = String(value).trim();
-  // limpiar símbolos de moneda y espacios
-  str = str.replace(/[^\d.,\-]/g, '');
-  // si hay . y , => . miles, , decimal
-  if (str.includes('.') && str.includes(',')) {
-    str = str.replace(/\./g, '').replace(',', '.');
-  } else if (str.includes(',')) {
-    str = str.replace(',', '.');
-  }
-  const num = Number(str);
-  return Number.isFinite(num) ? num : null;
-}
+  // ---------------------------------------
+  // Etiquetas (flexibles/sinónimos aceptados)
+  // ---------------------------------------
+  const HEADERS = {
+    LISTA_NOMBRE: [
+      "lista de precios",
+      "lista precios",
+    ],
+    LISTA_COD: [
+      "lista de precios - cod",
+      "lista de precios - cód",
+      "lista cod",
+      "lprdlp_cod",
+    ],
+    COD_GEN: [
+      "art - cod generico",
+      "art - cod. generico",
+      "art - cod. gen",
+      "art - cod generico",
+      "articulo - cod generico",
+      "articulo - cod. generico",
+      "articulo - cod. gen",
+      "articulo - cod gen",
+      "artículo - cód. genérico",
+      "lprart_codgen",
+      "cod generico",
+      "cód. genérico",
+    ],
+    ELE1: [
+      "art - cod elem 1",
+      "art - cod. elem 1",
+      "articulo - cod elem 1",
+      "artículo - cód. elem. 1",
+      "elem 1",
+      "lprart_codele1",
+    ],
+    ELE2: [
+      "art - cod elem 2",
+      "art - cod. elem 2",
+      "articulo - cod elem 2",
+      "artículo - cód. elem. 2",
+      "elem 2",
+      "lprart_codele2",
+    ],
+    ELE3: [
+      "art - cod elem 3",
+      "art - cod. elem 3",
+      "articulo - cod elem 3",
+      "artículo - cód. elem. 3",
+      "elem 3",
+      "lprart_codele3",
+    ],
+    PRECIO: [
+      "precio",
+      "importe",
+      "valor",
+      "precio final",
+      "lpr_precio",
+    ],
+  };
 
-export default function usePreciosActualizador() {
-  const [importStatus, setImportStatus] = useState('');
-  const [importMessage, setImportMessage] = useState('');
+  const REQUIRED_KEYS = ["LISTA_COD", "COD_GEN", "PRECIO"]; // obligatorias
+  const OPTIONAL_VALUE_KEYS = ["LISTA_NOMBRE", "ELE1", "ELE2", "ELE3"]; // valores pueden faltar
 
-  const validateExcelColumns = (headers) => {
-    const { missingKeys } = buildIndexMap(headers);
-    if (missingKeys.length) {
-      setImportStatus('hubo un error en la importacion');
+  const containsAny = (cell, options) => {
+    const c = norm(cell);
+    return options.some((opt) => c.includes(opt));
+  };
+
+  const buildIndex = (headers) => {
+    const idxOfAny = (labels) =>
+      headers.findIndex((h) => containsAny(h, labels.map(norm)));
+    return {
+      LISTA_NOMBRE: idxOfAny(HEADERS.LISTA_NOMBRE),
+      LISTA_COD: idxOfAny(HEADERS.LISTA_COD),
+      COD_GEN: idxOfAny(HEADERS.COD_GEN),
+      ELE1: idxOfAny(HEADERS.ELE1),
+      ELE2: idxOfAny(HEADERS.ELE2),
+      ELE3: idxOfAny(HEADERS.ELE3),
+      PRECIO: idxOfAny(HEADERS.PRECIO),
+    };
+  };
+
+  // -------------------------
+  // Validación de encabezados
+  // -------------------------
+  const validateExcelColumns = (actualHeaders = []) => {
+    setImportStatus("");
+    setImportMessage("");
+    if (!Array.isArray(actualHeaders) || actualHeaders.length === 0) {
+      setImportStatus("hubo un error en la importacion");
+      setImportMessage("La primera fila (encabezados) está vacía.");
+      return false;
+    }
+
+    const idx = buildIndex(actualHeaders);
+    const missing = REQUIRED_KEYS.filter((k) => idx[k] === -1);
+
+    if (missing.length) {
+      const human = {
+        LISTA_COD: "Lista de Precios - Cód.",
+        COD_GEN: "Art. - Cód. Genérico",
+        PRECIO: "Precio",
+      };
+      setImportStatus("hubo un error en la importacion");
       setImportMessage(
-        `Faltan columnas: ${missingKeys.join(', ')}`
+        `Faltan columnas obligatorias en la primera fila: ${missing
+          .map((k) => human[k])
+          .join(", ")}.`
       );
       return false;
     }
     return true;
   };
 
-  const processPriceUpdates = async (rows, obtenerPrecioApiFn, updatePrecioApiFn) => {
-    setImportStatus('');
-    setImportMessage('');
-
-    if (!rows?.length) {
-      setImportStatus('hubo un error en la importacion');
-      setImportMessage('No hay filas para procesar.');
-      return { preciosProcesados: [], huboCambios: false };
+  // -------------------------
+  // Validación por fila (valores)
+  // -------------------------
+  const validateRowValues = (row, headers, idxMap) => {
+    const missing = [];
+    for (const key of REQUIRED_KEYS) {
+      const cidx = idxMap[key];
+      const val = cidx >= 0 ? row[cidx] : undefined;
+      const isEmpty =
+        val === undefined ||
+        val === null ||
+        (typeof val === "string" && val.trim() === "");
+      if (isEmpty) {
+        // busca el header original para mensaje
+        const headerName = headers[cidx] ?? key;
+        missing.push(headerName);
+      }
+    }
+    // PRECIO numérico válido
+    const precioIdx = idxMap.PRECIO;
+    const precioVal = precioIdx >= 0 ? row[precioIdx] : null;
+    const precioNum = toNumber(precioVal);
+    if (precioNum === null) {
+      const headerName = headers[precioIdx] ?? "Precio";
+      missing.push(`${headerName} (inválido)`);
     }
 
-    const headers = rows[0];
-    const body = rows.slice(1).filter((r) => r && r.length > 0);
+    return missing;
+  };
 
-    const { map: idx } = buildIndexMap(headers);
+  // -------------------------------------------
+  // Proceso principal: obtener y actualizar
+  // -------------------------------------------
+  const processPriceUpdates = async (json, obtenerFn, updateFn) => {
+    setImportStatus("");
+    setImportMessage("");
 
     const preciosProcesados = [];
     let huboCambios = false;
-    let countActualizados = 0;
-    let countSinCambios = 0;
-    let countNoEncontrados = 0;
-    let countPrecioInvalido = 0;
+    let errorEnActualizacion = false;
+    let actualizadosCount = 0;
+    let sinCambiosCount = 0;
+    let noEncontradosCount = 0;
+    let filasInvalidas = 0;
 
-    for (const r of body) {
-      const obj = {
-        lprdlp_Cod: r[idx.lprdlp_Cod] ?? '',
-        lprart_CodGen: r[idx.lprart_CodGen] ?? '',
-        lprart_CodEle1: r[idx.lprart_CodEle1] ?? '',
-        lprart_CodEle2: r[idx.lprart_CodEle2] ?? '',
-        lprart_CodEle3: r[idx.lprart_CodEle3] ?? '',
-        precio: parsePrecioCell(r[idx.precio]),
+    if (!Array.isArray(json) || json.length === 0) {
+      setImportStatus("hubo un error en la importacion");
+      setImportMessage("El archivo está vacío o no se pudo leer.");
+      return {
+        preciosProcesados,
+        huboCambios,
+        errorEnActualizacion: true,
+        actualizadosCount,
+        sinCambiosCount,
+        noEncontradosCount,
+        filasInvalidas,
       };
+    }
 
-      if (obj.precio === null) {
-        countPrecioInvalido++;
-        preciosProcesados.push({ precio: obj, actualizado: false, motivo: 'precio inválido' });
-        continue;
-      }
+    const headers = json[0];
+    const rows = json.slice(1).filter((r) => r && r.length > 0);
+    const idx = buildIndex(headers);
 
-      const lookup = await obtenerPrecioApiFn({
-        lprdlp_Cod: obj.lprdlp_Cod,
-        lprart_CodGen: obj.lprart_CodGen,
-        lprart_CodEle1: obj.lprart_CodEle1,
-        lprart_CodEle2: obj.lprart_CodEle2,
-        lprart_CodEle3: obj.lprart_CodEle3,
-      });
+    // Validación de encabezados obligatorios (por si viene sin pasar validateExcelColumns afuera)
+    const missingRequired = REQUIRED_KEYS.filter((k) => idx[k] === -1);
+    if (missingRequired.length) {
+      setImportStatus("hubo un error en la importacion");
+      setImportMessage("Encabezados obligatorios ausentes.");
+      return {
+        preciosProcesados,
+        huboCambios,
+        errorEnActualizacion: true,
+        actualizadosCount,
+        sinCambiosCount,
+        noEncontradosCount,
+        filasInvalidas,
+      };
+    }
 
-      const current = lookup?.precio || null;
-
-      // si no se encontró la fila, intentamos igual actualizar y contamos como no encontrado si falla
-      if (!current) {
-        const upd = await updatePrecioApiFn({
-          lprdlp_Cod: obj.lprdlp_Cod,
-          lprart_CodGen: obj.lprart_CodGen,
-          lprart_CodEle1: obj.lprart_CodEle1,
-          lprart_CodEle2: obj.lprart_CodEle2,
-          lprart_CodEle3: obj.lprart_CodEle3,
-          precio: obj.precio, // 👈👈 MANDAMOS PRECIO
+    for (const r of rows) {
+      // 1) Validación de valores obligatorios por fila
+      const missingVals = validateRowValues(r, headers, idx);
+      if (missingVals.length > 0) {
+        filasInvalidas++;
+        preciosProcesados.push({
+          fecha: nowIso(),
+          lista: idx.LISTA_COD >= 0 ? r[idx.LISTA_COD] ?? "—" : "—",
+          codArticulo: idx.COD_GEN >= 0 ? r[idx.COD_GEN] ?? "—" : "—",
+          descripcion: "",
+          precioAnterior: null,
+          precioNuevo: idx.PRECIO >= 0 ? toNumber(r[idx.PRECIO]) : null,
+          actualizado: false,
+          motivo: `Faltan/Inválidos: ${missingVals.join(", ")}`,
+          precio: {
+            lprdlp_Cod: idx.LISTA_COD >= 0 ? (r[idx.LISTA_COD] ?? null) : null,
+            lprart_CodGen: idx.COD_GEN >= 0 ? (r[idx.COD_GEN] ?? null) : null,
+            lprart_CodEle1: idx.ELE1 >= 0 ? (r[idx.ELE1] ?? null) : null,
+            lprart_CodEle2: idx.ELE2 >= 0 ? (r[idx.ELE2] ?? null) : null,
+            lprart_CodEle3: idx.ELE3 >= 0 ? (r[idx.ELE3] ?? null) : null,
+            precio: idx.PRECIO >= 0 ? toNumber(r[idx.PRECIO]) : null,
+            precioAnterior: null,
+          },
         });
-        if (upd?.success) {
-          huboCambios = true;
-          countActualizados++;
-          preciosProcesados.push({ precio: obj, actualizado: true });
-        } else {
-          countNoEncontrados++;
-          preciosProcesados.push({ precio: obj, actualizado: false, motivo: 'no encontrado' });
+        continue; // no llamamos la API
+      }
+
+      // 2) Keys + nuevo precio
+      const keys = {
+        lprdlp_Cod: String(r[idx.LISTA_COD]).trim(),
+        lprart_CodGen: String(r[idx.COD_GEN]).trim(),
+        lprart_CodEle1: idx.ELE1 >= 0 ? String(r[idx.ELE1] ?? "").trim() : "",
+        lprart_CodEle2: idx.ELE2 >= 0 ? String(r[idx.ELE2] ?? "").trim() : "",
+        lprart_CodEle3: idx.ELE3 >= 0 ? String(r[idx.ELE3] ?? "").trim() : "",
+      };
+      const precioNuevo = toNumber(r[idx.PRECIO]);
+
+      // 3) Obtener registro actual
+      let precioAnterior = null;
+      let descripcion = "";
+      let encontrado = false;
+
+      try {
+        const res = await obtenerFn(keys);
+        // el servicio devuelve { success, row } (y también { precio: row })
+        const base = res?.row || res?.precio || res?.data || null;
+
+        // candidatos comunes para el valor actual
+        const candidates = [
+          base?.precioAnterior,
+          base?.precioActual,
+          base?.precio,
+          base?.lpr_Precio,
+          base?.importe,
+          base?.valor,
+          base?.Precio,
+        ];
+        for (const c of candidates) {
+          const n = toNumber(c);
+          if (n !== null) {
+            precioAnterior = n;
+            break;
+          }
         }
+        descripcion =
+          base?.descripcion || base?.artDescripcion || base?.desc || "";
+        encontrado = !!base;
+      } catch {
+        encontrado = false;
+      }
+
+      if (!encontrado) {
+        noEncontradosCount++;
+        preciosProcesados.push({
+          fecha: nowIso(),
+          lista: keys.lprdlp_Cod,
+          codArticulo: keys.lprart_CodGen,
+          descripcion,
+          precioAnterior: null,
+          precioNuevo,
+          actualizado: false,
+          motivo: "No encontrado",
+          precio: { ...keys, precio: precioNuevo, precioAnterior: null, descripcion },
+        });
         continue;
       }
 
-      const precioActual = Number(current.lpr_Precio ?? current.lpr_precio ?? current.precio ?? NaN);
-      if (Number.isFinite(precioActual) && Math.abs(precioActual - obj.precio) < 1e-9) {
-        countSinCambios++;
-        preciosProcesados.push({ precio: obj, actualizado: false });
-        continue;
-      }
+      const requiereUpdate =
+        precioAnterior === null ? true : Number(precioAnterior) !== Number(precioNuevo);
 
-      const upd = await updatePrecioApiFn({
-        lprdlp_Cod: obj.lprdlp_Cod,
-        lprart_CodGen: obj.lprart_CodGen,
-        lprart_CodEle1: obj.lprart_CodEle1,
-        lprart_CodEle2: obj.lprart_CodEle2,
-        lprart_CodEle3: obj.lprart_CodEle3,
-        precio: obj.precio, // 👈👈 MANDAMOS PRECIO
-      });
-
-      if (upd?.success) {
-        huboCambios = true;
-        countActualizados++;
-        preciosProcesados.push({ precio: obj, actualizado: true });
+      if (requiereUpdate) {
+        try {
+          const payload = { ...keys, precio: precioNuevo };
+          const up = await updateFn(payload);
+          if (up?.error || up?.success === false) {
+            errorEnActualizacion = true;
+            preciosProcesados.push({
+              fecha: nowIso(),
+              lista: keys.lprdlp_Cod,
+              codArticulo: keys.lprart_CodGen,
+              descripcion,
+              precioAnterior,
+              precioNuevo,
+              actualizado: false,
+              motivo: up?.message || up?.error || "Error al actualizar",
+              precio: { ...keys, precio: precioNuevo, precioAnterior, descripcion },
+            });
+          } else {
+            huboCambios = true;
+            actualizadosCount++;
+            preciosProcesados.push({
+              fecha: nowIso(),
+              lista: keys.lprdlp_Cod,
+              codArticulo: keys.lprart_CodGen,
+              descripcion,
+              precioAnterior,
+              precioNuevo,
+              actualizado: true,
+              motivo: null,
+              precio: { ...keys, precio: precioNuevo, precioAnterior, descripcion },
+            });
+          }
+        } catch (e) {
+          errorEnActualizacion = true;
+          preciosProcesados.push({
+            fecha: nowIso(),
+            lista: keys.lprdlp_Cod,
+            codArticulo: keys.lprart_CodGen,
+            descripcion,
+            precioAnterior,
+            precioNuevo,
+            actualizado: false,
+            motivo: e?.message || "Error al actualizar",
+            precio: { ...keys, precio: precioNuevo, precioAnterior, descripcion },
+          });
+        }
       } else {
-        countNoEncontrados++;
-        preciosProcesados.push({ precio: obj, actualizado: false, motivo: 'update falló' });
+        sinCambiosCount++;
+        preciosProcesados.push({
+          fecha: nowIso(),
+          lista: keys.lprdlp_Cod,
+          codArticulo: keys.lprart_CodGen,
+          descripcion,
+          precioAnterior,
+          precioNuevo,
+          actualizado: false,
+          motivo: "Sin cambios",
+          precio: { ...keys, precio: precioNuevo, precioAnterior, descripcion },
+        });
       }
     }
 
-    let msg = '';
-    if (huboCambios) {
-      msg = `Importado correctamente. ${countActualizados} precio(s) actualizado(s).`;
-      if (countSinCambios) msg += ` ${countSinCambios} sin cambios.`;
-      if (countNoEncontrados) msg += ` ${countNoEncontrados} no encontrado(s).`;
-      if (countPrecioInvalido) msg += ` ${countPrecioInvalido} con precio inválido.`;
-      setImportStatus('Importado correctamente');
+    // -------------------------
+    // Mensaje final de resumen
+    // -------------------------
+    let finalMsg = "";
+    if (filasInvalidas > 0)
+      finalMsg += `${filasInvalidas} fila(s) con datos faltantes/invalidos fueron omitidas. `;
+    if (errorEnActualizacion) {
+      finalMsg += "Hubo errores al actualizar algunos precios.";
+      setImportStatus("hubo un error en la importacion");
+    } else if (huboCambios) {
+      finalMsg += `Importado correctamente. ${actualizadosCount} precio(s) actualizado(s).`;
+      if (sinCambiosCount > 0) finalMsg += ` ${sinCambiosCount} sin cambios.`;
+      if (noEncontradosCount > 0) finalMsg += ` ${noEncontradosCount} no encontrados.`;
+      setImportStatus("Importado correctamente");
     } else {
-      msg = `Importación completada. Sin cambios.`;
-      if (countNoEncontrados) msg += ` ${countNoEncontrados} no encontrado(s).`;
-      if (countPrecioInvalido) msg += ` ${countPrecioInvalido} con precio inválido.`;
-      setImportStatus('Importación sin cambios');
+      finalMsg += `Importación completada. No se encontraron cambios para actualizar.`;
+      if (noEncontradosCount > 0) finalMsg += ` ${noEncontradosCount} no encontrados.`;
+      setImportStatus("Importación sin cambios");
     }
-    setImportMessage(msg);
+    setImportMessage(finalMsg.trim());
 
-    return { preciosProcesados, huboCambios };
+    return {
+      preciosProcesados,
+      huboCambios,
+      errorEnActualizacion,
+      actualizadosCount,
+      sinCambiosCount,
+      noEncontradosCount,
+      filasInvalidas,
+    };
   };
 
-  return { importStatus, importMessage, validateExcelColumns, processPriceUpdates };
-}
+  return {
+    importStatus,
+    importMessage,
+    validateExcelColumns,
+    processPriceUpdates,
+  };
+};
+
+export default usePreciosActualizador;
