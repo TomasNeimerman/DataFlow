@@ -66,29 +66,41 @@ contextBridge.exposeInMainWorld('api', {
   // Descargas
   downloadAndOpenExcel: (relativePath) => ipcRenderer.invoke('download-and-open-excel', relativePath),
 
-getEmpresasODBC: () => ipcRenderer.invoke('odbc:get-empresas'),
-compararEmpresasLocalRemoto: (local, remoto) => ipcRenderer.invoke('empresas:comparar-local-remoto', { local, remoto }),
-
+  // BD Comparacion
+  filterEmpresasByLocal: (idCliente) => ipcRenderer.invoke('filter-empresas-by-local', idCliente),
+  
   // Otros
   getUpdatedFecha: () => ipcRenderer.invoke('get-updated-fecha'),
 });
 
 // Hotkeys globales del renderer (fuera de inputs)
+// ⬇️ Reemplazá TODO el bloque viejo de keydown por este
 document.addEventListener('keydown', (e) => {
+  // Evitar que se dispare mientras escribís en inputs/textarea
   const el = document.activeElement;
   const editing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   if (editing) return;
 
+  const safeInvoke = async (channel, payload) => {
+    try {
+      await ipcRenderer.invoke(channel, payload);
+    } catch (err) {
+      // No rompas la UI por errores en hotkeys
+      console.warn(`[hotkey] ${channel} fallo:`, err?.message || err);
+    }
+  };
+
   if (e.key === 'F12') {
     e.preventDefault();
-    window.api.toggleDevTools();
+    // En prod, el main ya lo bloquea y devuelve error controlado
+    safeInvoke('app:toggle-devtools');
   }
   if (e.key === 'F5') {
     e.preventDefault();
-    window.api.reload();
+    safeInvoke('app:reload');
   }
   if (e.key === 'Escape') {
     e.preventDefault();
-    window.api.quit();
+    safeInvoke('app:quit');
   }
 });

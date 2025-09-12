@@ -1,3 +1,23 @@
+/* Contenedor principal de la tarjeta/formulario */
+.formCardContainer {
+  background: #fff;
+  padding: 16px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* Campo y etiqueta */
+.field {
+  margin-bottom: 15px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+
+/* Select (tu estilo original) */
 .select {
     width: 100%;
     padding: 10px;
@@ -5,6 +25,8 @@
     border: 1px solid #ddd;
     border-radius: 5px;
 }
+
+/* Botón (tu estilo original) */
 .btn {
     margin-bottom: 5px;
     background-color: #e82c02;
@@ -19,5 +41,52 @@
 .btn:hover{
     background-color: #d42602;
     border-color: white;
-    
+}
+
+/* Mensajes de estado */
+.statusError {
+  color: #d1242f;
+  background: #fde8e8;
+  border: 1px solid #f1b3b7;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.statusSuccess {
+  color: #1f6f2a;
+  background: #e9fbe9;
+  border: 1px solid #b8e7bf;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+/* Texto auxiliar pequeño */
+.infoSmall {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* Caja de comparación (sin inline styles) */
+.box {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  border: 1px solid transparent;
+}
+
+.boxNeutral { border-color: #d0d7de; background: #f6f8fa; }
+.boxWarn    { border-color: #ffb900; background: #fff8e1; }
+.boxOk      { border-color: #2da44e; background: #e9fbe9; }
+.boxErr     { border-color: #d1242f; background: #fde8e8; }
+
+.cmpTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
 }

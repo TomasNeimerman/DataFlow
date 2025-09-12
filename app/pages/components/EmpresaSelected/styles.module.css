@@ -1,17 +1,18 @@
 .container {
+  font-family: 'Public Sans', sans-serif;
+  background-color: white;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  padding-right: 2px;
+  padding-left: 2px;
+  border-radius: 5px;
+  border: 2px solid rgb(214, 214, 214);
+  text-align: center;
+  width: 240px
+}
 
-    font-family: 'Public Sans', sans-serif;
-    background-color: white;
-    padding-top: 1px;
-    padding-bottom: 1px;
-    padding-right: 2px;
-    padding-left: 2px;
-    border-radius: 5px;
-    border: 2px solid rgb(214, 214, 214);
-
-}   
-.empresa{
-    color: green;
-    text-decoration: bold;
-    border-color: black;
+.empresa {
+  color: green;
+  text-decoration: bold;
+  border-color: black;
 }

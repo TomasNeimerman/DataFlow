@@ -19,7 +19,7 @@
 
 # production
 /build
-/dist
+/DataFlow 0.1.0
 
 # misc
 .DS_Store

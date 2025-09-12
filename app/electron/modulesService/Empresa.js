@@ -31,7 +31,7 @@ async function obtenerListadoEmpresas(idCliente) {
         pool = await mysql.createPool(mysqlConfig);
         
         const [rows] = await pool.execute(
-            'SELECT Id, Nombre AS nombreEmpresa, RazonSocial  FROM Empresa WHERE IdCliente = ?',
+            'SELECT Id, Nombre AS nombreEmpresa, RazonSocial, InstanciaBD as BDName  FROM Empresa WHERE IdCliente = ?',
             [idCliente]
         );
 
