@@ -185,6 +185,7 @@ async function createMainWindow() {
     webPreferences: {
       preload: hasPreload ? preloadPath : undefined,
       contextIsolation: true, nodeIntegration: false, webSecurity: true,
+      devTools: true,
       experimentalFeatures: false, enableRemoteModule: false,
     }
   };
@@ -495,35 +496,16 @@ ipcMain.handle('get-precios-actualizados', async () => {
   return obtenerPreciosActualizadosService();
 });
 
-// 🧩 PRECIOS: actualización masiva con progreso (VOLVIÓ)
-ipcMain.handle('actualizar-precios', async (event) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  const send = (percent, stage, message) => {
+// 🧩 PRECIOS: actualización masiva con progreso
+ipcMain.handle('precios:actualizar', async (event, opts) => {
+  const onProgress = (percent, stage, message) => {
     try {
       event.sender.send('precios:update-progress', { percent, stage, message });
-      if (win && !win.isDestroyed()) {
-        const clamped = Math.max(0, Math.min(100, Number(percent) || 0)) / 100;
-        win.setProgressBar(clamped);
-      }
-      writeToLog(`[actualizar-precios] ${percent}% | ${stage} | ${message}`);
-    } catch (e) {
-      writeToLog(`[actualizar-precios][progress error] ${e.message}`);
-    }
+    } catch {}
   };
-
-  try {
-    send(1, 'Iniciando', 'Preparando actualización…');
-    const result = await actualizarPreciosService({ onProgress: send });
-    send(100, 'Finalizado', 'Completado');
-    setTimeout(() => { try { win?.setProgressBar(-1); } catch {} }, 500);
-    return result;
-  } catch (e) {
-    writeToLog(`[actualizar-precios][ERROR] ${e?.message}`);
-    send(100, 'Error', e?.message || 'Error al actualizar precios');
-    try { win?.setProgressBar(-1); } catch {}
-    return { success: false, message: e?.message || 'Error al actualizar precios' };
-  }
+  return await actualizarPreciosService({ ...opts, onProgress });
 });
+
 
 // (Opcional) Handlers granulares ya existentes; dejalos si el front los usa:
 const normStr = (v) => (v ?? '').toString().trim();
@@ -693,7 +675,7 @@ ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
 ipcMain.handle('env:is-dev', () => isDev);
 ipcMain.handle('app:toggle-devtools', () => {
   try {
-    if (!isDev) return { success: false, message: 'DevTools deshabilitado en producción' };
+
     (BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])?.webContents.toggleDevTools();
     return { success: true };
   } catch (e) {

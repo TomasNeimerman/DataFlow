@@ -45,7 +45,6 @@
   "build": {
     "appId": "com.DataFlow.updater",
     "productName": "DataFlow",
-    "artifactName": "DataFlow ${version}",
     "npmRebuild": false,
     "asar": false,
     "directories": {

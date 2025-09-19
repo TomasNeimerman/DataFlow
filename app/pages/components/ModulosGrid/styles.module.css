@@ -29,7 +29,7 @@
   transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
   outline: none;
   container-type: inline-size;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 16 / 9;
 }
 
 .name {
@@ -54,8 +54,8 @@
 /* ---------- Círculo/ícono escalables según tamaño de la card ---------- */
 .circle {
   /* escala con el ancho de la card: 40cqi ≈ 40% del ancho del cuadrado */
-  width: clamp(40px, 40cqi, 84px);
-  height: clamp(40px, 40cqi, 84px);
+  width: clamp(40px, 28cqi, 84px);
+  height: clamp(40px, 28cqi, 84px);
   border-radius: 50%;
   border: 1px solid #e5e5e5;
   display: grid;

@@ -187,13 +187,13 @@ export default function HamburgerMenu() {
                 >
                   (F5) Recargar
                 </button>
-                {isDev && (                                       /* ⬅️ SOLO EN DEV */
+
                   <button
                     className={styles.actionWide}
                     onClick={() => window?.api?.toggleDevTools?.()}>
                   (F12) DevTools
                 </button>
-                )}
+            
                 <button
                   className={styles.actionWide}
                   onClick={async () => {

@@ -39,13 +39,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // Precios (preview / masivo / últimos)
   getPrecios: () => ipcRenderer.invoke('get-precios'),
-  actualizarPrecios: () => ipcRenderer.invoke('actualizar-precios'),
-  on: (cb) => { // progreso del masivo
-    const handler = (_evt, payload) => cb(payload); // { percent, stage, message }
-    ipcRenderer.on('precios:update-progress', handler);
-    return () => ipcRenderer.removeListener('precios:update-progress', handler);
-  },
-  getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
+actualizarPrecios: (opts) => ipcRenderer.invoke('precios:actualizar', opts),
+onPreciosProgress: (cb) => {
+  const handler = (_evt, payload) => { try { cb && cb(payload); } catch {} };
+  ipcRenderer.on('precios:update-progress', handler);
+  return () => ipcRenderer.removeListener('precios:update-progress', handler);
+},
+getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
   // Precios (unitarios Excel) — SIEMPRE objetos:
   obtenerPrecioActualizador: (keys) => ipcRenderer.invoke('precios-actualizador-get', keys),
   updatePrecioActualizador: (payload) => ipcRenderer.invoke('precios-actualizador-update', payload),
