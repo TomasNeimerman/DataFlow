@@ -5,6 +5,7 @@ const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron'
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const XLSX = require('xlsx');
 const url  = require('url');
 const Store = require('electron-store');
 const { initializeConfig } = require('./userDbConfig.js');
@@ -84,9 +85,13 @@ const {
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
   // ⚠️ Si estás usando los handlers granulares, los podés dejar,
   // pero no son parte del pedido actual:
-  obtenerPrecioActualizador: obtenerPrecioActualizadorService,
-  updatePrecioActualizador:   updatePrecioActualizadorService,
-} = require('./modulesService/Precios');
+} = require('./modulesService/GeneradorPrecios.js');
+const {
+  obtenerCodigoLista,
+  obtenerListaPrecios,
+  actualizarPreciosPorExcel,
+  obtenerPreciosExcelActualizados,
+} = require("./modulesService/ActualizadorPrecios"); 
 
 // --- Estado global ---
 const isDev = !app.isPackaged;
@@ -484,6 +489,7 @@ safeIpc('get-proveedor-details', getProveedorDetails);
 safeIpc('get-tasa-iva-details', getTasaIVADetails);
 safeIpc('get-updated-fecha', getupdreg);
 
+
 // 🧩 PRECIOS: lectura simple
 ipcMain.handle('get-precios', async () => {
   writeToLog('[IPC] get-precios');
@@ -497,45 +503,151 @@ ipcMain.handle('get-precios-actualizados', async () => {
 });
 
 // 🧩 PRECIOS: actualización masiva con progreso
-ipcMain.handle('precios:actualizar', async (event, opts) => {
-  const onProgress = (percent, stage, message) => {
-    try {
-      event.sender.send('precios:update-progress', { percent, stage, message });
-    } catch {}
-  };
-  return await actualizarPreciosService({ ...opts, onProgress });
+// --- IPC handlers nuevos ---
+ipcMain.handle('precios:codigos-lista', async () => {
+  const { obtenerCodigoLista } = require('./modulesService/ActualizadorPrecios');
+  return await obtenerCodigoLista();
 });
 
 
-// (Opcional) Handlers granulares ya existentes; dejalos si el front los usa:
-const normStr = (v) => (v ?? '').toString().trim();
-const normalizePrecioKeys = (obj = {}) => ({
-  lprdlp_Cod:     normStr(obj.lprdlp_Cod),
-  lprart_CodGen:  normStr(obj.lprart_CodGen),
-  lprart_CodEle1: normStr(obj.lprart_CodEle1),
-  lprart_CodEle2: normStr(obj.lprart_CodEle2),
-  lprart_CodEle3: normStr(obj.lprart_CodEle3),
-  ...(Object.prototype.hasOwnProperty.call(obj, 'precio') ? { precio: obj.precio } : {})
-});
+// Resuelve el template sin romper en dev/build
+function resolveTemplatePath() {
+  const candidates = [
+    path.join(process.cwd(), 'public', 'templates', 'precios.xlsx'),
+    path.join(app.getAppPath(), 'public', 'templates', 'precios.xlsx'),
+    path.join(app.getAppPath(), '..', 'public', 'templates', 'precios.xlsx'),
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch (_) {}
+  }
+  return null;
+}
 
-ipcMain.handle('precios-actualizador-get', async (_e, keys) => {
+// Busca una fila de header: si encuentra alguna de las claves, usa esa fila; si no, usa la primera no vacía.
+function findHeaderRow(ws) {
+  if (!ws || !ws['!ref']) return { row: 0, startCol: 0 };
+  const range = XLSX.utils.decode_range(ws['!ref']);
+
+  // Claves “canónicas” según tu query
+  const known = new Set([
+    'lprdlp_Cod','dlp_Desc','lprart_CodGen','lprart_CodEle1','lprart_CodEle2','lprart_CodEle3',
+    'art_DescGen','art_CodEle1','art_CodEle2','art_CodEle3','lpr_Precio'
+  ].map(s => s.toLowerCase()));
+
+  // 1) intentar detectar fila que contenga alguna clave conocida
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      const v = cell ? String(cell.v).trim().toLowerCase() : '';
+      if (v && known.has(v)) {
+        return { row: r, startCol: range.s.c };
+      }
+    }
+  }
+
+  // 2) fallback: primera fila con alguna celda no vacía
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    let hasValue = false;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if (cell && String(cell.v).trim() !== '') { hasValue = true; break; }
+    }
+    if (hasValue) return { row: r, startCol: range.s.c };
+  }
+
+  // 3) ultra fallback
+  return { row: range.s.r, startCol: range.s.c };
+}
+
+// ORDEN FIJO de columnas (coincide con tu SELECT)
+const HEADER_ORDER = [
+  'lprdlp_Cod',
+  'dlp_Desc',
+  'lprart_CodGen',
+  'lprart_CodEle1',
+  'lprart_CodEle2',
+  'lprart_CodEle3',
+  'art_DescGen',
+  'art_CodEle1',
+  'art_CodEle2',
+  'art_CodEle3',
+  'lpr_Precio',
+];
+
+ipcMain.handle('precios:descargar-lista-xlsx', async (_evt, { codLista }) => {
   try {
-    writeToLog('[IPC] precios-actualizador-get');
-    const k = normalizePrecioKeys(keys);
-    return await obtenerPrecioActualizadorService(k);
+    // 1) Template
+    const tplPath = resolveTemplatePath();
+    if (!tplPath) {
+      return { success: false, message: 'No se encontró /public/templates/precios.xlsx' };
+    }
+
+    // 2) Traer datos desde ActualizadorPrecios.js (NO Generador)
+    const { obtenerListaPrecios } = require('./modulesService/ActualizadorPrecios');
+    const res = await obtenerListaPrecios(codLista);
+    if (!res?.success) return res;
+    const data = res.data || []; // orden tal como lo devuelve SQL
+
+    // 3) Abrir template
+    const wb = XLSX.readFile(tplPath, { cellStyles: true }); // preserva estilos existentes
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    if (!ws || !ws['!ref']) {
+      return { success: false, message: 'La hoja del template no es válida.' };
+    }
+
+    // 4) Detectar fila de header
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const { row: headerRow, startCol } = findHeaderRow(ws);
+
+    // 5) Armar matriz AOA con los valores en ORDEN FIJO
+    const aoa = data.map(r => HEADER_ORDER.map(k => {
+      const v = r?.[k];
+      if (typeof v === 'number') return v;
+      if (v == null) return '';
+      return String(v);
+    }));
+
+    // 6) Escribir las filas debajo del header, preservando el header del template
+    const origin = { r: headerRow + 1, c: startCol };
+    XLSX.utils.sheet_add_aoa(ws, aoa, { origin });
+
+    // 7) Expandir !ref si es necesario
+    const lastRow = headerRow + aoa.length;
+    const lastCol = Math.max(range.e.c, startCol + HEADER_ORDER.length - 1);
+    ws['!ref'] = XLSX.utils.encode_range({
+      s: { r: Math.min(range.s.r, headerRow), c: Math.min(range.s.c, startCol) },
+      e: { r: Math.max(range.e.r, lastRow),   c: lastCol }
+    });
+
+    // 8) Guardar a temp y devolver
+    const outPath = path.join(os.tmpdir(), `ListaPrecios_${codLista}_${Date.now()}.xlsx`);
+    XLSX.writeFile(wb, outPath);
+    return { success: true, path: outPath };
   } catch (e) {
-    return { success: false, message: e.message };
+    console.error('precios:descargar-lista-xlsx (template)', e);
+    return { success: false, message: e?.message || 'Error al generar Excel desde template.' };
   }
 });
 
-ipcMain.handle('precios-actualizador-update', async (_e, payload) => {
-  try {
-    writeToLog('[IPC] precios-actualizador-update');
-    const p = normalizePrecioKeys(payload);
-    return await updatePrecioActualizadorService(p);
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
+// (por si no lo tenías)
+ipcMain.handle('os:open-path', async (_evt, filePath) => {
+  const { shell } = require('electron');
+  const result = await shell.openPath(filePath);
+  return { success: !result, message: result || 'ok' };
+});
+
+// opcional: abrir el archivo devuelto (si no lo tenías)
+
+
+ipcMain.handle("precios:actualizar-excel", async (_evt, { items }) => {
+  try { return await actualizarPreciosPorExcel(items || []); }
+  catch (e) { return { success: false, message: e?.message || "Error en actualización por Excel" }; }
+});
+
+ipcMain.handle("precios:excel-ultimos", async () => {
+  try { return await obtenerPreciosExcelActualizados(); }
+  catch (e) { return { success: false, message: e?.message || "Error obteniendo últimos actualizados" }; }
 });
 
 

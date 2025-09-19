@@ -46,9 +46,23 @@ onPreciosProgress: (cb) => {
   return () => ipcRenderer.removeListener('precios:update-progress', handler);
 },
 getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
-  // Precios (unitarios Excel) — SIEMPRE objetos:
+  // Generador Precios (unitarios Excel) — SIEMPRE objetos:
   obtenerPrecioActualizador: (keys) => ipcRenderer.invoke('precios-actualizador-get', keys),
   updatePrecioActualizador: (payload) => ipcRenderer.invoke('precios-actualizador-update', payload),
+  //Actualizador Precios
+  // --- nuevos bridges de Precios ---
+getCodigosLista: () => ipcRenderer.invoke("precios:codigos-lista"),
+
+  // Genera Excel usando /public/templates/precios.xlsx y datos de la lista elegida
+descargarListaXlsx: (codLista) => ipcRenderer.invoke("precios:descargar-lista-xlsx", { codLista }),
+
+  // Abre el archivo generado con la app por defecto del SO
+openPath: (p) => ipcRenderer.invoke("os:open-path", p),
+
+  // Actualización por Excel (si ya la usás)
+actualizarPreciosExcel: (items) =>ipcRenderer.invoke("precios:actualizar-excel", items),
+
+getPreciosExcelUltimos: () =>ipcRenderer.invoke("precios:excel-ultimos"),
 
   // Store
   getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),

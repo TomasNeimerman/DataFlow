@@ -1,4 +1,4 @@
-// modulesService/Precios.js
+// modulesService/GeneradorPrecios.js
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../userDbConfig.js');
 
@@ -14,14 +14,11 @@ function tryAlert(title, message) {
     if (dialog?.showMessageBoxSync) {
       dialog.showMessageBoxSync(win, {
         type: 'error',
-        title,
-        message,
-        buttons: ['OK']
+        title: String(title || 'Aviso'),
+        message: String(message || ''),
       });
-    } else if (dialog?.showErrorBox) {
-      dialog.showErrorBox(title, message);
     }
-  } catch (_) { /* no-op en ambientes sin Electron */ }
+  } catch (_) {}
 }
 
 // ---------- script EXACTO (tal cual lo pasaste) ----------
@@ -414,7 +411,9 @@ ORDER BY ArticuloCodGen, ArticuloCodEle1, ArticuloCodEle2, ArticuloCodEle3
   }
 }
 
+// ---------- exports ----------
 module.exports = {
+  // existentes
   obtenerPrecios,
   actualizarListaDePrecios,      // progressive (default) o exact
   obtenerPreciosActualizados,
