@@ -47,7 +47,7 @@ async function actualizarCheque3(IDCheque, sit) {
     await request.query(`
         UPDATE Cheques3 SET
           ch3sit_Cod = @sit,
-          ch3_FecMod = @fecha
+          ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
     `);
 
@@ -97,7 +97,7 @@ async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
         .input('sit', sql.NVarChar, sit)
         .input('sitAnt', sql.NVarChar, sitAnt)
         .input('pCG', sql.NVarChar, 'C')
-        .query(`INSERT INTO Cheq3Sit (c3semp_Codigo,c3ssuc_Cod,c3sch3_ID,c3s_FCmbio,c3s_CodSitAct,c3ssit_CodAnt,c3ssit_CodActIN, c3s_PasadoCG, c3s_CodApe) VALUES (@emp, @suc, @IDCheque,@fecha,@sit,@sitAnt,@sit,@pCG, ' ')`); // Consulta a la tabla Situacion
+        .query(`INSERT INTO Cheq3Sit (c3semp_Codigo,c3ssuc_Cod,c3sch3_ID,c3s_FCmbio,c3s_CodSitAct,c3ssit_CodAnt,c3ssit_CodActIN, c3s_PasadoCG, c3s_CodApe) VALUES (@emp, @suc, @IDCheque,GETDATE(),@sit,@sitAnt,@sit,@pCG, ' ')`); // Consulta a la tabla Situacion
     return {success: true, message: 'Registro de Cheque3 actualizado correctamente.'};
     }else{
       console.log('No se requiere actualizar el registro de Cheque3, la situacion no ha cambiado.');

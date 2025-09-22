@@ -19,7 +19,8 @@
 
 # production
 /build
-/DataFlow 0.1.0
+/DataFlow 0.2.0
+/DataFlow 0.2.0.zip
 
 # misc
 .DS_Store

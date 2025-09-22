@@ -640,9 +640,15 @@ ipcMain.handle('os:open-path', async (_evt, filePath) => {
 // opcional: abrir el archivo devuelto (si no lo tenías)
 
 
-ipcMain.handle("precios:actualizar-excel", async (_evt, { items }) => {
-  try { return await actualizarPreciosPorExcel(items || []); }
-  catch (e) { return { success: false, message: e?.message || "Error en actualización por Excel" }; }
+ipcMain.handle('precios:actualizar-excel', async (_evt, items) => {
+  try {
+    const { actualizarPreciosExcel } = require('./modulesService/ActualizadorPrecios');
+    const res = await actualizarPreciosExcel(items);
+    return res;
+  } catch (e) {
+    console.error('IPC precios:actualizar-excel', e);
+    return { success: false, message: e?.message || 'Error en actualización.' };
+  }
 });
 
 ipcMain.handle("precios:excel-ultimos", async () => {

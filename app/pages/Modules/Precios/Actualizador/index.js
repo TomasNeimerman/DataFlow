@@ -1,39 +1,35 @@
-// app/PreciosActualizador/page.js
+// Modules/Precios/Actualizador/index.js
 "use client";
 
 import styles from "./styles.module.css";
-import ListaPreciosForm from "../../../components/ListaPreciosForm/index"; // ajustá ruta si tu form vive en otro archivo
+import ListaPreciosForm from "../../../components/ListaPreciosForm";
 import usePreciosActualizador from "../../../../public/hooks/preciosActualizador";
-import { useState,useEffect } from "react";
+
 export default function Actualizador() {
-  const [idCliente,setIdCliente] = useState(null);
   const {
     estadoImportar,
     mensajeImportacion,
     handleDescargarLista,
     handleImportar,
+    resultados,
+    puedeVerResultados,
   } = usePreciosActualizador();
-  useEffect(() => {
-      // <-- MODIFICADO
-      const fetchIdCliente = async () => {
-        if (window.api) {
-          const storedId = await window.api.getStoreValue("idCliente");
-          setIdCliente(storedId);
-        }
-      };
-      fetchIdCliente();
-    }, []);
+
+  // Si manejás idCliente acá, pasalo como prop. Lo dejo opcional.
+  const idCliente = undefined;
+
   return (
     <div className={styles.body}>
       <ListaPreciosForm
-        nombreModulo="Actualizador de listas de precios"
+        nombreModulo="Actualizador de lista de precios"
         idCliente={idCliente}
         onDescargarLista={handleDescargarLista}
         onImportar={handleImportar}
         estadoImportar={estadoImportar}
         mensajeImportacion={mensajeImportacion}
+        resultados={resultados}
+        puedeVerResultados={puedeVerResultados}
       />
-
     </div>
   );
 }

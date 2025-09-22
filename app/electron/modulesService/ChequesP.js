@@ -65,7 +65,7 @@ async function actualizarCheque(cheque) {
       .query(`
         UPDATE ChequesP SET
           chp_NroCheq     = @nroDefinitivo,
-          chp_FecMod      = @fecMod,
+          chp_FecMod      = GETDATE(),
           chpusu_Codigo   = @codigoUsuario
         WHERE chp_ID = @idCheque
       `);

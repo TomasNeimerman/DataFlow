@@ -4,27 +4,34 @@
 import { useCallback, useState } from "react";
 
 /**
- * Hook que encapsula:
- * - Import dinámico de XLSX (evita problemas de hidratar)
- * - Validación de encabezado contra plantilla
- * - Validación por fila (cod lista, cod genérico y precio)
- * - Llamadas a window.api para descargar/actualizar
- * - Mensajes de estado
+ * Hook de Actualización de Precios por Excel
+ * - Valida encabezado EXACTO (11 columnas)
+ * - Valida filas mínimas (lista, código genérico y precio)
+ * - Descarga XLSX de una lista seleccionada
+ * - Importa XLSX, envía al backend y expone resultados para mostrarlos en UI
  */
 
 export default function usePreciosActualizador() {
   const [estadoImportar, setEstadoImportar] = useState("");
   const [mensajeImportacion, setMensajeImportacion] = useState("");
 
-  // Plantilla exacta esperada para la primera fila del Excel
+  // Resultados que vuelve el backend
+  const [resultados, setResultados] = useState([]);           
+  const [puedeVerResultados, setPuedeVerResultados] = useState(false);
+
+  // Plantilla EXACTA (en el orden indicado)
   const TEMPLATE_HEADER = [
-    "lprdlp_Cod",
-    "lprart_CodGen",
-    "lprart_CodEle1",
-    "lprart_CodEle2",
-    "lprart_CodEle3",
-    "art_DescGen",
-    "lpr_Precio",
+    "Lista de Precios - Cód.",
+    "Lista de Precios",
+    "Artículo - Cód. Genérico",
+    "Artículo - Cód. Elemento 1",
+    "Artículo - Cód. Elemento 2",
+    "Artículo - Cód. Elemento 3",
+    "Artículo - Desc.Genérica",
+    "Artículo - Elemento 1",
+    "Artículo - Elemento 2",
+    "Artículo - Elemento 3",
+    "Precio",
   ];
 
   const normalize = (v) => String(v ?? "").trim();
@@ -37,24 +44,25 @@ export default function usePreciosActualizador() {
     return true;
   };
 
-  // Campos mínimos por fila: cod lista, cod genérico y precio
+  // Validaciones de fila según plantilla
   const hasRequiredRowFields = (row) => {
-    const codLista = normalize(row.lprdlp_Cod ?? row["Lista"]);
-    const codGen   = normalize(row.lprart_CodGen ?? row["Código"] ?? row["CodGen"]);
-    const precio   = Number(row.lpr_Precio ?? row["Precio"] ?? row["Precio Nuevo"] ?? row["PrecioNuevo"]);
+    const codLista = normalize(row["Lista de Precios - Cód."]);
+    const codGen   = normalize(row["Artículo - Cód. Genérico"]);
+    const precio   = Number(row["Precio"]);
     return !!codLista && !!codGen && Number.isFinite(precio);
   };
 
+  // Mapea Excel → payload backend
   const mapRowToPayload = (row) => ({
-    lprdlp_Cod: normalize(row.lprdlp_Cod ?? row["Lista"] ?? ""),
-    lprart_CodGen: normalize(row.lprart_CodGen ?? row["Código"] ?? row["CodGen"] ?? ""),
-    lprart_CodEle1: normalize(row.lprart_CodEle1 ?? row["CodEle1"] ?? ""),
-    lprart_CodEle2: normalize(row.lprart_CodEle2 ?? row["CodEle2"] ?? ""),
-    lprart_CodEle3: normalize(row.lprart_CodEle3 ?? row["CodEle3"] ?? ""),
-    lpr_Precio: Number(row.lpr_Precio ?? row["Precio"] ?? row["Precio Nuevo"] ?? row["PrecioNuevo"] ?? NaN),
+    lprdlp_Cod:     normalize(row["Lista de Precios - Cód."] ?? ""),
+    lprart_CodGen:  normalize(row["Artículo - Cód. Genérico"] ?? ""),
+    lprart_CodEle1: normalize(row["Artículo - Cód. Elemento 1"] ?? ""),
+    lprart_CodEle2: normalize(row["Artículo - Cód. Elemento 2"] ?? ""),
+    lprart_CodEle3: normalize(row["Artículo - Cód. Elemento 3"] ?? ""),
+    lpr_Precio: Number(row["Precio"] ?? NaN),
   });
 
-  // ===== Descargar lista (el main genera el XLSX) =====
+  // Descargar lista (XLSX)
   const handleDescargarLista = useCallback(async (codLista) => {
     try {
       setEstadoImportar(""); setMensajeImportacion("");
@@ -69,10 +77,20 @@ export default function usePreciosActualizador() {
     }
   }, []);
 
-  // ===== Importar excel con validaciones =====
+  // Importar XLSX con validaciones
   const handleImportar = useCallback(async (file) => {
     try {
-      setEstadoImportar(""); setMensajeImportacion("");
+      if (!file) {
+        setEstadoImportar("Error");
+        setMensajeImportacion("Seleccione un archivo XLSX.");
+        return;
+      }
+
+      // limpiar resultados previos
+      setResultados([]);
+      setPuedeVerResultados(false);
+      setEstadoImportar(""); 
+      setMensajeImportacion("");
 
       const XLSXmod = await import("xlsx");
       const XLSX = XLSXmod.default || XLSXmod;
@@ -103,14 +121,24 @@ export default function usePreciosActualizador() {
         if (hasRequiredRowFields(r)) items.push(mapRowToPayload(r));
         else invalidRows.push(r);
       }
-      if (!items.length) throw new Error("El archivo no contiene filas válidas (faltan claves o precio).");
+      if (!items.length) {
+        setEstadoImportar("Importación sin cambios");
+        setMensajeImportacion("El archivo no contiene filas válidas.");
+        return;
+      }
 
       // 4) Envío al backend
       const res = await window.api?.actualizarPreciosExcel?.(items);
       if (!res) throw new Error("No hubo respuesta del backend.");
 
-      const updated = Number(res.updated ?? 0);
-      const invalid = Array.isArray(res.invalid) ? res.invalid.length : 0;
+      const updated   = Number(res.updated ?? 0);
+      const attempted = Number(res.attempted ?? items.length);
+      const notFound  = Number(res.notFound ?? 0);
+      const det       = Array.isArray(res.resultados) ? res.resultados : [];
+
+      // guardar resultados (para la sección “Resultados lista”)
+      setResultados(det);
+      setPuedeVerResultados(updated > 0);
 
       if (!res.success) {
         setEstadoImportar("Error");
@@ -118,21 +146,12 @@ export default function usePreciosActualizador() {
         return;
       }
 
-      if (updated === 0 && invalid === 0) {
+      if (updated === 0) {
         setEstadoImportar("Importación sin cambios");
-        setMensajeImportacion("Los datos importados coinciden con los existentes o no aplican cambios.");
-      } else if (updated > 0 && invalid === 0) {
-        setEstadoImportar("Importado correctamente");
-        setMensajeImportacion(`Actualizados: ${updated}.`);
-      } else if (updated > 0 && invalid > 0) {
-        setEstadoImportar("Importado con advertencias");
-        setMensajeImportacion(`Actualizados: ${updated}. Filas inválidas: ${invalid + invalidRows.length}.`);
-      } else if (updated === 0 && (invalid > 0 || invalidRows.length > 0)) {
-        setEstadoImportar("Error");
-        setMensajeImportacion(`No se actualizaron filas. Filas inválidas: ${invalid + invalidRows.length}.`);
+        setMensajeImportacion(`Actualizados: 0 / Intentados: ${attempted} • No encontrados: ${notFound}`);
       } else {
-        setEstadoImportar("Importado");
-        setMensajeImportacion(res.message || `Actualizados: ${updated}.`);
+        setEstadoImportar("Importado correctamente");
+        setMensajeImportacion(`Actualizados: ${updated} / Intentados: ${attempted} • No encontrados: ${notFound}`);
       }
     } catch (e) {
       setEstadoImportar("Error");
@@ -140,5 +159,12 @@ export default function usePreciosActualizador() {
     }
   }, []);
 
-  return { estadoImportar, mensajeImportacion, handleDescargarLista, handleImportar };
+  return {
+    estadoImportar,
+    mensajeImportacion,
+    resultados,
+    puedeVerResultados,
+    handleDescargarLista,
+    handleImportar
+  };
 }
