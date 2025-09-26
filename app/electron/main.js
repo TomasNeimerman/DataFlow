@@ -86,12 +86,7 @@ const {
   // ⚠️ Si estás usando los handlers granulares, los podés dejar,
   // pero no son parte del pedido actual:
 } = require('./modulesService/GeneradorPrecios.js');
-const {
-  obtenerCodigoLista,
-  obtenerListaPrecios,
-  actualizarPreciosPorExcel,
-  obtenerPreciosExcelActualizados,
-} = require("./modulesService/ActualizadorPrecios"); 
+const ActualizadorPrecios = require("./modulesService/ActualizadorPrecios.js");
 
 // --- Estado global ---
 const isDev = !app.isPackaged;
@@ -560,113 +555,39 @@ function findHeaderRow(ws) {
 }
 
 // ORDEN FIJO de columnas (coincide con tu SELECT)
-const HEADER_ORDER = [
-  'lprdlp_Cod',
-  'dlp_Desc',
-  'lprart_CodGen',
-  'lprart_CodEle1',
-  'lprart_CodEle2',
-  'lprart_CodEle3',
-  'art_DescGen',
-  'art_CodEle1',
-  'art_CodEle2',
-  'art_CodEle3',
-  'lpr_Precio',
-];
 
-ipcMain.handle('actualizador:descargarListaXlsx', async (evt, listaCod) => {
+
+ipcMain.handle("descargar-lista-xlsx", async (_e, listaCod) => {
   try {
-    if (!listaCod) {
-      return { success: false, message: 'Falta el código de lista.' };
-    }
-
-    // 1) Traer datos desde la BD
-    const rs = await ActualizadorPrecios.obtenerListaPrecios(listaCod);
-    if (!rs?.success) {
-      return { success: false, message: rs?.message || 'No se pudo obtener la lista.' };
-    }
-    const rows = rs.data || [];
-
-    // 2) Cargar plantilla desde /public/templates/precios.xlsx
-    //    Nota: asumiendo que el cwd del proceso apunta a la raíz del proyecto
-    const templatePath = path.join(process.cwd(), 'public', 'templates', 'precios.xlsx');
-
-    // leemos workbook
-    const wb = XLSX.readFile(templatePath);
-    const wsName = wb.SheetNames[0];
-    const ws = wb.Sheets[wsName];
-
-    // 3) Armar filas según tu header esperado
-    // Header de la plantilla (no lo escribimos, ya está en la plantilla)
-    // [
-    //  "Lista de Precios - Cód.","Lista de Precios",
-    //  "Artículo - Cód. Genérico","Artículo - Cód. Elemento 1","Artículo - Cód. Elemento 2","Artículo - Cód. Elemento 3",
-    //  "Artículo - Desc.Genérica","Artículo - Elemento 1","Artículo - Elemento 2","Artículo - Elemento 3","Precio"
-    // ]
-
-    const dataRows = rows.map(r => ([
-      String(r.lprdlp_Cod ?? ''),
-      String(r.dlp_Desc ?? ''),
-      String(r.lprart_CodGen ?? ''),
-      String(r.lprart_CodEle1 ?? ''),
-      String(r.lprart_CodEle2 ?? ''),
-      String(r.lprart_CodEle3 ?? ''),
-      String(r.art_DescGen ?? ''),
-      String(r.artele_Desc1 ?? ''),
-      String(r.artele_Desc2 ?? ''),
-      String(r.artele_Desc3 ?? ''),
-      Number(r.lpr_Precio ?? 0)
-    ]));
-
-    // volcamos data a partir de la segunda fila (dejando la cabecera de la plantilla)
-    // Convertimos la hoja a un JSON para calcular el rango actual y luego escribimos debajo
-    // Más simple: regenerar la hoja con la cabecera incluida:
-    const header = [
-      "Lista de Precios - Cód.",
-      "Lista de Precios",
-      "Artículo - Cód. Genérico",
-      "Artículo - Cód. Elemento 1",
-      "Artículo - Cód. Elemento 2",
-      "Artículo - Cód. Elemento 3",
-      "Artículo - Desc.Genérica",
-      "Artículo - Elemento 1",
-      "Artículo - Elemento 2",
-      "Artículo - Elemento 3",
-      "Precio",
-    ];
-
-    const newWs = XLSX.utils.aoa_to_sheet([header, ...dataRows]);
-    wb.Sheets[wsName] = newWs;
-
-    // 4) Guardar en la carpeta Descargas con nombre único
-    const downloadsDir = app.getPath('downloads');
-    const pad = (n) => String(n).padStart(2, '0');
-    const now = new Date();
-    const stamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const fileName = `ListaPrecios_${listaCod}_${stamp}.xlsx`;
-    const outPath = path.join(downloadsDir, fileName);
-
-    XLSX.writeFile(wb, outPath);
-
-    // 5) Abrir el archivo recién creado
-    await shell.openPath(outPath);
-
-    return { success: true, path: outPath, count: rows.length };
-  } catch (e) {
-    console.error('descargarListaXlsx:', e);
-    return { success: false, message: e?.message || 'Error al generar el archivo.' };
+    const res = await ActualizadorPrecios.descargarListaXlsx(listaCod);
+    return res; // { success, path?, message? }
+  } catch (err) {
+    console.error("[descargar-lista-xlsx]", err);
+    return { success: false, message: err?.message || "Error al descargar la lista." };
   }
 });
 
-// (por si no lo tenías)
-ipcMain.handle('os:open-path', async (_evt, filePath) => {
-  const { shell } = require('electron');
-  const result = await shell.openPath(filePath);
-  return { success: !result, message: result || 'ok' };
+// Abrir archivo
+ipcMain.handle("open-path", async (_e, p) => {
+  try {
+    if (!p) return { success: false, message: "Ruta vacía" };
+    const r = await shell.openPath(p);     // "" si ok
+    return { success: !r, message: r || "" };
+  } catch (e) {
+    return { success: false, message: e?.message || "No se pudo abrir el archivo." };
+  }
 });
 
-// opcional: abrir el archivo devuelto (si no lo tenías)
-
+// Mostrar archivo en la carpeta (fallback)
+ipcMain.handle("reveal-path", async (_e, p) => {
+  try {
+    if (!p) return { success: false, message: "Ruta vacía" };
+    await shell.showItemInFolder(p);
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e?.message || "No se pudo mostrar el archivo." };
+  }
+});
 
 ipcMain.handle('precios:actualizar-excel', async (_evt, items) => {
   try {
@@ -680,7 +601,7 @@ ipcMain.handle('precios:actualizar-excel', async (_evt, items) => {
 });
 
 ipcMain.handle("precios:excel-ultimos", async () => {
-  try { return await obtenerPreciosExcelActualizados(); }
+  try { return await ActualizadorPrecios.obtenerPreciosExcelActualizados(); }
   catch (e) { return { success: false, message: e?.message || "Error obteniendo últimos actualizados" }; }
 });
 

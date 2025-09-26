@@ -1,45 +1,41 @@
-// Modules/Precios/Actualizador/ListaPreciosForm.js
+// pages/components/ListaPreciosForm/index.js
 "use client";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
+import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
 import styles from "./styles.module.css";
 
-/**
- * Props:
- *  - nombreModulo
- *  - onImportar(file, selectedList)   // <— ahora pasa también el código de lista elegido
- *  - onDescargarLista(codLista)
- *  - estadoImportar, mensajeImportacion
- *  - idCliente
- *  - resultados: [] (del backend, con FechaModStr)
- *  - puedeVerResultados: boolean
- */
-export default function ListaPreciosForm({
-  nombreModulo,
-  onImportar,
-  onDescargarLista,
-  estadoImportar,
-  mensajeImportacion,
+const ListaPreciosForm = ({
+  nombreModulo = "Actualizador de listas de precios",
   idCliente,
-  resultados = [],
-  puedeVerResultados = false,
-}) {
-  // estado base
+}) => {
+  // ----- estado visual del formulario -----
   const [fileName, setFileName] = useState("");
   const [file, setFile] = useState(null);
   const [isFileLoaded, setIsFileLoaded] = useState(false);
-  const [selectedOption, setSelectedOption] = useState("");   // lista elegida
+  const [selectedOption, setSelectedOption] = useState("");
   const [isOptionConfirmed, setIsOptionConfirmed] = useState(false);
-  const [activeSection, setActiveSection] = useState("descargar"); // descargar | importar | resultados
+  const [activeSection, setActiveSection] = useState("descargar"); // "descargar" | "importar" | "resultados"
 
-  // módulos (para el título)
+  // ----- hook de negocio (descargar / importar / resultados) -----
+   const {
+    estadoImportar,
+    mensajeImportacion,
+    resultados,
+    puedeVerResultados,
+    handleDescargarLista,
+    handleImportar,
+  } = usePreciosActualizador();
+
+  // ----- módulos (solo título, como hiciste) -----
   const [modulos, setModulos] = useState([]);
   const [loadingModulos, setLoadingModulos] = useState(false);
   const [errorModulos, setErrorModulos] = useState("");
+  const [isImporting, setIsImporting] = useState(false); // NUEVO
 
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if(!idCliente) return;
+      if (!idCliente) return;
       try {
         if (typeof window === "undefined" || !window.api?.getModules) return;
         setLoadingModulos(true);
@@ -61,10 +57,11 @@ export default function ListaPreciosForm({
 
   const moduloSeleccionado = useMemo(() => {
     if (!Array.isArray(modulos) || !modulos.length) return undefined;
-    return modulos.find((m) =>
-      m?.nombre === nombreModulo ||
-      m?.displayName === nombreModulo ||
-      m?.key === nombreModulo
+    return modulos.find(
+      (m) =>
+        m?.nombre === nombreModulo ||
+        m?.displayName === nombreModulo ||
+        m?.key === nombreModulo
     );
   }, [modulos, nombreModulo]);
 
@@ -74,7 +71,7 @@ export default function ListaPreciosForm({
       : (moduloSeleccionado?.displayName || moduloSeleccionado?.nombre)) ||
     nombreModulo;
 
-  // códigos de lista
+  // ----- códigos de lista -----
   const [codigosLista, setCodigosLista] = useState([]);
   const [loadingCodigos, setLoadingCodigos] = useState(false);
   const [errorCodigos, setErrorCodigos] = useState("");
@@ -86,19 +83,24 @@ export default function ListaPreciosForm({
         if (typeof window === "undefined" || !window.api?.getCodigosLista) return;
         setLoadingCodigos(true);
         setErrorCodigos("");
-        const res = await window.api.getCodigosLista(); // -> { success, data: [{value,label}] o ["LBC",...]
+        const res = await window.api.getCodigosLista();
         if (!mounted) return;
 
+        // res.data: [{ lprdlp_Cod, dlp_Desc }]
         if (res?.success && Array.isArray(res?.data)) {
           setCodigosLista(
-            res.data.map((row) =>
-              typeof row === "string"
-                ? { value: row, label: row }
-                : { value: String(row?.lprdlp_Cod ?? row?.value ?? ""), label: row?.label ?? String(row?.dlp_Desc ? `${row.lprdlp_Cod} - ${row.dlp_Desc}` : row?.lprdlp_Cod ?? "") }
-            )
+            res.data.map((r) => ({
+              value: String(r.lprdlp_Cod ?? "").trim(),
+              label: `${String(r.lprdlp_Cod ?? "").trim()} - ${String(r.dlp_Desc ?? "").trim()}`,
+            }))
           );
         } else if (Array.isArray(res)) {
-          setCodigosLista(res.map((code) => ({ value: String(code), label: String(code) })));
+          setCodigosLista(
+            res.map((code) => ({
+              value: String(code),
+              label: String(code),
+            }))
+          );
         } else {
           setErrorCodigos("No se pudieron cargar los códigos de lista.");
         }
@@ -112,7 +114,7 @@ export default function ListaPreciosForm({
     return () => { mounted = false; };
   }, []);
 
-  // handlers
+  // ----- handlers visuales -----
   const handleFileChange = (event) => {
     const selectedFile = event.target.files?.[0] || null;
     if (selectedFile) {
@@ -130,46 +132,64 @@ export default function ListaPreciosForm({
     setFile(null);
     setFileName("");
     setIsFileLoaded(false);
-    const fileInput = typeof document !== "undefined" ? document.getElementById("loadFile") : null;
+    const fileInput =
+      typeof document !== "undefined" ? document.getElementById("loadFile") : null;
     if (fileInput) fileInput.value = "";
   };
 
-  const handleImportarClick = () => {
-    if (!selectedOption) {
-      alert("Primero elegí una Lista de Precios.");
-      return;
-    }
-    if (!file) {
-      alert("Seleccioná un archivo XLSX antes de importar.");
-      return;
-    }
-    onImportar?.(file, selectedOption);     // <— ahora pasamos TAMBIÉN la lista seleccionada
+
+  const handleDescargarClick = () => {
+    if (selectedOption) handleDescargarLista(selectedOption);
   };
 
-  const handleConfirmarSeleccion = () => {
-    if (selectedOption) setIsOptionConfirmed(true);
-  };
-
-  const handleDescargarLista = useCallback(async (codLista) => {
-    try {
-      setEstadoImportar(""); setMensajeImportacion("");
-      const res = await window.api?.descargarListaXlsx?.(codLista);
-      if (!res?.success) throw new Error(res?.message || "No se pudo generar el archivo.");
-
-      // ✅ El main YA abrió el archivo; solo informamos
-      setEstadoImportar("Listo");
-      setMensajeImportacion(`Archivo generado en Descargas (${res.count ?? 0} filas).`);
-    } catch (e) {
-      setEstadoImportar("Error");
-      setMensajeImportacion(e?.message || "Error al descargar.");
+const handleConfirmarSeleccion = () => {
+    if (selectedOption) {
+      setIsOptionConfirmed(true);
+      // al confirmar una nueva lista, volvemos a la pestaña descargar
+      setActiveSection("descargar");
     }
-  }, []);
+  };
 
   const handleSelectChange = (event) => {
     setSelectedOption(event.target.value);
     setIsOptionConfirmed(false);
+    // Si cambiás de lista, volvé a descargar o importar; no mostramos resultados viejos
+    // (el hook resetea resultados al importar, aquí no hace falta tocarlo)
   };
 
+  const handleImportarClick = async () => {
+    const input = typeof document !== "undefined" ? document.getElementById("loadFile") : null;
+    const currentFile = input?.files?.[0] || file;
+
+    if (!selectedOption) {
+      alert("Seleccioná una lista primero.");
+      return;
+    }
+    if (!currentFile) {
+      alert("Seleccioná un archivo Excel.");
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      const res = await handleImportar(currentFile, selectedOption);
+      // si hay resultados y cambios, activamos la pestaña "resultados" para que el usuario los vea
+      if (res?.success && (res.updated ?? 0) > 0 && Array.isArray(res.resultados) && res.resultados.length > 0) {
+        // podés dejar en la misma pestaña o saltar; si querés saltar, descomentá:
+        // setActiveSection("resultados");
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
+  // util formateo
+  const money = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "0,00";
+    return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  // clase feedback
   const statusLower =
     typeof estadoImportar === "string" ? estadoImportar.toLowerCase() : "";
   const feedbackClass =
@@ -179,21 +199,15 @@ export default function ListaPreciosForm({
       ? styles.info
       : styles.successBox;
 
-  const money = (v) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "0,00";
-    return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container} ${activeSection === "resultados" ? styles.containerWide : ""}`}>
       {/* Título */}
       <div className={styles.titleContainer} style={{ marginBottom: "0.75rem" }}>
         <h1 className={styles.title}>{tituloModuloResuelto}</h1>
         {!!errorModulos && <small className={styles.errorText}>{errorModulos}</small>}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs + botón resultados */}
       <div className={styles.toggleContainer}>
         <button
           className={`${styles.toggleButton} ${activeSection === "descargar" ? styles.active : ""}`}
@@ -201,7 +215,6 @@ export default function ListaPreciosForm({
         >
           Descargar lista
         </button>
-
         <button
           className={`${styles.toggleButton} ${activeSection === "importar" ? styles.active : ""}`}
           onClick={() => setActiveSection("importar")}
@@ -211,20 +224,20 @@ export default function ListaPreciosForm({
 
         {puedeVerResultados && (
           <button
-            className={`${styles.toggleButton} ${activeSection === "resultados" ? styles.active : ""}`}
+            className={`${styles.toggleButton} ${activeSection === "resultados" ? styles.active: ""} ${styles.resultsBtn}`}
             onClick={() => setActiveSection("resultados")}
+            title="Ver resultados de la última actualización"
           >
             Resultados lista
           </button>
         )}
       </div>
 
-      {/* Secciones */}
       <div className={styles.sectionContent}>
         {activeSection === "descargar" && (
           <>
             <div className={styles.titleContainer}>
-              <h1 className={styles.title}>Seleccionar Lista</h1>
+              <h2 className={styles.title}>Seleccionar Lista</h2>
             </div>
 
             <select
@@ -252,13 +265,14 @@ export default function ListaPreciosForm({
               className={styles.btn}
               disabled={!selectedOption}
               onClick={handleConfirmarSeleccion}
+              style={{ marginBottom: 12 }}
             >
               Confirmar Selección
             </button>
 
             {isOptionConfirmed && (
               <>
-                <button className={styles.btn} onClick={handleDescargarLista}>
+                <button className={styles.btn} onClick={handleDescargarClick}>
                   Descargar Lista
                 </button>
                 <p className={styles.info}>Opción seleccionada: {selectedOption}</p>
@@ -273,23 +287,6 @@ export default function ListaPreciosForm({
               <h1 className={styles.title}>Importar Datos</h1>
             </div>
 
-            {/* Selección de lista obligatoria también aquí */}
-            <select
-              className={styles.select}
-              value={selectedOption}
-              onChange={handleSelectChange}
-              disabled={loadingCodigos}
-            >
-              <option value="">
-                {loadingCodigos ? "Cargando listas..." : "Seleccione una lista..."}
-              </option>
-              {codigosLista.map((opcion) => (
-                <option key={opcion.value} value={opcion.value}>
-                  {opcion.label}
-                </option>
-              ))}
-            </select>
-
             <input
               type="file"
               className={styles.input}
@@ -299,16 +296,17 @@ export default function ListaPreciosForm({
             />
 
             <div className={styles.buttonsContainer}>
-              <button className={styles.btn} onClick={handleCancel}>
-                Limpiar
-              </button>
-              <button
-                className={styles.btn}
-                disabled={!isFileLoaded || !selectedOption}  // <— deshabilita si falta lista o archivo
-                onClick={handleImportarClick}
-              >
-                Importar
-              </button>
+            <button className={styles.btn} onClick={handleCancel} disabled={isImporting}>
+              Limpiar
+            </button>
+            <button
+              className={styles.btn}
+              disabled={!isFileLoaded || !selectedOption || isImporting} // deshabilita mientras importa
+              onClick={handleImportarClick}
+              title={!selectedOption ? "Elegí una lista" : (!isFileLoaded ? "Elegí un archivo" : "Importar")}
+            >
+              {isImporting ? "Importando..." : "Importar"}
+            </button>
             </div>
 
             {estadoImportar ? (
@@ -317,7 +315,7 @@ export default function ListaPreciosForm({
 
             {fileName && (
               <p className={styles.info}>
-                Archivo: <strong>{fileName}</strong> • Lista seleccionada: <strong>{selectedOption}</strong>
+                Archivo seleccionado: <strong>{fileName}</strong>
               </p>
             )}
           </>
@@ -326,10 +324,10 @@ export default function ListaPreciosForm({
         {activeSection === "resultados" && (
           <>
             <div className={styles.titleContainer}>
-              <h1 className={styles.title}>Resultados de la actualización</h1>
+              <h2 className={styles.title}>Resultados de la actualización</h2>
             </div>
 
-            <div className={styles.tableContainer}>
+            <div className={styles.tableWrapper}>
               <table className={styles.table}>
                 <thead>
                   <tr className={styles.headerRow}>
@@ -346,21 +344,21 @@ export default function ListaPreciosForm({
                 <tbody>
                   {Array.isArray(resultados) && resultados.length > 0 ? (
                     resultados.map((r, i) => (
-                      <tr key={`${r.lprdlp_Cod}-${r.lprart_CodGen}-${r.lprart_CodEle1}-${r.lprart_CodEle2}-${r.lprart_CodEle3}-${i}`}>
+                      <tr key={i} className={styles.row}>
                         <td>{r.lprdlp_Cod}</td>
                         <td>{r.lprart_CodGen}</td>
                         <td>{r.lprart_CodEle1 || ""}</td>
                         <td>{r.lprart_CodEle2 || ""}</td>
                         <td>{r.lprart_CodEle3 || ""}</td>
                         <td className={styles.num}>{money(r.PrecioAnterior)}</td>
-                        <td className={styles.num}>{money(r.PrecioNuevo)}</td>
-                        <td>{r.FechaModStr || r.FechaMod}</td>
+                        <td className={`${styles.num} ${styles.priceNew}`}>{money(r.PrecioNuevo)}</td>
+                        <td>{r.FechaModStr || ""}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className={styles.info}>
-                        No hay resultados para mostrar.
+                      <td colSpan={8} className={styles.noResults}>
+                        No hay resultados para mostrar aún.
                       </td>
                     </tr>
                   )}
@@ -372,4 +370,6 @@ export default function ListaPreciosForm({
       </div>
     </div>
   );
-}
+};
+
+export default ListaPreciosForm;
