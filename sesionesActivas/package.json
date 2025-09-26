@@ -43,9 +43,7 @@
         ]
       }
     ],
-    "win": {
-      "win": { "icon": "assets/icon/app-icon.ico", "target": ["nsis"] }
-    },
+    "win": { "icon": "build/icon.ico", "target": [{ "target": "nsis", "arch": ["x64"] }] },
     "nsis": {
       "oneClick": true,
       "artifactName": "PanelSesiones-Setup-${version}.exe",

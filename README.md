@@ -1,13 +1,7 @@
-# Para abrir el proyecto
-- Primero tenes que entrar al codigo
-    comando __cd app__ en la consola
-- Instalar los paquetes node_modules
-    comando __npm i__ en la consola
-- Ahora podes ejecutar el codigo
-    comando __npm run electrondev__ en la consola
+# Cambio verificacion bases de datos del usuario
+* Que el usuario se logee y verifique si tiene la tabla manager. Si la tiene pasa a la pagina principal, si no no te deja logear y tira error "No se encuentra sistema Bejerman ERP instalado"
+* Una vez logeado que traiga todas las empresas de la tabla emp de la base manager, tiene que traer codigo, razsoc, cuit y verificar por habilitado
+* Cuando el usuario elige la empresa se verifica si existe la base de datos seleccionada en la tabla Empresas de la bd de la nube. Si existe, se guardan los datos, si no tira error "No esta habilitada la base de datos"
 
 
-# Para poder hacer el npm run dist
-- Cambiar en la carpeta electron el main a typescript (main.ts)
-- Cambiarlo tambien en el package.json en la parte "main"
-- Una vez hecho todo hacer el npm run dist
+# ARREGLAR PLANTILLA PRECIOS

@@ -28,6 +28,6 @@ export default async function handler(req, res) {
     res.json({ users: Object.entries(map).map(([user, sessions]) => ({ user, sessions })) });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: 'DB error', details: e.message });
+    res.status(500).json({ error: 'DB error', details: e.code || null });
   }
 }

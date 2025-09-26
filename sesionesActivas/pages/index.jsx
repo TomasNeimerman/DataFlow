@@ -10,9 +10,10 @@ export default function Home() {
   setLoading(true);
   try {
     const r = await fetch(`/api/sessions?onlyActive=${onlyActive}`);
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${r.status}`);
+     if (!r.ok) {
+       const err = await r.json().catch(() => ({}));
+       const msg = [err.error, err.code].filter(Boolean).join(' ');
+       throw new Error(msg || `HTTP ${r.status}`);
     }
     const j = await r.json();
     setData(j.users || []);
