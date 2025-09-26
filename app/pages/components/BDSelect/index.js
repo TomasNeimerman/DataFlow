@@ -135,17 +135,20 @@ const BDSelect = () => {
       const guardar = await window.api.guardarConfiguracion(detalles.data);
       if (!guardar?.success) throw new Error(guardar?.message || "Error al guardar la configuración.");
 
-      const emp = empresas.find((e) => String(e.Id) === String(selectedEmpresaId));
-      const nombre =
-        emp?.RazonSocial ||
-        detalles.data?.RazonSocial ||
-        detalles.data?.razonSocial ||
-        emp?.nombreEmpresa ||
-        detalles.data?.nombreEmpresa ||
-        "";
+     const emp = empresas.find((e) => String(e.Id) === String(selectedEmpresaId));
 
-      await window.api.setStoreValue("selectedEmpresaId", String(selectedEmpresaId));
-      await window.api.setStoreValue("selectedEmpresaNombre", nombre);
+const nombre =
+  emp?.RazonSocial ||
+  detalles.data?.RazonSocial ||  // por si la nube también trae el campo
+  detalles.data?.razonSocial ||
+  emp?.nombreEmpresa ||
+  detalles.data?.nombreEmpresa ||
+  "";
+
+await window.api.setStoreValue("selectedEmpresaId", String(selectedEmpresaId));
+await window.api.setStoreValue("selectedEmpresaNombre",
+  emp?.RazonSocial || detalles.data?.RazonSocial || detalles.data?.razonSocial || emp?.nombreEmpresa || ""
+);
 
       setSelectedEmpresaNombre(nombre);
       setIsConfigured(true);
@@ -230,19 +233,24 @@ const BDSelect = () => {
           </label>
 
           <select
-            id="empresa-select"
-            value={selectedEmpresaId}
-            onChange={onSelectChange}
-            className={styles.select}
-            disabled={loading || isConfigured}
-          >
-            <option value="">-- Seleccione una empresa --</option>
-            {empresas.map((emp) => (
-              <option key={emp.Id} value={emp.Id}>
-                {emp.nombreEmpresa}
-              </option>
-            ))}
-          </select>
+  id="empresa-select"
+  value={selectedEmpresaId}
+  onChange={onSelectChange}
+  className={styles.select}
+  disabled={loading || isConfigured}
+>
+  <option value="">-- Seleccione una empresa --</option>
+  {empresas.map((emp) => {
+    // emp viene de cmp.filtered con: { Id, RazonSocial, InstanciaBD, EmpCodigoLocal, nombreEmpresa }
+    const codigo = emp.EmpCodigoLocal || emp.InstanciaBD || "";
+const label  = `${codigo} - ${emp.RazonSocial || emp.nombreEmpresa || ""}`.trim();
+    return (
+      <option key={emp.Id} value={emp.Id}>
+        {label}
+      </option>
+    );
+  })}
+</select>
 
           {isConfigured && selectedEmpresaNombre && (
             <div className={styles.infoSmall}>

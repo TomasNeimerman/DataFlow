@@ -1,0 +1,144 @@
+/* ====== Reset mínimo para cubrir toda la ventana ====== */
+* { box-sizing: border-box; }
+html, body, #__next { height: 100%; width: 100%; margin: 0; padding: 0; }
+
+/* Fondo sin bordes blancos y sin scroll en toda la app */
+body {
+  /* degradado sin blanco puro */
+  background: linear-gradient(135deg, #ffe3e3 0%, #ffc5c5 45%, #ff6b6b 100%);
+  overflow: hidden;        /* 🔒 sin scroll de la página */
+}
+
+/* Tu wrapper principal (pages/index.jsx -> <main className="body">) */
+.body {
+  height: 100%;            /* ocupa todo */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Segoe UI', sans-serif;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 24px;           /* si querés 0, quitá este padding */
+}
+body::-webkit-scrollbar { width: 0; height: 0; }
+/* Logo opcional en esquina (de tu ejemplo) */
+.img {
+  width: 160px;
+  height: 80px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  margin: 10px;
+}
+
+/* ====== Contenedor (de tu ejemplo, con pequeños ajustes) ====== */
+.container {
+  background-color: #fff;
+  width: 60%;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+  margin: 20px auto;
+}
+
+@media (max-width: 1024px) { .container { width: 80%; } }
+@media (max-width: 768px)  { .container { width: 95%; padding: 24px; } }
+
+/* ====== Títulos ====== */
+.title { color: #000; margin: 0; }
+.titlespan { color: #e82c02; }
+.titleContainer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* ====== Botones (de tu ejemplo + variantes chicas) ====== */
+.btn {
+  background-color: #e82c02;
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform .05s ease, background-color .15s ease;
+}
+.btn:hover { background-color: #d42602; }
+.btn:active { transform: translateY(1px); }
+.btn.ghost {
+  background: transparent;
+  color: #e82c02;
+  border: 1px solid #e82c02;
+}
+.btn-sm { padding: 6px 10px; border-radius: 6px; font-weight: 500; }
+
+/* ====== Tabs (de tu ejemplo) ====== */
+.toggleContainer {
+  display: flex; width: 100%; gap: 0; margin: 14px 0 20px;
+}
+.toggleButton {
+  flex: 1; background: none; border: none; padding: 14px 0; cursor: pointer;
+  font-size: 16px; color: #666; position: relative; text-align: center; transition: color .2s ease;
+}
+.toggleButton::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 3px; background-color: #000; opacity: .3;
+}
+.toggleButton:hover { color: #333; }
+.toggleButton.active { color: #111; font-weight: 700; }
+.toggleButton.active::after { background-color: #e82c02; opacity: 1; height: 4px; }
+
+/* ====== Estados / Mensajes (de tu ejemplo) ====== */
+.success { color: #0f6b2e; font-weight: bold; margin-top: 10px; }
+.error   { color: #a11515; font-weight: bold; margin-top: 10px; }
+.info    { color: #337ab7; font-weight: bold; margin-top: 10px; }
+
+.successBox {
+  margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+  background: #eefbf0; border: 1px solid #d6f5db; color: #0f6b2e; font-size: 14px;
+}
+.errorBox {
+  margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+  background: #fff3f3; border: 1px solid #ffd4d4; color: #a11515; font-size: 14px;
+}
+
+/* ====== Acordeón / Tarjetas de usuario ====== */
+.userCard {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.04);
+}
+.accordionHeader {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 16px; background: #fafafa; cursor: pointer; user-select: none;
+}
+.accordionTitle { display: flex; align-items: center; gap: 8px; }
+.count { font-size: 12px; color: #666; }
+.chevron { transition: transform .2s ease; opacity: .8; }
+.chevron.open { transform: rotate(180deg); }
+.accordionBody { padding: 10px 16px 14px; }
+
+/* Sesión fila */
+.sessionRow {
+  display: grid; grid-template-columns: 1fr auto; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid #f1f1f1;
+}
+.sessionRow:last-child { border-bottom: 0; }
+.meta { font-size: 12px; opacity: .7; }
+
+/* Chips */
+.chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid #999; color: #555; background: #fff; margin-left: 6px;
+}
+.chip.active { border-color: #0a0; color: #0a0; background: #eefbf0; }
+.chip.id { border-color: #888; }
+
+/* Utilidades */
+.hr { height: 1px; background: #eee; border: 0; margin: 12px 0; }
+.small { opacity: .75; font-size: 12px; }

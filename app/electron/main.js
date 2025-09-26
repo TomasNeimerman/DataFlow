@@ -618,25 +618,30 @@ ipcMain.handle('empresas:list-local-dbs', async () => {
 });
 
 // IPC para filtrar lista de la nube usando BDs locales MSSQL
+// IPC para filtrar lista de la nube usando EMP de la BD 'manager' en MSSQL
+// IPC para filtrar lista de la nube usando manager.dbo.emp (match: Empresa.Nombre ↔ emp.emp_codigo)
 ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
   const debug = [];
-  const log = (m, extra) => { try { writeToLog(`[cmp] ${m} ${extra ? JSON.stringify(extra) : ''}`); } catch {} };
+  const log  = (m, extra) => { try { writeToLog(`[cmp] ${m} ${extra ? JSON.stringify(extra) : ''}`); } catch {} };
+  const norm = (s) =>
+    (s ?? '')
+      .toString()
+      .normalize('NFD')                // quita acentos
+      .replace(/\p{Diacritic}/gu, '')
+      .trim()
+      .toLowerCase();
 
   try {
     debug.push({ stage: 'start', idCliente });
     log('start', { idCliente });
 
-    // 1) Nube — normalizar forma de retorno (array o {success,data})
+    // 1) Nube — normalizamos forma de retorno
     let cloudListRaw;
     try {
       const r = await obtenerListadoEmpresas(idCliente);
-      debug.push({ stage: 'cloud:raw:typeof', type: typeof r, isArray: Array.isArray(r), hasSuccess: !!r?.success });
-
-      if (Array.isArray(r)) {
-        cloudListRaw = r;
-      } else if (r && r.success && Array.isArray(r.data)) {
-        cloudListRaw = r.data;
-      } else {
+      if (Array.isArray(r)) cloudListRaw = r;
+      else if (r && r.success && Array.isArray(r.data)) cloudListRaw = r.data;
+      else {
         log('cloud list FAIL shape', { rPreview: typeof r });
         return { success: false, code: 'CLOUD_LIST_SHAPE', message: 'No se pudo leer empresas de la nube.', debug };
       }
@@ -649,60 +654,91 @@ ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
     }
 
     // Mapear campos que llegan de la nube
+    // ⚠️ AHORA comparamos contra NOMBRE (no InstanciaBD)
     const cloud = cloudListRaw.map((e) => {
+      const name = (e.nombreEmpresa ?? e.Nombre ?? e.name ?? '').toString().trim();
+      const razon = (e.RazonSocial ?? e.razonSocial ?? '').toString().trim();
       const alias =
         (e.InstanciaBD ?? e.instanciabd ?? e.BDName ?? e.bdname ?? e.BD ?? e.bd ?? '').toString().trim();
       return {
         id: e.Id ?? e.id,
-        name: e.nombreEmpresa ?? e.Nombre ?? e.name ?? '',
-        razon: e.RazonSocial ?? e.razonSocial ?? '',
-        alias, // nombre de la BD que esperamos exista en MSSQL local
+        name,        // ← clave online a comparar
+        razon,       // RazonSocial de la nube (fallback)
+        alias,       // lo dejamos por si te sirve para debug
       };
     });
 
-    // 2) Local MSSQL — enumerar BDs
-    let local = [];
+    // 2) Local MSSQL — leer manager.dbo.emp (emp_codigo / emp_razsoc)
+    let localRows = [];
     try {
       const sql = require('mssql');
       const { getAdminDbConfig } = require('./userDbConfig.js');
-      const pool = await sql.connect(getAdminDbConfig());
+
+      // Forzar DB 'manager'
+      const baseCfg = getAdminDbConfig();
+      const dbCfg = { ...baseCfg, database: 'manager', options: { ...(baseCfg?.options || {}), database: 'manager' } };
+
+      const pool = await sql.connect(dbCfg);
       const q = `
-        SELECT name
-        FROM sys.databases
-        WHERE state = 0
-          AND name NOT IN ('master','tempdb','model','msdb');
+        SELECT
+          LTRIM(RTRIM(emp_codigo)) AS code,
+          LTRIM(RTRIM(emp_razsoc)) AS razon
+        FROM dbo.emp WITH (NOLOCK)
+        WHERE emp_codigo IS NOT NULL AND LTRIM(RTRIM(emp_codigo)) <> '';
       `;
       const rs = await pool.request().query(q);
-      local = (rs.recordset || []).map(r => ({ name: (r.name || '').toString().trim() }));
+      localRows = rs.recordset || [];
       try { await pool.close(); } catch {}
-      debug.push({ stage: 'local:list', count: local.length });
-      log('local list OK', { count: local.length });
+      debug.push({ stage: 'local:manager.emp', count: localRows.length });
+      log('local manager.emp OK', { count: localRows.length });
     } catch (err) {
-      debug.push({ stage: 'local:list:exception', err: err?.message });
-      log('local list EX', { err: err?.message });
-      return { success: false, code: 'LOCAL_LIST_EX', message: 'No se pudo enumerar bases locales MSSQL.', debug };
+      debug.push({ stage: 'local:manager.emp:exception', err: err?.message });
+      log('local manager.emp EX', { err: err?.message });
+      const msg = /cannot open database/i.test(err?.message || '')
+        ? 'No se encontró la BD local "manager".'
+        : 'No se pudo consultar manager.dbo.emp.';
+      return { success: false, code: 'MANAGER_EMP_EX', message: msg, debug };
     }
 
-    // 3) Comparación exacta por alias (cloud) vs name (local)
-    const localSet = new Set(local.map(x => x.name.toLowerCase()));
+    // Indexamos por código local (normalizado)
+    const localByCode = new Map();
+    for (const r of localRows) {
+      const code = (r.code ?? '').toString().trim();
+      if (!code) continue;
+      const key = norm(code);
+      if (!localByCode.has(key)) {
+        localByCode.set(key, {
+          code,
+          razon: (r.razon ?? '').toString().trim(),
+        });
+      }
+    }
+
+    // 3) Comparación: Empresa.Nombre (online) ↔ emp.emp_codigo (local)
     const matched = [];
     const inCloudNotLocal = [];
+    const matchedLocalKeys = new Set();
 
     for (const c of cloud) {
-      const alias = (c.alias || '').toLowerCase();
-      if (alias && localSet.has(alias)) {
-        matched.push({ cloud: c, local: { name: c.alias } });
+      const key = norm(c.name); // ← la magia: usamos NOMBRE online
+      if (key && localByCode.has(key)) {
+        const loc = localByCode.get(key);
+        matched.push({ cloud: c, local: { code: loc.code, razon: loc.razon } });
+        matchedLocalKeys.add(key);
       } else {
         inCloudNotLocal.push(c);
       }
     }
 
-    const cloudSet = new Set(cloud.map(c => (c.alias || '').toLowerCase()).filter(Boolean));
-    const inLocalNotCloud = local.filter(l => !cloudSet.has(l.name.toLowerCase()));
+    // Locales que no aparecen en la nube
+    const inLocalNotCloud = [];
+    for (const [key, loc] of localByCode.entries()) {
+      if (!matchedLocalKeys.has(key)) inLocalNotCloud.push(loc);
+    }
 
     const totals = {
       cloud: cloud.length,
-      local: local.length,
+      local: localRows.length,
       matched: matched.length,
       inCloudNotLocal: inCloudNotLocal.length,
       inLocalNotCloud: inLocalNotCloud.length,
@@ -710,25 +746,29 @@ ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
     debug.push({ stage: 'compare:done', totals });
     log('compare done', totals);
 
-    // 4) Lista filtrada (solo las que existen localmente)
-    const filteredIds = new Set(matched.map(m => m.cloud.id));
+    // 4) Lista filtrada (solo coincidencias): devolvemos Código + Razón Social LOCAL
+    const filteredIds = new Set(matched.map((m) => m.cloud.id));
     const filtered = cloud
-      .filter(c => filteredIds.has(c.id))
-      .map(c => ({
-        Id: c.id,
-        nombreEmpresa: c.name,
-        RazonSocial: c.razon,
-        InstanciaBD: c.alias
-      }));
+      .filter((c) => filteredIds.has(c.id))
+      .map((c) => {
+        const loc = localByCode.get(norm(c.name));
+        return {
+          Id: c.id,
+          nombreEmpresa: c.name,                 // Nombre online (te queda de info)
+          RazonSocial: loc?.razon || c.razon,    // preferimos la local
+          InstanciaBD: c.alias,                  // opcional, debug
+          EmpCodigoLocal: loc?.code || null,     // ← para el label "Codigo - RazonSocial"
+        };
+      });
 
     return {
       success: true,
       filtered,
       matched,
-      inCloudNotLocal,
-      inLocalNotCloud,
+      inCloudNotLocal,   // en nube pero sin código local
+      inLocalNotCloud,   // en local pero no en nube
       totals,
-      debug
+      debug,
     };
   } catch (err) {
     debug.push({ stage: 'unexpected', err: err?.message });
@@ -736,6 +776,8 @@ ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
     return { success: false, code: 'UNEXPECTED', message: 'Fallo inesperado en la verificación.', debug };
   }
 });
+
+
 
 
 

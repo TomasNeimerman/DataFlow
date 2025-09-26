@@ -1,0 +1,82 @@
+{
+  "name": "panel-sesiones",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "electron": "electron .",
+    "next": "next dev",
+    "dev": "npm-run-all -p next electron",
+    "clean": "rimraf dist .next",
+    "build:next": "next build",
+    "dist:win": "npm run build:next && electron-builder --win",
+    "dist:linux": "npm run build:next && electron-builder --linux AppImage",
+    "dist:mac": "npm run build:next && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.panel.sesiones",
+    "productName": "Panel de Sesiones",
+    "asar": true,
+    "icon": "assets/icon/app-icon.ico",
+    "directories": {
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "components/**/*",
+      "lib/**/*",
+      "pages/**/*",
+      "public/**/*",
+      "styles/**/*",
+      ".next/**/*",
+      "next.config.js",
+      "dbconfig.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "fileConfigUpdater",
+        "to": "fileConfigUpdater",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "win": { "icon": "assets/icon/app-icon.ico", "target": ["nsis"] }
+    },
+    "nsis": {
+      "oneClick": true,
+      "artifactName": "PanelSesiones-Setup-${version}.exe",
+      "allowToChangeInstallationDirectory": false,
+      "installerIcon": "assets/icon/app-icon.ico",
+      "uninstallerIcon": "assets/icon/app-icon.ico"
+    },
+    "linux": {
+      "category": "Utility",
+      "target": [
+        "AppImage"
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg"
+      ]
+    }
+  },
+  "dependencies": {
+    "mysql2": "^3.11.0",
+    "next": "14.2.5",
+    "npm-run-all": "^4.1.5",
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.10.0",
+    "rimraf": "^5.0.5"
+  }
+}
