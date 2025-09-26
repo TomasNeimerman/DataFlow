@@ -54,7 +54,7 @@ getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
 getCodigosLista: () => ipcRenderer.invoke("precios:codigos-lista"),
 
   // Genera Excel usando /public/templates/precios.xlsx y datos de la lista elegida
-descargarListaXlsx: (codLista) => ipcRenderer.invoke("precios:descargar-lista-xlsx", { codLista }),
+descargarListaXlsx: (listaCod) => ipcRenderer.invoke('actualizador:descargarListaXlsx', listaCod),
 
   // Abre el archivo generado con la app por defecto del SO
 openPath: (p) => ipcRenderer.invoke("os:open-path", p),

@@ -5,10 +5,11 @@ import { useCallback, useState } from "react";
 
 /**
  * Hook de Actualización de Precios por Excel
+ * - Requiere que el usuario seleccione una LISTA antes de importar
  * - Valida encabezado EXACTO (11 columnas)
- * - Valida filas mínimas (lista, código genérico y precio)
- * - Descarga XLSX de una lista seleccionada
- * - Importa XLSX, envía al backend y expone resultados para mostrarlos en UI
+ * - Valida que TODAS las filas del Excel pertenezcan a la LISTA seleccionada
+ * - Valida filas mínimas (lista, código genérico, precio)
+ * - Envía al backend y expone resultados/estado
  */
 
 export default function usePreciosActualizador() {
@@ -16,10 +17,10 @@ export default function usePreciosActualizador() {
   const [mensajeImportacion, setMensajeImportacion] = useState("");
 
   // Resultados que vuelve el backend
-  const [resultados, setResultados] = useState([]);           
+  const [resultados, setResultados] = useState([]);
   const [puedeVerResultados, setPuedeVerResultados] = useState(false);
 
-  // Plantilla EXACTA (en el orden indicado)
+  // Plantilla EXACTA (orden y nombres)
   const TEMPLATE_HEADER = [
     "Lista de Precios - Cód.",
     "Lista de Precios",
@@ -77,9 +78,19 @@ export default function usePreciosActualizador() {
     }
   }, []);
 
-  // Importar XLSX con validaciones
-  const handleImportar = useCallback(async (file) => {
+  /**
+   * Importar XLSX
+   * @param {File} file - archivo excel
+   * @param {string} selectedList - código de lista elegido por el usuario (OBLIGATORIO)
+   */
+  const handleImportar = useCallback(async (file, selectedList) => {
     try {
+      // Validaciones previas
+      if (!selectedList) {
+        setEstadoImportar("Error");
+        setMensajeImportacion("Primero seleccioná una lista de precios.");
+        return;
+      }
       if (!file) {
         setEstadoImportar("Error");
         setMensajeImportacion("Seleccione un archivo XLSX.");
@@ -89,7 +100,7 @@ export default function usePreciosActualizador() {
       // limpiar resultados previos
       setResultados([]);
       setPuedeVerResultados(false);
-      setEstadoImportar(""); 
+      setEstadoImportar("");
       setMensajeImportacion("");
 
       const XLSXmod = await import("xlsx");
@@ -127,7 +138,15 @@ export default function usePreciosActualizador() {
         return;
       }
 
-      // 4) Envío al backend
+      // 4) TODAS las filas deben pertenecer a la lista seleccionada
+      const mismatches = items.filter(it => normalize(it.lprdlp_Cod) !== normalize(selectedList));
+      if (mismatches.length > 0) {
+        setEstadoImportar("Error");
+        setMensajeImportacion(`La lista seleccionada (${selectedList}) no coincide con la del archivo.`);
+        return;
+      }
+
+      // 5) Envío al backend
       const res = await window.api?.actualizarPreciosExcel?.(items);
       if (!res) throw new Error("No hubo respuesta del backend.");
 
@@ -136,7 +155,7 @@ export default function usePreciosActualizador() {
       const notFound  = Number(res.notFound ?? 0);
       const det       = Array.isArray(res.resultados) ? res.resultados : [];
 
-      // guardar resultados (para la sección “Resultados lista”)
+      // resultados (para “Resultados lista”)
       setResultados(det);
       setPuedeVerResultados(updated > 0);
 

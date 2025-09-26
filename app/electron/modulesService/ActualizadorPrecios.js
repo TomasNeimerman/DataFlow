@@ -60,23 +60,31 @@ async function obtenerListaPrecios(listaCod) {
     const req = pool.request();
     req.input('listaCod', sql.VarChar(3), String(listaCod || '').trim());
 
+    // ✅ JOIN por TODAS las claves (CodGen + Ele1 + Ele2 + Ele3) para evitar duplicados
+    // ✅ Traemos descripciones de elementos (artele_Desc1/2/3) y NO repetimos art_CodEle1/2/3
     const q = `
       SELECT 
-        lprdlp_Cod,
-        dlp_Desc,
-        lprart_CodGen,
-        lprart_CodEle1,
-        lprart_CodEle2,
-        lprart_CodEle3,
-        art_DescGen,
-        art_CodEle1,
-        art_CodEle2,
-        art_CodEle3,
-        lpr_Precio
-      FROM dbo.ListaPrec
-      LEFT JOIN dbo.Articulos ON art_CodGen = lprart_CodGen
-      LEFT JOIN dbo.DefListP  ON dlp_Cod   = lprdlp_Cod
-      WHERE lprdlp_Cod = @listaCod
+        lp.lprdlp_Cod,
+        dlp.dlp_Desc,
+        lp.lprart_CodGen,
+        lp.lprart_CodEle1,
+        lp.lprart_CodEle2,
+        lp.lprart_CodEle3,
+        a.art_DescGen,
+        a.artele_Desc1,
+        a.artele_Desc2,
+        a.artele_Desc3,
+        lp.lpr_Precio
+      FROM dbo.ListaPrec AS lp
+      LEFT JOIN dbo.Articulos AS a
+        ON a.art_CodGen  = lp.lprart_CodGen
+       AND a.art_CodEle1 = lp.lprart_CodEle1
+       AND a.art_CodEle2 = lp.lprart_CodEle2
+       AND a.art_CodEle3 = lp.lprart_CodEle3
+      LEFT JOIN dbo.DefListP AS dlp
+        ON dlp.dlp_Cod   = lp.lprdlp_Cod
+      WHERE lp.lprdlp_Cod = @listaCod
+      ORDER BY lp.lprart_CodGen, lp.lprart_CodEle1, lp.lprart_CodEle2, lp.lprart_CodEle3;
     `;
 
     const rs = await req.query(q);

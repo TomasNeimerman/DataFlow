@@ -1,12 +1,12 @@
 // Modules/Precios/Actualizador/ListaPreciosForm.js
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import styles from "./styles.module.css";
 
 /**
  * Props:
  *  - nombreModulo
- *  - onImportar(file)
+ *  - onImportar(file, selectedList)   // <— ahora pasa también el código de lista elegido
  *  - onDescargarLista(codLista)
  *  - estadoImportar, mensajeImportacion
  *  - idCliente
@@ -14,7 +14,7 @@ import styles from "./styles.module.css";
  *  - puedeVerResultados: boolean
  */
 export default function ListaPreciosForm({
-  nombreModulo = "Actualizador por Excel",
+  nombreModulo,
   onImportar,
   onDescargarLista,
   estadoImportar,
@@ -27,7 +27,7 @@ export default function ListaPreciosForm({
   const [fileName, setFileName] = useState("");
   const [file, setFile] = useState(null);
   const [isFileLoaded, setIsFileLoaded] = useState(false);
-  const [selectedOption, setSelectedOption] = useState("");
+  const [selectedOption, setSelectedOption] = useState("");   // lista elegida
   const [isOptionConfirmed, setIsOptionConfirmed] = useState(false);
   const [activeSection, setActiveSection] = useState("descargar"); // descargar | importar | resultados
 
@@ -135,20 +135,35 @@ export default function ListaPreciosForm({
   };
 
   const handleImportarClick = () => {
+    if (!selectedOption) {
+      alert("Primero elegí una Lista de Precios.");
+      return;
+    }
     if (!file) {
       alert("Seleccioná un archivo XLSX antes de importar.");
       return;
     }
-    onImportar?.(file);
+    onImportar?.(file, selectedOption);     // <— ahora pasamos TAMBIÉN la lista seleccionada
   };
 
   const handleConfirmarSeleccion = () => {
     if (selectedOption) setIsOptionConfirmed(true);
   };
 
-  const handleDescargarLista = () => {
-    if (selectedOption && onDescargarLista) onDescargarLista(selectedOption);
-  };
+  const handleDescargarLista = useCallback(async (codLista) => {
+    try {
+      setEstadoImportar(""); setMensajeImportacion("");
+      const res = await window.api?.descargarListaXlsx?.(codLista);
+      if (!res?.success) throw new Error(res?.message || "No se pudo generar el archivo.");
+
+      // ✅ El main YA abrió el archivo; solo informamos
+      setEstadoImportar("Listo");
+      setMensajeImportacion(`Archivo generado en Descargas (${res.count ?? 0} filas).`);
+    } catch (e) {
+      setEstadoImportar("Error");
+      setMensajeImportacion(e?.message || "Error al descargar.");
+    }
+  }, []);
 
   const handleSelectChange = (event) => {
     setSelectedOption(event.target.value);
@@ -164,7 +179,6 @@ export default function ListaPreciosForm({
       ? styles.info
       : styles.successBox;
 
-  // formato número local
   const money = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "0,00";
@@ -259,6 +273,23 @@ export default function ListaPreciosForm({
               <h1 className={styles.title}>Importar Datos</h1>
             </div>
 
+            {/* Selección de lista obligatoria también aquí */}
+            <select
+              className={styles.select}
+              value={selectedOption}
+              onChange={handleSelectChange}
+              disabled={loadingCodigos}
+            >
+              <option value="">
+                {loadingCodigos ? "Cargando listas..." : "Seleccione una lista..."}
+              </option>
+              {codigosLista.map((opcion) => (
+                <option key={opcion.value} value={opcion.value}>
+                  {opcion.label}
+                </option>
+              ))}
+            </select>
+
             <input
               type="file"
               className={styles.input}
@@ -271,7 +302,11 @@ export default function ListaPreciosForm({
               <button className={styles.btn} onClick={handleCancel}>
                 Limpiar
               </button>
-              <button className={styles.btn} disabled={!isFileLoaded} onClick={handleImportarClick}>
+              <button
+                className={styles.btn}
+                disabled={!isFileLoaded || !selectedOption}  // <— deshabilita si falta lista o archivo
+                onClick={handleImportarClick}
+              >
                 Importar
               </button>
             </div>
@@ -282,7 +317,7 @@ export default function ListaPreciosForm({
 
             {fileName && (
               <p className={styles.info}>
-                Archivo seleccionado: <strong>{fileName}</strong>
+                Archivo: <strong>{fileName}</strong> • Lista seleccionada: <strong>{selectedOption}</strong>
               </p>
             )}
           </>
