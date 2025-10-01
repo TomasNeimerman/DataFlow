@@ -18,6 +18,7 @@
     "build:web": "next build",
     "clear:store:local": "electron ./electron/helpers/clear-store.js",
     "dist": "npm run build:web && electron-builder --win",
+    "clean": "rimraf DataFlow ${version} .next",
     "dist:fresh": "npm run clear:store:local && electron-builder --win",
     "dist:fresh:bound": "npm run clear:store:local && cross-env APP_RESET_POLICY=BOUND_ONLY electron-builder --win",
     "dist:fresh:full": "npm run clear:store:local && cross-env APP_RESET_POLICY=FULL electron-builder --win",
@@ -33,6 +34,7 @@
     "next": "^12.3.4",
     "react": "^17.0.2",
     "react-dom": "^17.0.2",
+    "rimraf": "^6.0.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -51,6 +53,12 @@
       "output": "DataFlow ${version}",
       "buildResources": "electron/build"
     },
+    "extraResources": [
+      {
+        "from": "public/templates",
+        "to": "templates"
+      }
+    ],
     "files": [
       "electron/**/*",
       ".next/**/*",

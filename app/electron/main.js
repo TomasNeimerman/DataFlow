@@ -8,6 +8,7 @@ const os   = require('os');
 const XLSX = require('xlsx');
 const url  = require('url');
 const Store = require('electron-store');
+const sql = require('mssql');
 const { initializeConfig } = require('./userDbConfig.js');
 
 // Helpers (existentes)
@@ -47,13 +48,12 @@ writeToLog(`SO: ${os.platform()} ${os.release()} | Node ${process.version} | Ele
 process.on('uncaughtException', (err) => { writeToLog(`Uncaught: ${err.message}\n${err.stack}`); setTimeout(() => app.quit(), 1000); });
 process.on('unhandledRejection', (r,p) => { writeToLog(`Rejection: ${r}`); });
 
-// --- Servicios ---
-
-
-
-
-
-const { getDatosEmpresaById, obtenerListadoEmpresas, guardarDatosEmpresaConfig } = require('./modulesService/Empresa');
+// AL PRINCIPIO (junto a otros requires)
+const {
+  hasManagerDb,
+  getEmpresasHabilitadas,
+  verifyEmpresaHabilitadaYGuardar
+} = require('./modulesService/Empresa');
 const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
 const {
   iniciarSesion: iniciarSesionService,
@@ -83,8 +83,6 @@ const {
   obtenerPrecios: obtenerPreciosService,
   actualizarListaDePrecios: actualizarPreciosService,
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
-  // ⚠️ Si estás usando los handlers granulares, los podés dejar,
-  // pero no son parte del pedido actual:
 } = require('./modulesService/GeneradorPrecios.js');
 const ActualizadorPrecios = require("./modulesService/ActualizadorPrecios.js");
 
@@ -361,6 +359,36 @@ ipcMain.handle('logout', async () => {
   }
 });
 
+// ✅ IPC: ¿existe la BD local "manager"?
+ipcMain.handle('local:has-manager', async () => {
+  try {
+    const ok = await hasManagerDb();
+    return { success: true, ok };
+  } catch (e) {
+    writeToLog?.(`has-manager IPC error: ${e?.message}`);
+    return { success: false, ok: false, message: e?.message || 'Error verificando BD local.' };
+  }
+});
+
+// (Opcional) IPC para listar empresas locales habilitadas
+ipcMain.handle('empresas:list-manager-emp', async () => {
+  try {
+    const data = await getEmpresasHabilitadas();
+    return { success: true, data };
+  } catch (e) {
+    writeToLog?.(`list-manager-emp IPC error: ${e?.message}`);
+    return { success: false, message: e?.message || 'No se pudieron leer empresas locales.' };
+  }
+});
+ipcMain.handle('empresa:verify-and-save', async (_e, { idCliente, empCodigo }) => {
+  try {
+    const r = await verifyEmpresaHabilitadaYGuardar(idCliente, empCodigo);
+    return r;
+  } catch (e) {
+    writeToLog?.(`empresa:verify-and-save error: ${e?.message}`);
+    return { success: false, message: e?.message || 'Error verificando/guardando empresa.' };
+  }
+});
 // --- IPC: Login (sin menú de app; sólo cache y popup) ---
 ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
   writeToLog(`Login intento: ${usuario}`);
@@ -447,19 +475,6 @@ const safeIpc = (name, handler) => {
   });
 };
 
-ipcMain.handle('get-list-empresas', async (_e, idCliente) => {
-  try { const empresas = await obtenerListadoEmpresas(idCliente); return { success: true, data: empresas }; }
-  catch (e) { writeToLog(`get-list-empresas: ${e.message}`); return { success: false, message: e.message }; }
-});
-ipcMain.handle('get-empresa-by-id', async (_e, idEmpresa) => {
-  try { const datos = await getDatosEmpresaById(idEmpresa); return { success: true, data: datos }; }
-  catch (e) { writeToLog(`get-empresa-by-id: ${e.message}`); return { success: false, message: e.message }; }
-});
-ipcMain.handle('get-empresa-config', async (_e, empresaData) => {
-  try { await guardarDatosEmpresaConfig(empresaData); return { success: true, message: 'Configuración guardada exitosamente.' }; }
-  catch (e) { writeToLog(`get-empresa-config: ${e.message}`); return { success: false, message: e.message }; }
-});
-
 safeIpc('get-modules', obtenerModulosService);
 safeIpc('obtener-cheques', obtenerChequeService);
 safeIpc('update-cheques', (payload) =>
@@ -484,7 +499,6 @@ safeIpc('get-proveedor-details', getProveedorDetails);
 safeIpc('get-tasa-iva-details', getTasaIVADetails);
 safeIpc('get-updated-fecha', getupdreg);
 
-
 // 🧩 PRECIOS: lectura simple
 ipcMain.handle('get-precios', async () => {
   writeToLog('[IPC] get-precios');
@@ -498,14 +512,12 @@ ipcMain.handle('get-precios-actualizados', async () => {
 });
 
 // 🧩 PRECIOS: actualización masiva con progreso
-// --- IPC handlers nuevos ---
 ipcMain.handle('precios:codigos-lista', async () => {
   const { obtenerCodigoLista } = require('./modulesService/ActualizadorPrecios');
   return await obtenerCodigoLista();
 });
 
-
-// Resuelve el template sin romper en dev/build
+// Utilidades de archivos / descargas
 function resolveTemplatePath() {
   const candidates = [
     path.join(process.cwd(), 'public', 'templates', 'precios.xlsx'),
@@ -518,18 +530,15 @@ function resolveTemplatePath() {
   return null;
 }
 
-// Busca una fila de header: si encuentra alguna de las claves, usa esa fila; si no, usa la primera no vacía.
 function findHeaderRow(ws) {
   if (!ws || !ws['!ref']) return { row: 0, startCol: 0 };
   const range = XLSX.utils.decode_range(ws['!ref']);
 
-  // Claves “canónicas” según tu query
   const known = new Set([
     'lprdlp_Cod','dlp_Desc','lprart_CodGen','lprart_CodEle1','lprart_CodEle2','lprart_CodEle3',
     'art_DescGen','art_CodEle1','art_CodEle2','art_CodEle3','lpr_Precio'
   ].map(s => s.toLowerCase()));
 
-  // 1) intentar detectar fila que contenga alguna clave conocida
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const cell = ws[XLSX.utils.encode_cell({ r, c })];
@@ -539,8 +548,6 @@ function findHeaderRow(ws) {
       }
     }
   }
-
-  // 2) fallback: primera fila con alguna celda no vacía
   for (let r = range.s.r; r <= range.e.r; r++) {
     let hasValue = false;
     for (let c = range.s.c; c <= range.e.c; c++) {
@@ -549,36 +556,29 @@ function findHeaderRow(ws) {
     }
     if (hasValue) return { row: r, startCol: range.s.c };
   }
-
-  // 3) ultra fallback
   return { row: range.s.r, startCol: range.s.c };
 }
-
-// ORDEN FIJO de columnas (coincide con tu SELECT)
-
 
 ipcMain.handle("descargar-lista-xlsx", async (_e, listaCod) => {
   try {
     const res = await ActualizadorPrecios.descargarListaXlsx(listaCod);
-    return res; // { success, path?, message? }
+    return res;
   } catch (err) {
     console.error("[descargar-lista-xlsx]", err);
     return { success: false, message: err?.message || "Error al descargar la lista." };
   }
 });
 
-// Abrir archivo
 ipcMain.handle("open-path", async (_e, p) => {
   try {
     if (!p) return { success: false, message: "Ruta vacía" };
-    const r = await shell.openPath(p);     // "" si ok
+    const r = await shell.openPath(p);
     return { success: !r, message: r || "" };
   } catch (e) {
     return { success: false, message: e?.message || "No se pudo abrir el archivo." };
   }
 });
 
-// Mostrar archivo en la carpeta (fallback)
 ipcMain.handle("reveal-path", async (_e, p) => {
   try {
     if (!p) return { success: false, message: "Ruta vacía" };
@@ -605,186 +605,9 @@ ipcMain.handle("precios:excel-ultimos", async () => {
   catch (e) { return { success: false, message: e?.message || "Error obteniendo últimos actualizados" }; }
 });
 
-
-
-ipcMain.handle('empresas:list-local-dbs', async () => {
-  try {
-    const r = await listLocalDatabases();
-    if (!r.success) return { success: false, message: r.message };
-    return { success: true, databases: r.databases };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
-});
-
-// IPC para filtrar lista de la nube usando BDs locales MSSQL
-// IPC para filtrar lista de la nube usando EMP de la BD 'manager' en MSSQL
-// IPC para filtrar lista de la nube usando manager.dbo.emp (match: Empresa.Nombre ↔ emp.emp_codigo)
-ipcMain.handle('filter-empresas-by-local', async (_e, idCliente) => {
-  const debug = [];
-  const log  = (m, extra) => { try { writeToLog(`[cmp] ${m} ${extra ? JSON.stringify(extra) : ''}`); } catch {} };
-  const norm = (s) =>
-    (s ?? '')
-      .toString()
-      .normalize('NFD')                // quita acentos
-      .replace(/\p{Diacritic}/gu, '')
-      .trim()
-      .toLowerCase();
-
-  try {
-    debug.push({ stage: 'start', idCliente });
-    log('start', { idCliente });
-
-    // 1) Nube — normalizamos forma de retorno
-    let cloudListRaw;
-    try {
-      const r = await obtenerListadoEmpresas(idCliente);
-      if (Array.isArray(r)) cloudListRaw = r;
-      else if (r && r.success && Array.isArray(r.data)) cloudListRaw = r.data;
-      else {
-        log('cloud list FAIL shape', { rPreview: typeof r });
-        return { success: false, code: 'CLOUD_LIST_SHAPE', message: 'No se pudo leer empresas de la nube.', debug };
-      }
-      debug.push({ stage: 'cloud:list', count: cloudListRaw.length });
-      log('cloud list OK', { count: cloudListRaw.length });
-    } catch (err) {
-      debug.push({ stage: 'cloud:list:exception', err: err?.message });
-      log('cloud list EX', { err: err?.message });
-      return { success: false, code: 'CLOUD_LIST_EX', message: 'No se pudo leer empresas de la nube.', debug };
-    }
-
-    // Mapear campos que llegan de la nube
-    // ⚠️ AHORA comparamos contra NOMBRE (no InstanciaBD)
-    const cloud = cloudListRaw.map((e) => {
-      const name = (e.nombreEmpresa ?? e.Nombre ?? e.name ?? '').toString().trim();
-      const razon = (e.RazonSocial ?? e.razonSocial ?? '').toString().trim();
-      const alias =
-        (e.InstanciaBD ?? e.instanciabd ?? e.BDName ?? e.bdname ?? e.BD ?? e.bd ?? '').toString().trim();
-      return {
-        id: e.Id ?? e.id,
-        name,        // ← clave online a comparar
-        razon,       // RazonSocial de la nube (fallback)
-        alias,       // lo dejamos por si te sirve para debug
-      };
-    });
-
-    // 2) Local MSSQL — leer manager.dbo.emp (emp_codigo / emp_razsoc)
-    let localRows = [];
-    try {
-      const sql = require('mssql');
-      const { getAdminDbConfig } = require('./userDbConfig.js');
-
-      // Forzar DB 'manager'
-      const baseCfg = getAdminDbConfig();
-      const dbCfg = { ...baseCfg, database: 'manager', options: { ...(baseCfg?.options || {}), database: 'manager' } };
-
-      const pool = await sql.connect(dbCfg);
-      const q = `
-        SELECT
-          LTRIM(RTRIM(emp_codigo)) AS code,
-          LTRIM(RTRIM(emp_razsoc)) AS razon
-        FROM dbo.emp WITH (NOLOCK)
-        WHERE emp_codigo IS NOT NULL AND LTRIM(RTRIM(emp_codigo)) <> '';
-      `;
-      const rs = await pool.request().query(q);
-      localRows = rs.recordset || [];
-      try { await pool.close(); } catch {}
-      debug.push({ stage: 'local:manager.emp', count: localRows.length });
-      log('local manager.emp OK', { count: localRows.length });
-    } catch (err) {
-      debug.push({ stage: 'local:manager.emp:exception', err: err?.message });
-      log('local manager.emp EX', { err: err?.message });
-      const msg = /cannot open database/i.test(err?.message || '')
-        ? 'No se encontró la BD local "manager".'
-        : 'No se pudo consultar manager.dbo.emp.';
-      return { success: false, code: 'MANAGER_EMP_EX', message: msg, debug };
-    }
-
-    // Indexamos por código local (normalizado)
-    const localByCode = new Map();
-    for (const r of localRows) {
-      const code = (r.code ?? '').toString().trim();
-      if (!code) continue;
-      const key = norm(code);
-      if (!localByCode.has(key)) {
-        localByCode.set(key, {
-          code,
-          razon: (r.razon ?? '').toString().trim(),
-        });
-      }
-    }
-
-    // 3) Comparación: Empresa.Nombre (online) ↔ emp.emp_codigo (local)
-    const matched = [];
-    const inCloudNotLocal = [];
-    const matchedLocalKeys = new Set();
-
-    for (const c of cloud) {
-      const key = norm(c.name); // ← la magia: usamos NOMBRE online
-      if (key && localByCode.has(key)) {
-        const loc = localByCode.get(key);
-        matched.push({ cloud: c, local: { code: loc.code, razon: loc.razon } });
-        matchedLocalKeys.add(key);
-      } else {
-        inCloudNotLocal.push(c);
-      }
-    }
-
-    // Locales que no aparecen en la nube
-    const inLocalNotCloud = [];
-    for (const [key, loc] of localByCode.entries()) {
-      if (!matchedLocalKeys.has(key)) inLocalNotCloud.push(loc);
-    }
-
-    const totals = {
-      cloud: cloud.length,
-      local: localRows.length,
-      matched: matched.length,
-      inCloudNotLocal: inCloudNotLocal.length,
-      inLocalNotCloud: inLocalNotCloud.length,
-    };
-    debug.push({ stage: 'compare:done', totals });
-    log('compare done', totals);
-
-    // 4) Lista filtrada (solo coincidencias): devolvemos Código + Razón Social LOCAL
-    const filteredIds = new Set(matched.map((m) => m.cloud.id));
-    const filtered = cloud
-      .filter((c) => filteredIds.has(c.id))
-      .map((c) => {
-        const loc = localByCode.get(norm(c.name));
-        return {
-          Id: c.id,
-          nombreEmpresa: c.name,                 // Nombre online (te queda de info)
-          RazonSocial: loc?.razon || c.razon,    // preferimos la local
-          InstanciaBD: c.alias,                  // opcional, debug
-          EmpCodigoLocal: loc?.code || null,     // ← para el label "Codigo - RazonSocial"
-        };
-      });
-
-    return {
-      success: true,
-      filtered,
-      matched,
-      inCloudNotLocal,   // en nube pero sin código local
-      inLocalNotCloud,   // en local pero no en nube
-      totals,
-      debug,
-    };
-  } catch (err) {
-    debug.push({ stage: 'unexpected', err: err?.message });
-    log('unexpected', { err: err?.message });
-    return { success: false, code: 'UNEXPECTED', message: 'Fallo inesperado en la verificación.', debug };
-  }
-});
-
-
-
-
-
 ipcMain.handle('env:is-dev', () => isDev);
 ipcMain.handle('app:toggle-devtools', () => {
   try {
-
     (BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0])?.webContents.toggleDevTools();
     return { success: true };
   } catch (e) {

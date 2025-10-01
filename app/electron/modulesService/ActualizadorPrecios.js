@@ -65,17 +65,32 @@ function getDownloadsDir() {
 }
 
 function resolveTemplatePath() {
+  const isPackaged = !!electronApp?.isPackaged;
+  const resources = process.resourcesPath || "";      // .../YourApp/resources
+  const appPath   = electronApp?.getAppPath?.() || __dirname;
+
   const candidates = [
+    // ✅ Recomendado: si lo copiaste como extraResource a resources/templates
+    path.join(resources, "templates", "precios.xlsx"),
+
+    // Otras variantes frecuentes en empaquetado:
+    path.join(resources, "app.asar.unpacked", "public", "templates", "precios.xlsx"),
+    path.join(resources, "app.asar.unpacked", "templates", "precios.xlsx"),
+    path.join(appPath, "public", "templates", "precios.xlsx"),     // dentro del asar
+
+    // Desarrollo
     path.resolve(process.cwd(), "public", "templates", "precios.xlsx"),
     path.resolve(__dirname, "..", "public", "templates", "precios.xlsx"),
-    path.resolve(process.resourcesPath || "", "public", "templates", "precios.xlsx"),
   ];
+
   for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch {}
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
   }
+
   throw new Error("No se encontró el template precios.xlsx");
 }
-
 async function descargarListaXlsx(listaCod) {
   let pool;
   try {

@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const { user, deviceId } = req.body || {};
-  const table = process.env.SESSIONS_TABLE || 'sessions_tokens';
+  const table = process.env.SESSIONS_TABLE || 'SesionesActivas';
 
   if (!user || !deviceId) return res.status(400).json({ error: 'Faltan user o deviceId' });
 

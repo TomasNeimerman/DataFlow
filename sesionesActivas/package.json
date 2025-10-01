@@ -7,7 +7,7 @@
     "electron": "electron .",
     "next": "next dev",
     "dev": "npm-run-all -p next electron",
-    "clean": "rimraf dist .next",
+    "clean": "rimraf PanelSesiones .next",
     "build:next": "next build",
     "dist:win": "npm run build:next && electron-builder --win",
     "dist:linux": "npm run build:next && electron-builder --linux AppImage",
@@ -19,6 +19,7 @@
     "asar": true,
     "icon": "assets/icon/app-icon.ico",
     "directories": {
+      "output": "PanelSesiones",
       "buildResources": "build"
     },
     "files": [
@@ -35,15 +36,9 @@
       "node_modules/**/*"
     ],
     "extraResources": [
-      {
-        "from": "fileConfigUpdater",
-        "to": "fileConfigUpdater",
-        "filter": [
-          "**/*"
-        ]
-      }
+    { "from": "fileConfigUpdater", "to": "fileConfigUpdater" }
     ],
-    "win": { "icon": "build/icon.ico", "target": [{ "target": "nsis", "arch": ["x64"] }] },
+    "win": { "icon": "build/app-icon.ico", "target": [{ "target": "nsis", "arch": ["x64"] }] },
     "nsis": {
       "oneClick": true,
       "artifactName": "PanelSesiones-Setup-${version}.exe",

@@ -5,8 +5,15 @@ export default async function handler(req, res) {
   try {
     const ok = await DB.ping();
     const meta = getDbConfigMeta();
-    res.json({ ok, source: meta.source, configPath: meta.path || '(env)' });
+    res.json({ ok, source: meta.source, path: meta.path || '(env)' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(500).json({
+      ok: false,
+      error: e.message,
+      code: e.code || null,
+      errno: e.errno || null,
+      sqlState: e.sqlState || null,
+      sqlMessage: e.sqlMessage || null
+    });
   }
 }

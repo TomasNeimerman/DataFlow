@@ -3,110 +3,50 @@ import React, { useState, useEffect, useCallback } from "react";
 import styles from "./styles.module.css";
 
 const BDSelect = () => {
+  // Empresas locales: [{ Codigo, RazonSocial, Cuit }]
   const [empresas, setEmpresas] = useState([]);
-  const [selectedEmpresaId, setSelectedEmpresaId] = useState("");
-  const [selectedEmpresaNombre, setSelectedEmpresaNombre] = useState("");
+  const [selectedCodigo, setSelectedCodigo] = useState("");
   const [isConfigured, setIsConfigured] = useState(false);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-
-  // comparación (siempre ejecuta; el panel solo se muestra en DEV)
-  const [cmpLoading, setCmpLoading] = useState(false);
-  const [cmpError, setCmpError] = useState(null);
-  const [cmpResult, setCmpResult] = useState(null);
-
-  // flag DEV para mostrar/ocultar panel
-  const [isDev, setIsDev] = useState(false);
-  useEffect(() => {
-    (async () => {
-      try {
-        const dev = await window?.api?.isDev?.();
-        setIsDev(!!dev);
-      } catch {
-        setIsDev(false);
-      }
-    })();
-  }, []);
-
-  // Box visual sin inline styles
-  const Box = ({ children, tone = "neutral" }) => {
-    const toneClass =
-      tone === "warn"
-        ? styles.boxWarn
-        : tone === "ok"
-        ? styles.boxOk
-        : tone === "err"
-        ? styles.boxErr
-        : styles.boxNeutral;
-
-    return <div className={`${styles.box} ${toneClass}`}>{children}</div>;
-  };
 
   const cargarEmpresas = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setError("");
     setSuccessMessage("");
-    setCmpLoading(true);
-    setCmpError(null);
-    setCmpResult(null);
 
     try {
       if (!window.api) throw new Error("La API de Electron (window.api) no está disponible.");
 
-      const idCliente = await window.api.getStoreValue("idCliente");
-      if (!idCliente) throw new Error("No se encontró 'idCliente'. Por favor, inicie sesión.");
-
-      // 1) Traer lista nube
-      const nube = await window.api.getListadoEmpresas(idCliente);
-      const nubeArray = Array.isArray(nube) ? nube : Array.isArray(nube?.data) ? nube.data : [];
-      if (!nubeArray.length) throw new Error("No se pudo cargar la lista de empresas.");
-
-      // 2) Comparar y filtrar (UI del panel solo en DEV)
-      let filtered = nubeArray;
-      try {
-        const cmp = await window.api.filterEmpresasByLocal(idCliente);
-        if (cmp?.success) {
-          setCmpResult(cmp);
-          filtered = Array.isArray(cmp.filtered) && cmp.filtered.length ? cmp.filtered : nubeArray;
-
-          // Logs para depuración
-          try {
-            console.groupCollapsed("%cComparación BD nube vs local", "color:#555;font-weight:bold;");
-            console.log("totals:", cmp.totals);
-            console.table(cmp.matched?.slice(0, 10) || []);
-            console.table(cmp.inCloudNotLocal?.slice(0, 10) || []);
-            console.table(cmp.inLocalNotCloud?.slice(0, 10) || []);
-            console.groupEnd();
-          } catch {}
-        } else {
-          setCmpError(cmp?.message || "No se pudo verificar BDs locales.");
-        }
-      } catch (e) {
-        setCmpError(e?.message || "No se pudo verificar BDs locales.");
-      } finally {
-        setCmpLoading(false);
+      // 0) Verificar que exista la BD local "manager"
+      const chk = await window.api.hasManager?.();
+      if (!chk?.ok) {
+        setError("No se encuentra sistema Bejerman ERP instalado");
+        setEmpresas([]);
+        return;
       }
 
-      // 3) Usar lista (filtrada si hubo match)
-      setEmpresas(filtered);
+      // 1) Traer empresas locales habilitadas (manager.dbo.emp WHERE emp_habili = 1)
+      const res = await window.api.listEmpresasLocal?.();
+      if (!res?.success) throw new Error(res?.message || "No se pudieron cargar las empresas locales.");
+      const data = Array.isArray(res.data) ? res.data : [];
+      setEmpresas(data);
 
-      // Restaurar selección
-      const savedId = await window.api.getStoreValue("selectedEmpresaId");
+      // 2) Restaurar selección previa (si existe)
+      const savedCode = await window.api.getStoreValue("selectedEmpresaCodigo");
       const savedName = await window.api.getStoreValue("selectedEmpresaNombre");
 
-      if (savedId) {
-        setSelectedEmpresaId(String(savedId));
-        const emp = filtered.find((e) => String(e.Id) === String(savedId));
-        const nombre = savedName || emp?.RazonSocial || emp?.nombreEmpresa || "";
-        setSelectedEmpresaNombre(nombre);
+      if (savedCode) {
+        setSelectedCodigo(String(savedCode));
         setIsConfigured(true);
-        setSuccessMessage(`Empresa seleccionada: ${nombre || savedId}`);
+        setSuccessMessage(`Empresa seleccionada: ${savedName || savedCode}`);
       }
     } catch (err) {
       console.error("Error al cargar empresas:", err);
-      setError(err.message);
+      setError(err.message || "Error al cargar empresas.");
     } finally {
       setLoading(false);
     }
@@ -116,65 +56,76 @@ const BDSelect = () => {
     cargarEmpresas();
   }, [cargarEmpresas]);
 
-  const handleGuardarConfiguracion = async (e) => {
+  const onSelectChange = (e) => {
+    setSelectedCodigo(e.target.value);
+    setError("");
+    setSuccessMessage("");
+  };
+
+  const handleGuardar = async (e) => {
     e.preventDefault();
-    if (!selectedEmpresaId) {
+    if (!selectedCodigo) {
       setError("Debes seleccionar una empresa antes de guardar.");
       return;
     }
-    setLoading(true);
-    setError(null);
-    setSuccessMessage("");
 
     try {
-      const detalles = await window.api.getDatosEmpresaById(selectedEmpresaId);
-      if (!detalles?.success || !detalles.data) {
-        throw new Error(detalles?.message || "No se pudieron obtener los detalles de la empresa.");
+      setSaving(true);
+      setError("");
+      setSuccessMessage("");
+
+      // 1) Id del cliente (guardado en el login)
+      const idCliente = await window.api.getStoreValue("idCliente");
+      if (!idCliente) throw new Error("No se encontró idCliente. Inicie sesión.");
+
+      // 2) Verificar en nube si está habilitado (Nombre == emp_codigo) y escribir properties si corresponde
+      const verify = await window.api.verifyEmpresaForUser?.({
+        idCliente,
+        empCodigo: selectedCodigo,
+      });
+
+      if (!verify?.success) {
+        throw new Error(verify?.message || "El usuario no esta habilitado para operar esa empresa");
       }
 
-      const guardar = await window.api.guardarConfiguracion(detalles.data);
-      if (!guardar?.success) throw new Error(guardar?.message || "Error al guardar la configuración.");
+      // 3) Guardar selección en el store para banner / resto de la app
+      const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
+      const razon =
+        verify?.data?.razonSocial ||
+        empLocal?.RazonSocial ||
+        selectedCodigo;
 
-     const emp = empresas.find((e) => String(e.Id) === String(selectedEmpresaId));
+      await window.api.setStoreValue("selectedEmpresaCodigo", selectedCodigo);
+      await window.api.setStoreValue("selectedEmpresaNombre", razon);
 
-const nombre =
-  emp?.RazonSocial ||
-  detalles.data?.RazonSocial ||  // por si la nube también trae el campo
-  detalles.data?.razonSocial ||
-  emp?.nombreEmpresa ||
-  detalles.data?.nombreEmpresa ||
-  "";
-
-await window.api.setStoreValue("selectedEmpresaId", String(selectedEmpresaId));
-await window.api.setStoreValue("selectedEmpresaNombre",
-  emp?.RazonSocial || detalles.data?.RazonSocial || detalles.data?.razonSocial || emp?.nombreEmpresa || ""
-);
-
-      setSelectedEmpresaNombre(nombre);
       setIsConfigured(true);
       setSuccessMessage("¡Configuración guardada exitosamente!");
 
+      // 4) Notificar a otros componentes (EmpresaSelected)
       try {
-        window.dispatchEvent(new CustomEvent("empresa:selected", { detail: { id: String(selectedEmpresaId), nombre } }));
+        window.dispatchEvent(
+          new CustomEvent("empresa:selected", { detail: { id: selectedCodigo, nombre: razon } })
+        );
       } catch {}
     } catch (err) {
-      console.error("Error en el proceso de guardado:", err);
-      setError(err.message);
+      console.error("BDSelect handleGuardar:", err);
+      setError(err.message || "El usuario no esta habilitado para operar esa empresa");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const handleModificar = async () => {
     try {
-      setLoading(true);
-      setError(null);
+      setSaving(true);
+      setError("");
       setSuccessMessage("");
-      await window.api.setStoreValue("selectedEmpresaId", "");
+
+      await window.api.setStoreValue("selectedEmpresaCodigo", "");
       await window.api.setStoreValue("selectedEmpresaNombre", "");
+
       setIsConfigured(false);
-      setSelectedEmpresaId("");
-      setSelectedEmpresaNombre("");
+      setSelectedCodigo("");
       setSuccessMessage("Selección borrada. Elegí otra empresa y guardá.");
 
       try {
@@ -182,41 +133,10 @@ await window.api.setStoreValue("selectedEmpresaNombre",
       } catch {}
     } catch (err) {
       console.error("Error al limpiar selección:", err);
-      setError(err.message || "No se pudo limpiar la selección guardada.");
+      setError(err.message || "No se pudo limpiar la selección.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  };
-
-  const onSelectChange = (e) => {
-    setSelectedEmpresaId(e.target.value);
-    setError(null);
-    setSuccessMessage("");
-  };
-
-  // Panel de comparación: SOLO visible en DEV
-  const renderComparisonInfo = () => {
-    if (!isDev) return null;
-    if (cmpLoading) return <Box tone="neutral">Verificando bases locales vs nube…</Box>;
-    if (cmpError) return <Box tone="err">No se pudo verificar BDs locales: {cmpError}</Box>;
-    if (!cmpResult) return null;
-
-    const t = cmpResult.totals || {};
-    const hasDiff = (t.inCloudNotLocal || 0) > 0 || (t.inLocalNotCloud || 0) > 0;
-
-    return (
-      <Box tone={hasDiff ? "warn" : "ok"}>
-        <div className={styles.cmpTitle}>
-          Verificación de BDs locales vs nube {hasDiff ? "— hay diferencias." : "— todo OK."}
-        </div>
-        <div>
-          Total en nube: <b>{t.cloud ?? 0}</b> · Local: <b>{t.local ?? 0}</b> · Coinciden: <b>{t.matched ?? 0}</b>
-        </div>
-        <div>
-          Solo nube: <b>{t.inCloudNotLocal ?? 0}</b> · Solo local: <b>{t.inLocalNotCloud ?? 0}</b>
-        </div>
-      </Box>
-    );
   };
 
   if (loading && empresas.length === 0) {
@@ -226,54 +146,58 @@ await window.api.setStoreValue("selectedEmpresaNombre",
   return (
     <div className={styles.formCardContainer}>
       <h2>Seleccionar Empresa</h2>
-      <form onSubmit={handleGuardarConfiguracion}>
+      <form onSubmit={handleGuardar}>
         <div className={styles.field}>
           <label htmlFor="empresa-select" className={styles.label}>
             Empresa:
           </label>
 
           <select
-  id="empresa-select"
-  value={selectedEmpresaId}
-  onChange={onSelectChange}
-  className={styles.select}
-  disabled={loading || isConfigured}
->
-  <option value="">-- Seleccione una empresa --</option>
-  {empresas.map((emp) => {
-    // emp viene de cmp.filtered con: { Id, RazonSocial, InstanciaBD, EmpCodigoLocal, nombreEmpresa }
-    const codigo = emp.EmpCodigoLocal || emp.InstanciaBD || "";
-const label  = `${codigo} - ${emp.RazonSocial || emp.nombreEmpresa || ""}`.trim();
-    return (
-      <option key={emp.Id} value={emp.Id}>
-        {label}
-      </option>
-    );
-  })}
-</select>
+            id="empresa-select"
+            value={selectedCodigo}
+            onChange={onSelectChange}
+            className={styles.select}
+            disabled={loading || isConfigured || saving}
+          >
+            <option value="">-- Seleccione una empresa --</option>
+            {empresas.map((emp) => (
+              <option key={emp.Codigo} value={emp.Codigo}>
+                {emp.Codigo} - {emp.RazonSocial}
+              </option>
+            ))}
+          </select>
 
-          {isConfigured && selectedEmpresaNombre && (
+          {isConfigured && (
             <div className={styles.infoSmall}>
-              Usando: <strong>{selectedEmpresaNombre}</strong>
+              Usando:{" "}
+              <strong>
+                {(empresas.find((e) => e.Codigo === selectedCodigo)?.RazonSocial) || selectedCodigo}
+              </strong>
             </div>
           )}
         </div>
 
         {isConfigured ? (
-          <button type="button" className={styles.btn} onClick={handleModificar} disabled={loading}>
-            {loading ? "Procesando..." : "Modificar"}
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={handleModificar}
+            disabled={loading || saving}
+          >
+            {saving ? "Procesando..." : "Modificar"}
           </button>
         ) : (
-          <button type="submit" className={styles.btn} disabled={loading || !selectedEmpresaId}>
-            {loading ? "Ingresando..." : "Ingresar"}
+          <button
+            type="submit"
+            className={styles.btn}
+            disabled={loading || saving || !selectedCodigo}
+          >
+            {saving ? "Guardando..." : "Guardar"}
           </button>
         )}
 
         {error && <div className={styles.statusError}>Error: {error}</div>}
         {successMessage && <div className={styles.statusSuccess}>{successMessage}</div>}
-
-        {/* Panel de verificación (solo DEV) */}
-        {renderComparisonInfo()}
       </form>
     </div>
   );

@@ -5,10 +5,9 @@ import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
 import styles from "./styles.module.css";
 
 const ListaPreciosForm = ({
-  nombreModulo = "Actualizador de listas de precios",
+  nombreModulo = "Actualizador por Excel",
   idCliente,
 }) => {
-  // ----- estado visual del formulario -----
   const [fileName, setFileName] = useState("");
   const [file, setFile] = useState(null);
   const [isFileLoaded, setIsFileLoaded] = useState(false);
@@ -16,8 +15,7 @@ const ListaPreciosForm = ({
   const [isOptionConfirmed, setIsOptionConfirmed] = useState(false);
   const [activeSection, setActiveSection] = useState("descargar"); // "descargar" | "importar" | "resultados"
 
-  // ----- hook de negocio (descargar / importar / resultados) -----
-   const {
+  const {
     estadoImportar,
     mensajeImportacion,
     resultados,
@@ -26,11 +24,15 @@ const ListaPreciosForm = ({
     handleImportar,
   } = usePreciosActualizador();
 
-  // ----- módulos (solo título, como hiciste) -----
+  // auto-cambiar a "resultados" cuando haya datos que mostrar
+  useEffect(() => {
+    if (puedeVerResultados) setActiveSection("resultados");
+  }, [puedeVerResultados]);
+
+  // ----- módulos (solo título) -----
   const [modulos, setModulos] = useState([]);
   const [loadingModulos, setLoadingModulos] = useState(false);
   const [errorModulos, setErrorModulos] = useState("");
-  const [isImporting, setIsImporting] = useState(false); // NUEVO
 
   useEffect(() => {
     let mounted = true;
@@ -86,7 +88,6 @@ const ListaPreciosForm = ({
         const res = await window.api.getCodigosLista();
         if (!mounted) return;
 
-        // res.data: [{ lprdlp_Cod, dlp_Desc }]
         if (res?.success && Array.isArray(res?.data)) {
           setCodigosLista(
             res.data.map((r) => ({
@@ -137,61 +138,30 @@ const ListaPreciosForm = ({
     if (fileInput) fileInput.value = "";
   };
 
+  const handleConfirmarSeleccion = () => {
+    if (selectedOption) setIsOptionConfirmed(true);
+  };
 
   const handleDescargarClick = () => {
     if (selectedOption) handleDescargarLista(selectedOption);
   };
 
-const handleConfirmarSeleccion = () => {
-    if (selectedOption) {
-      setIsOptionConfirmed(true);
-      // al confirmar una nueva lista, volvemos a la pestaña descargar
-      setActiveSection("descargar");
-    }
-  };
-
   const handleSelectChange = (event) => {
     setSelectedOption(event.target.value);
     setIsOptionConfirmed(false);
-    // Si cambiás de lista, volvé a descargar o importar; no mostramos resultados viejos
-    // (el hook resetea resultados al importar, aquí no hace falta tocarlo)
   };
 
-  const handleImportarClick = async () => {
-    const input = typeof document !== "undefined" ? document.getElementById("loadFile") : null;
-    const currentFile = input?.files?.[0] || file;
-
-    if (!selectedOption) {
-      alert("Seleccioná una lista primero.");
-      return;
-    }
-    if (!currentFile) {
-      alert("Seleccioná un archivo Excel.");
-      return;
-    }
-
-    try {
-      setIsImporting(true);
-      const res = await handleImportar(currentFile, selectedOption);
-      // si hay resultados y cambios, activamos la pestaña "resultados" para que el usuario los vea
-      if (res?.success && (res.updated ?? 0) > 0 && Array.isArray(res.resultados) && res.resultados.length > 0) {
-        // podés dejar en la misma pestaña o saltar; si querés saltar, descomentá:
-        // setActiveSection("resultados");
-      }
-    } finally {
-      setIsImporting(false);
-    }
+  const handleImportarClick = () => {
+    if (file && selectedOption) handleImportar(file, selectedOption);
   };
-  // util formateo
+
   const money = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "0,00";
     return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
+    };
 
-  // clase feedback
-  const statusLower =
-    typeof estadoImportar === "string" ? estadoImportar.toLowerCase() : "";
+  const statusLower = typeof estadoImportar === "string" ? estadoImportar.toLowerCase() : "";
   const feedbackClass =
     statusLower.includes("error")
       ? styles.errorBox
@@ -201,13 +171,11 @@ const handleConfirmarSeleccion = () => {
 
   return (
     <div className={`${styles.container} ${activeSection === "resultados" ? styles.containerWide : ""}`}>
-      {/* Título */}
       <div className={styles.titleContainer} style={{ marginBottom: "0.75rem" }}>
         <h1 className={styles.title}>{tituloModuloResuelto}</h1>
         {!!errorModulos && <small className={styles.errorText}>{errorModulos}</small>}
       </div>
 
-      {/* Tabs + botón resultados */}
       <div className={styles.toggleContainer}>
         <button
           className={`${styles.toggleButton} ${activeSection === "descargar" ? styles.active : ""}`}
@@ -224,7 +192,7 @@ const handleConfirmarSeleccion = () => {
 
         {puedeVerResultados && (
           <button
-            className={`${styles.toggleButton} ${activeSection === "resultados" ? styles.active: ""} ${styles.resultsBtn}`}
+            className={`${styles.toggleButton} ${activeSection === "resultados" ? styles.active : ""}`}
             onClick={() => setActiveSection("resultados")}
             title="Ver resultados de la última actualización"
           >
@@ -296,17 +264,16 @@ const handleConfirmarSeleccion = () => {
             />
 
             <div className={styles.buttonsContainer}>
-            <button className={styles.btn} onClick={handleCancel} disabled={isImporting}>
-              Limpiar
-            </button>
-            <button
-              className={styles.btn}
-              disabled={!isFileLoaded || !selectedOption || isImporting} // deshabilita mientras importa
-              onClick={handleImportarClick}
-              title={!selectedOption ? "Elegí una lista" : (!isFileLoaded ? "Elegí un archivo" : "Importar")}
-            >
-              {isImporting ? "Importando..." : "Importar"}
-            </button>
+              <button className={styles.btn} onClick={handleCancel}>
+                Limpiar
+              </button>
+              <button
+                className={styles.btn}
+                disabled={!isFileLoaded || !selectedOption}
+                onClick={handleImportarClick}
+              >
+                Importar
+              </button>
             </div>
 
             {estadoImportar ? (

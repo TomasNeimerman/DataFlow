@@ -2,17 +2,30 @@
 const fs = require('fs');
 const path = require('path');
 
-// Busca el archivo properties en dev y en producción (packaged)
-function resolvePropsPath() {
-  // 1) Dev: carpeta del proyecto
-  const devPath = path.join(__dirname, 'fileConfigUpdater', 'dbConfig.properties');
-  if (fs.existsSync(devPath)) return devPath;
-
-  // 2) Prod (empaquetado): dentro de resources
-  const resPath = path.join(process.resourcesPath || '', 'fileConfigUpdater', 'dbConfig.properties');
-  if (process.resourcesPath && fs.existsSync(resPath)) return resPath;
-
+function getResourcesPath() {
+  // En Electron empaquetado existe process.resourcesPath.
+  if (process.resourcesPath) return process.resourcesPath;
+  // Fallback por si el proceso no lo expone
+  try {
+    const execDir = path.dirname(process.execPath);
+    const guess = path.join(execDir, 'resources');
+    if (fs.existsSync(guess)) return guess;
+  } catch {}
   return null;
+}
+
+function resolvePropsPath() {
+  // 1) Producción: dentro de resources/
+  const res = getResourcesPath();
+  if (res) {
+    const p = path.join(res, 'fileConfigUpdater', 'dbConfig.properties');
+    if (fs.existsSync(p)) return { path: p, source: 'resources' };
+  }
+  // 2) Dev: carpeta del proyecto
+  const dev = path.join(__dirname, 'fileConfigUpdater', 'dbConfig.properties');
+  if (fs.existsSync(dev)) return { path: dev, source: 'dev' };
+
+  return { path: null, source: 'env' };
 }
 
 function parseProperties(text) {
@@ -22,36 +35,35 @@ function parseProperties(text) {
     if (!s || s.startsWith('#')) return;
     const i = s.indexOf('=');
     if (i === -1) return;
-    const k = s.slice(0, i).trim();
-    const v = s.slice(i + 1).trim();
-    obj[k] = v;
+    obj[s.slice(0, i).trim()] = s.slice(i + 1).trim();
   });
   return obj;
 }
 
 function getDbConfig() {
-  const p = resolvePropsPath();
-
+  const { path: p } = resolvePropsPath();
   if (p) {
-    const raw = fs.readFileSync(p, 'utf-8');
-    const cfg = parseProperties(raw);
+    const cfg = parseProperties(fs.readFileSync(p, 'utf-8'));
     return {
       user:     cfg.DB_USER,
       password: cfg.DB_PASSWORD,
-      server:   cfg.DB_SERVER || cfg.DB_HOST, // lo mapeamos a host en lib/db.js
+      server:   cfg.DB_SERVER || cfg.DB_HOST,
       port:     parseInt(cfg.DB_PORT || '3306', 10),
-      database: cfg.DB_DATABASE
+      database: cfg.DB_DATABASE,
     };
   }
-
-  // Fallback a variables de entorno si no hay properties
+  // Fallback a ENV (por si preferís no usar properties)
   return {
     user:     process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server:   process.env.DB_HOST || process.env.DB_SERVER,
     port:     parseInt(process.env.DB_PORT || '3306', 10),
-    database: process.env.DB_DATABASE
+    database: process.env.DB_DATABASE,
   };
 }
 
-module.exports = { getDbConfig };
+function getDbConfigMeta() {
+  return resolvePropsPath(); // { source, path }
+}
+
+module.exports = { getDbConfig, getDbConfigMeta };

@@ -10,17 +10,23 @@ export default function Home() {
   setLoading(true);
   try {
     const r = await fetch(`/api/sessions?onlyActive=${onlyActive}`);
-     if (!r.ok) {
-       const err = await r.json().catch(() => ({}));
-       const msg = [err.error, err.code].filter(Boolean).join(' ');
-       throw new Error(msg || `HTTP ${r.status}`);
-    }
+    if (!r.ok) {
+     // intenta JSON; si no, usa texto completo
+     const txt = await r.text();
+     let msg = `HTTP ${r.status}`;
+     try {
+       const j = JSON.parse(txt);
+       msg = [j.error, j.code, j.sqlMessage, j.address && `host=${j.address}`, j.port && `port=${j.port}`]
+               .filter(Boolean).join(' | ');
+     } catch { msg = txt; }
+     throw new Error(msg);
+   }
     const j = await r.json();
     setData(j.users || []);
   } catch (e) {
     console.error(e);
     setData([]);
-    alert('Error de base de datos: ' + e.message); // simple y directo
+    alert('Error de base de datos: ' + (e.message || 'desconocido'));
   } finally {
     setLoading(false);
   }

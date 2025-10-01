@@ -10,12 +10,11 @@ contextBridge.exposeInMainWorld('api', {
   onNavigate: (callback) => ipcRenderer.on('navigate-to', (_event, path) => callback(path)),
 
   // Empresa / módulos
-  getListadoEmpresas: (idCliente) => ipcRenderer.invoke('get-list-empresas', idCliente),
-  getDatosEmpresaById: (idEmpresa) => ipcRenderer.invoke('get-empresa-by-id', idEmpresa),
-  guardarConfiguracion: (empresaData) => ipcRenderer.invoke('get-empresa-config', empresaData),
+  hasManager: () => ipcRenderer.invoke('local:has-manager'),
+listEmpresasLocal: () => ipcRenderer.invoke('empresas:list-manager-emp'),
   getModules: (idCliente) => ipcRenderer.invoke('get-modules', idCliente),
   buildMenu: (modulos) => ipcRenderer.invoke('menu:set-modules', modulos),
-
+  verifyEmpresaForUser: (payload) => ipcRenderer.invoke('empresa:verify-and-save', payload),
   // Cheques (sin cambios)
   obtenerCheques: (id) => ipcRenderer.invoke('obtener-cheques', id),
   updateCheques: (cheque) => ipcRenderer.invoke('update-cheques', cheque),
@@ -79,7 +78,6 @@ getPreciosExcelUltimos: () =>ipcRenderer.invoke("precios:excel-ultimos"),
   downloadAndOpenExcel: (relativePath) => ipcRenderer.invoke('download-and-open-excel', relativePath),
 
   // BD Comparacion
-  filterEmpresasByLocal: (idCliente) => ipcRenderer.invoke('filter-empresas-by-local', idCliente),
   
   // Otros
   getUpdatedFecha: () => ipcRenderer.invoke('get-updated-fecha'),

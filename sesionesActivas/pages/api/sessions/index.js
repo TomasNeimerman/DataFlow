@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   const onlyActive = req.query.onlyActive === 'true';
-  const table = process.env.SESSIONS_TABLE || 'sessions_tokens';
+  const table = process.env.SESSIONS_TABLE || 'SesionesActivas';
 
   try {
     const rows = await DB.query(
@@ -27,7 +27,15 @@ export default async function handler(req, res) {
 
     res.json({ users: Object.entries(map).map(([user, sessions]) => ({ user, sessions })) });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'DB error', details: e.code || null });
+    console.error('API /sessions error:', e);
+   res.status(500).json({
+     error: e.message,
+     code: e.code || null,
+     errno: e.errno || null,
+     sqlState: e.sqlState || null,
+     sqlMessage: e.sqlMessage || null,
+     address: e.address || null,
+     port: e.port || null
+   });
   }
 }
