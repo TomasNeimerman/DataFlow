@@ -10,11 +10,12 @@ contextBridge.exposeInMainWorld('api', {
   onNavigate: (callback) => ipcRenderer.on('navigate-to', (_event, path) => callback(path)),
 
   // Empresa / módulos
-  hasManager: () => ipcRenderer.invoke('local:has-manager'),
-listEmpresasLocal: () => ipcRenderer.invoke('empresas:list-manager-emp'),
+hasManager: () => ipcRenderer.invoke('local:has-manager'),
+  listEmpresasLocal: () => ipcRenderer.invoke('empresas:list-manager-emp'),
+  verifyEmpresaForUser: (payload) => ipcRenderer.invoke('empresa:verify-and-save', payload),
+
   getModules: (idCliente) => ipcRenderer.invoke('get-modules', idCliente),
   buildMenu: (modulos) => ipcRenderer.invoke('menu:set-modules', modulos),
-  verifyEmpresaForUser: (payload) => ipcRenderer.invoke('empresa:verify-and-save', payload),
   // Cheques (sin cambios)
   obtenerCheques: (id) => ipcRenderer.invoke('obtener-cheques', id),
   updateCheques: (cheque) => ipcRenderer.invoke('update-cheques', cheque),
@@ -63,7 +64,14 @@ getPreciosExcelUltimos: () =>ipcRenderer.invoke("precios:excel-ultimos"),
 
   // Store
   getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),
-  setStoreValue: (key, value) => ipcRenderer.invoke('electron-store-set', { key, value }),
+
+  // ✅ acepta ("key", value) o ({ key, value })
+  setStoreValue: (keyOrObj, value) => {
+    const payload = (keyOrObj && typeof keyOrObj === 'object' && !Array.isArray(keyOrObj))
+      ? keyOrObj
+      : { key: keyOrObj, value };
+    return ipcRenderer.invoke('electron-store-set', payload);
+  },
 
   // UI / App
   showHamburger: (coords) => ipcRenderer.invoke('ui:show-hamburger', coords),
@@ -78,7 +86,7 @@ getPreciosExcelUltimos: () =>ipcRenderer.invoke("precios:excel-ultimos"),
   downloadAndOpenExcel: (relativePath) => ipcRenderer.invoke('download-and-open-excel', relativePath),
 
   // BD Comparacion
-  
+ chequespDescargarPlanilla: () => ipcRenderer.invoke('chequesp:descargar-planilla'),
   // Otros
   getUpdatedFecha: () => ipcRenderer.invoke('get-updated-fecha'),
 });

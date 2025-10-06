@@ -79,24 +79,16 @@ const BDSelect = () => {
       if (!idCliente) throw new Error("No se encontró idCliente. Inicie sesión.");
 
       // 2) Verificar en nube si está habilitado (Nombre == emp_codigo) y escribir properties si corresponde
-      const verify = await window.api.verifyEmpresaForUser?.({
-        idCliente,
-        empCodigo: selectedCodigo,
-      });
+const verify = await window.api.verifyEmpresaForUser?.({ idCliente, empCodigo: selectedCodigo });
+if (!verify?.success) throw new Error(verify?.message || "El usuario no esta habilitado...");
 
-      if (!verify?.success) {
-        throw new Error(verify?.message || "El usuario no esta habilitado para operar esa empresa");
-      }
+const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
+const razon = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
 
-      // 3) Guardar selección en el store para banner / resto de la app
-      const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
-      const razon =
-        verify?.data?.razonSocial ||
-        empLocal?.RazonSocial ||
-        selectedCodigo;
-
-      await window.api.setStoreValue("selectedEmpresaCodigo", selectedCodigo);
-      await window.api.setStoreValue("selectedEmpresaNombre", razon);
+// guardá también la DB activa
+await window.api.setStoreValue({ key: "selectedEmpresaCodigo", value: selectedCodigo });
+await window.api.setStoreValue({ key: "selectedEmpresaNombre", value: razon });
+await window.api.setStoreValue({ key: "selectedInstanciaBD", value: verify?.data?.instanciaBD }); // 👈 NUEVO
 
       setIsConfigured(true);
       setSuccessMessage("¡Configuración guardada exitosamente!");

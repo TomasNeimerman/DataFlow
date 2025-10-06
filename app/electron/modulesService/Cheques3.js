@@ -1,4 +1,4 @@
-// back/modulesService/Cheques3.js
+// electron/modulesService/Cheques3.js
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../userDbConfig.js');
 
@@ -80,16 +80,18 @@ async function getSituacion(){
     if (pool) await pool.close();
   }
 }
-async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
+async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
   let pool;
+  const messages = []; // ⬅ acumulamos los logs para devolverlos al front
   try{
     if (suc === undefined) { suc = ' '; }
-     // Formato YYYY-MM-DD
-    console.log('Verificando si la situacion del cheque ya existe:', sitAnt, "con", sit);
+
+    messages.push(`Verificando si la situacion del cheque ya existe: ${sitAnt} con ${sit}`);
+
     if (sitAnt != sit ) {
       const dbConfig = getAdminDbConfig();
       pool = await sql.connect(dbConfig);
-      const result = await pool.request()
+      await pool.request()
         .input('emp', sql.NVarChar, emp)
         .input('suc', sql.NVarChar, suc)
         .input('IDCheque', sql.Int, IDCheque)
@@ -97,16 +99,25 @@ async function registroCheq3Sit(emp,suc,IDCheque,sit,sitAnt){
         .input('sit', sql.NVarChar, sit)
         .input('sitAnt', sql.NVarChar, sitAnt)
         .input('pCG', sql.NVarChar, 'C')
-        .query(`INSERT INTO Cheq3Sit (c3semp_Codigo,c3ssuc_Cod,c3sch3_ID,c3s_FCmbio,c3s_CodSitAct,c3ssit_CodAnt,c3ssit_CodActIN, c3s_PasadoCG, c3s_CodApe) VALUES (@emp, @suc, @IDCheque,GETDATE(),@sit,@sitAnt,@sit,@pCG, ' ')`); // Consulta a la tabla Situacion
-    return {success: true, message: 'Registro de Cheque3 actualizado correctamente.'};
-    }else{
-      console.log('No se requiere actualizar el registro de Cheque3, la situacion no ha cambiado.');
+        .query(`
+          INSERT INTO Cheq3Sit
+            (c3semp_Codigo, c3ssuc_Cod, c3sch3_ID, c3s_FCmbio, c3s_CodSitAct, c3ssit_CodAnt, c3ssit_CodActIN, c3s_PasadoCG, c3s_CodApe)
+          VALUES
+            (@emp, @suc, @IDCheque, GETDATE(), @sit, @sitAnt, @sit, @pCG, ' ')
+        `);
+
+      messages.push('Registro de Cheque3 actualizado correctamente.');
+      return { success: true, message: messages.join('\n') };
+    } else {
+      const msg = 'No se requiere actualizar el registro de Cheque3, la situacion no ha cambiado.';
+      messages.push(msg);
+      return { success: true, message: messages.join('\n') };
     }
-  }catch(err){
+  } catch(err){
     console.error('❌ No se pudo generar el registro:', err);
-    return { success: false, message: err.message };
-  }
-  finally {
+    messages.push(`❌ No se pudo generar el registro: ${err.message}`);
+    return { success: false, message: messages.join('\n') };
+  } finally {
     if (pool) await pool.close();
   }
 }
