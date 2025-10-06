@@ -52,9 +52,9 @@ process.on('unhandledRejection', (r,p) => { writeToLog(`Rejection: ${r}`); });
 const {
   hasManagerDb,
   getEmpresasHabilitadas,
-  verifyEmpresaHabilitadaYGuardar
+  verifyEmpresaHabilitadaYGuardar:verifyEmpresaHabilitada
 } = require('./modulesService/Empresa');
-const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService } = require('./modulesService/ChequesP');
+const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService,ChequesPExcel  } = require('./modulesService/ChequesP');
 const {
   iniciarSesion: iniciarSesionService,
   obtenerModulos: obtenerModulosService,
@@ -358,6 +358,22 @@ ipcMain.handle('logout', async () => {
     return { success: false, message: e.message };
   }
 });
+function toDMY(dateLike) {
+  if (!dateLike) return '';
+  const d = new Date(dateLike);
+  if (isNaN(d)) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+ipcMain.handle('chequesp:descargar-planilla', async () => {
+  try {
+    return await ChequesPExcel();
+  } catch (e) {
+    return { success: false, message: e?.message || 'No se pudo generar la planilla.' };
+  }
+});
 
 // ✅ IPC: ¿existe la BD local "manager"?
 ipcMain.handle('local:has-manager', async () => {
@@ -382,11 +398,14 @@ ipcMain.handle('empresas:list-manager-emp', async () => {
 });
 ipcMain.handle('empresa:verify-and-save', async (_e, { idCliente, empCodigo }) => {
   try {
-    const r = await verifyEmpresaHabilitadaYGuardar(idCliente, empCodigo);
-    return r;
+    const r = await verifyEmpresaHabilitada(idCliente, empCodigo);
+    if (!r.success) return r;
+
+    // Persistimos la DB activa en electron-store
+    try { store?.set('selectedInstanciaBD', r.data.instanciaBD); } catch {}
+    return { success: true, data: r.data };
   } catch (e) {
-    writeToLog?.(`empresa:verify-and-save error: ${e?.message}`);
-    return { success: false, message: e?.message || 'Error verificando/guardando empresa.' };
+    return { success: false, message: e?.message || 'Error verificando empresa.' };
   }
 });
 // --- IPC: Login (sin menú de app; sólo cache y popup) ---

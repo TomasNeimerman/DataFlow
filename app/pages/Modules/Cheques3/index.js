@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import pageStyles from './styles.module.css';
-import ChequesRechazados from '../../components/CuadroChequesEdoR'; // Import the visual component
+import ChequesRechazados from '../../components/CuadroChequesEdoR';
 
 export default function Cheques3() {
   const [idCliente, setIdCliente] = useState(null);
@@ -12,10 +12,13 @@ export default function Cheques3() {
   const [selectedChequesData, setSelectedChequesData] = useState({});
   const [importStatus, setImportStatus] = useState(null);
   const [importMessage, setImportMessage] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 
+  // 🔵 logs y errores de la corrida (lo que querés arriba del botón)
+  const [runLogs, setRunLogs] = useState([]);   // info + “no se requiere…”
+  const [runErrors, setRunErrors] = useState([]); // errores reales
 
   useEffect(() => {
-    // <-- MODIFICADO
     const fetchIdCliente = async () => {
       if (window.api) {
         const storedId = await window.api.getStoreValue("idCliente");
@@ -24,6 +27,7 @@ export default function Cheques3() {
     };
     fetchIdCliente();
   }, []);
+
   useEffect(() => {
     const fetchData = async () => {
       if (!idCliente) return;
@@ -32,21 +36,13 @@ export default function Cheques3() {
       setImportMessage('Cargando datos...');
 
       try {
-        if (window.api && window.api.getSituacion) {
+        if (window.api?.getSituacion) {
           const response = await window.api.getSituacion();
-          if (response.success) {
-            setSituaciones(response.data);
-          } else {
-            console.error("Error al obtener situaciones:", response.message);
-            setSituaciones([]);
-          }
-        } else {
-          console.warn("window.api.getSituacion no está disponible.");
+          setSituaciones(response.success ? response.data : []);
         }
 
-        if (window.api && window.api.obtenerCheque3Rechazado) {
+        if (window.api?.obtenerCheque3Rechazado) {
           const chequesResponse = await window.api.obtenerCheque3Rechazado(idCliente);
-          console.log(`[Frontend] Respuesta de obtenerCheque3Rechazado:`, chequesResponse);
           if (chequesResponse.success) {
             const chequesData = chequesResponse.cheque.map(ch => {
               const idChequeString = String(ch.ch3_ID);
@@ -62,10 +58,8 @@ export default function Cheques3() {
                     const day = parseInt(parts[0], 10);
                     const month = parseInt(parts[1], 10) - 1;
                     const year = parseInt(parts[2], 10);
-                    const customDate = new Date(year, month, day); 
-                    if (!isNaN(customDate.getTime())) {
-                      fvtoDate = customDate;
-                    }
+                    const customDate = new Date(year, month, day);
+                    if (!isNaN(customDate.getTime())) fvtoDate = customDate;
                   }
                 }
               }
@@ -84,28 +78,20 @@ export default function Cheques3() {
               };
             });
             setChequesRechazados(chequesData);
-            console.log("Cheques rechazados obtenidos:", chequesData);
-            const initialSelectedChequesData = {};
+
+            const initial = {};
             chequesData.forEach(cheque => {
-              initialSelectedChequesData[cheque.idCheque] = {
-                isSelected: false,
-                situacionId: '',
-                situacionLabel: ''
-              };
+              initial[cheque.idCheque] = { isSelected: false, situacionId: '', situacionLabel: '' };
             });
-            setSelectedChequesData(initialSelectedChequesData);
+            setSelectedChequesData(initial);
           } else {
-            console.error("Error al obtener cheques rechazados:", chequesResponse.message);
             setChequesRechazados([]);
             setSelectedChequesData({});
           }
-        } else {
-          console.warn("window.api.obtenerCheque3Rechazado no está disponible.");
         }
 
         setImportStatus(null);
         setImportMessage('');
-
       } catch (error) {
         console.error("Error en la carga inicial de datos:", error);
         setImportStatus('error');
@@ -119,56 +105,140 @@ export default function Cheques3() {
     fetchData();
   }, [idCliente]);
 
+  // ✅ toggle individual
   const handleChequeToggle = useCallback((idCheque) => {
     setSelectedChequesData(prevData => {
-      const currentChequeData = prevData[idCheque] || { isSelected: false, situacionId: '', situacionLabel: '' };
-      const newState = !currentChequeData.isSelected;
-
+      const curr = prevData[idCheque] || { isSelected: false, situacionId: '', situacionLabel: '' };
+      const newState = !curr.isSelected;
       return {
         ...prevData,
         [idCheque]: {
-          ...currentChequeData,
+          ...curr,
           isSelected: newState,
-          situacionId: newState ? currentChequeData.situacionId : '',
-          situacionLabel: newState ? currentChequeData.situacionLabel : ''
+          situacionId: newState ? curr.situacionId : '',
+          situacionLabel: newState ? curr.situacionLabel : ''
         }
       };
     });
   }, []);
 
+  // (compatibilidad si querés usarlo por fila)
   const handleSituacionChange = useCallback((idCheque, selectedValue) => {
     setSelectedChequesData(prevData => {
-      const sanitizedSelectedValue = String(selectedValue || '');
-      const selectedSituacion = situaciones.find(sit => String(sit.sit_Cod) === sanitizedSelectedValue);
-      const situacionLabel = selectedSituacion ? selectedSituacion.sit_Desc : '';
-
+      const sanitized = String(selectedValue || '');
+      const selectedSit = situaciones.find(sit => String(sit.sit_Cod) === sanitized);
+      const label = selectedSit ? selectedSit.sit_Desc : '';
       return {
         ...prevData,
         [idCheque]: {
           ...prevData[idCheque],
-          situacionId: sanitizedSelectedValue,
-          situacionLabel: situacionLabel
+          situacionId: sanitized,
+          situacionLabel: label
         }
       };
     });
   }, [situaciones]);
 
-  const handleImportarClick = async () => {
-    const chequesParaActualizar = Object.keys(selectedChequesData)
-      .filter(id => {
-        const data = selectedChequesData[id];
-        return data.isSelected && data.situacionId != null && data.situacionId !== '';
-      })
-      .map(id => {
-        const idParsed = parseInt(id, 10);
-        const situacion = selectedChequesData[id].situacionId;
-        console.log(`[Frontend] Preparando para actualizar: idCheque=${idParsed} (Tipo: ${typeof idParsed}), situacionId=${situacion} (Tipo: ${typeof situacion})`);
-        return {
-          idCheque: idParsed,
-          situacionId: situacion
+  // ✅ seleccionar TODOS desde el header
+  const selectAllCheques = useCallback((checked) => {
+    setSelectedChequesData(prev => {
+      const newData = {};
+      chequesRechazados.forEach(ch => {
+        newData[ch.idCheque] = {
+          isSelected: checked,
+          situacionId: checked ? (prev[ch.idCheque]?.situacionId || '') : '',
+          situacionLabel: checked ? (prev[ch.idCheque]?.situacionLabel || '') : ''
         };
       });
-      console.log("Cheques para actualizar:", chequesParaActualizar);
+      return newData;
+    });
+  }, [chequesRechazados]);
+
+  // ✅ un solo select global que aplica la situación a TODOS los seleccionados
+  const handleGlobalSituacionChange = useCallback((selectedValue) => {
+    const sanitized = String(selectedValue || '');
+    const selectedSit = situaciones.find(sit => String(sit.sit_Cod) === sanitized);
+    const label = selectedSit ? selectedSit.sit_Desc : '';
+
+    setSelectedChequesData(prev => {
+      const newData = {};
+      Object.keys(prev).forEach(id => {
+        const curr = prev[id] || {};
+        newData[id] = {
+          ...curr,
+          situacionId: curr.isSelected ? sanitized : (curr.situacionId || ''),
+          situacionLabel: curr.isSelected ? label : (curr.situacionLabel || '')
+        };
+      });
+      return newData;
+    });
+  }, [situaciones]);
+
+  // 🔁 recarga post-actualización
+  const reloadAfterUpdate = useCallback(async () => {
+    try {
+      if (window.api?.obtenerCheque3Rechazado && idCliente) {
+        const chequesResponse = await window.api.obtenerCheque3Rechazado(idCliente);
+        if (chequesResponse.success) {
+          const chequesData = chequesResponse.cheque.map(ch => {
+            const idChequeString = String(ch.ch3_ID);
+            let fvtoDate = null;
+            if (ch.ch3_FVto) {
+              let parsedDate = new Date(ch.ch3_FVto);
+              if (!isNaN(parsedDate.getTime())) {
+                fvtoDate = parsedDate;
+              } else {
+                const parts = String(ch.ch3_FVto).split('/');
+                if (parts.length === 3) {
+                  const day = parseInt(parts[0], 10);
+                  const month = parseInt(parts[1], 10) - 1;
+                  const year = parseInt(parts[2], 10);
+                  const customDate = new Date(year, month, day);
+                  if (!isNaN(customDate.getTime())) fvtoDate = customDate;
+                }
+              }
+            }
+            return {
+              idCheque: idChequeString,
+              emp: ch.ch3emp_Codigo,
+              nroDefinitivo: ch.ch3_NroCheq,
+              estado: ch.ch3_Edo,
+              situacion: ch.ch3sit_Cod,
+              suc: ch.ch3suc_Cod,
+              fvtoRaw: fvtoDate,
+              fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '',
+              fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString('es-AR') : '',
+              importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : '',
+            };
+          });
+
+          setChequesRechazados(chequesData);
+          const initialSelected = {};
+          chequesData.forEach(cheque => {
+            initialSelected[cheque.idCheque] = { isSelected: false, situacionId: '', situacionLabel: '' };
+          });
+          setSelectedChequesData(initialSelected);
+          setRefreshKey(k => k + 1); // fuerza relectura de “Fecha modificación”
+        } else {
+          setChequesRechazados([]);
+          setSelectedChequesData({});
+        }
+      }
+    } catch (e) {
+      console.error("Error al recargar datos:", e);
+    }
+  }, [idCliente]);
+
+  const handleImportarClick = async () => {
+    setRunLogs([]);   // limpiamos logs previos
+    setRunErrors([]); // limpiamos errores previos
+
+    const chequesParaActualizar = Object.keys(selectedChequesData)
+      .filter(id => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.situacionId)
+      .map(id => ({
+        idCheque: parseInt(id, 10),
+        situacionId: selectedChequesData[id].situacionId
+      }));
 
     if (chequesParaActualizar.length === 0) {
       setImportStatus('info');
@@ -181,69 +251,45 @@ export default function Cheques3() {
     setImportMessage('Importando cheques seleccionados...');
 
     try {
-      if (window.api && window.api.updateCheque3) {
-        const updateResults = await Promise.all(
+      if (window.api?.updateCheque3) {
+        const opLogs = [];
+        const opErrors = [];
+
+        await Promise.all(
           chequesParaActualizar.map(async (cheque) => {
-            console.log(`[Frontend] Llamando a window.api.actualizarCheque3 con ID: ${cheque.idCheque}, SIT: ${cheque.situacionId}, cheque completo : ${JSON.stringify(cheque)}`);
             try {
-              const response = await window.api.updateCheque3(cheque.idCheque, cheque.situacionId);
-              const valor =  chequesRechazados.filter(ch => String(ch.idCheque) === String(cheque.idCheque));
-              console.log(valor);
-              const res = await window.api.setRegistro(valor[0].emp, valor[0].suc, cheque.idCheque, cheque.situacionId, valor[0].situacion);
-              console.log(`[Frontend] Respuesta de updateCheque3:`, response);
-              return { idCheque: cheque.idCheque, success: response.success, message: response.message };
+              const upd = await window.api.updateCheque3(cheque.idCheque, cheque.situacionId);
+              if (upd?.message) opLogs.push(`Cheque ${cheque.idCheque}: ${upd.message}`);
+              if (!upd?.success) opErrors.push(`Cheque ${cheque.idCheque}: ${upd?.message || 'Fallo actualizando.'}`);
+
+              const row = chequesRechazados.find(ch => String(ch.idCheque) === String(cheque.idCheque));
+              const reg = await window.api.setRegistro(row?.emp, row?.suc, cheque.idCheque, cheque.situacionId, row?.situacion);
+              if (reg?.message) opLogs.push(`Cheque ${cheque.idCheque}: ${reg.message}`);
+              if (reg && reg.success === false) opErrors.push(`Cheque ${cheque.idCheque}: ${reg.message || 'Fallo registrando cambio.'}`);
             } catch (error) {
-              console.error(`[Frontend] Error al actualizar cheque ${cheque.idCheque}:`, error);
-              return { idCheque: cheque.idCheque, success: false, message: error.message || 'Error desconocido al intentar actualizar este cheque.' };
+              opErrors.push(`Cheque ${cheque.idCheque}: ${error.message || 'Error desconocido.'}`);
             }
           })
         );
 
-        const allSuccessful = updateResults.every(result => result.success);
-        const successfulUpdates = updateResults.filter(result => result.success);
-        const failedUpdates = updateResults.filter(result => !result.success);
+        setRunLogs(opLogs);
+        setRunErrors(opErrors);
 
-        if (allSuccessful) {
+        if (opErrors.length === 0) {
           setImportStatus('success');
-          setImportMessage('Todos los cheques actualizados correctamente.');
-        } else if (successfulUpdates.length > 0) {
+          setImportMessage('Todos los cheques procesados.');
+        } else if (opErrors.length < chequesParaActualizar.length) {
           setImportStatus('info');
-          setImportMessage(`Algunos cheques actualizados. Errores en ${failedUpdates.length} de ${chequesParaActualizar.length} cheques.`);
+          setImportMessage(`Procesados con observaciones: ${opErrors.length} fallo(s).`);
         } else {
           setImportStatus('error');
-          setImportMessage(`Fallo al actualizar cheques: ${failedUpdates[0]?.message || 'Error desconocido al intentar actualizar.'}`);
+          setImportMessage('No se pudo procesar ninguno.');
         }
 
-        setChequesRechazados(prevCheques =>
-          prevCheques.filter(ch => !successfulUpdates.some(updatedCh => String(updatedCh.idCheque) === String(ch.idCheque)))
-        );
-        setSelectedChequesData(prevData => {
-          const newData = { ...prevData };
-          successfulUpdates.forEach(updatedCh => {
-            delete newData[String(updatedCh.idCheque)];
-          });
-          return newData;
-        });
-
+        await reloadAfterUpdate();
       } else {
-        console.warn("window.api.actualizarCheque3 no está disponible. Simulando actualización.");
-        const success = Math.random() > 0.3;
-        if (success) {
-          setImportStatus('success');
-          setImportMessage('Simulación: Cheques actualizados correctamente.');
-          console.log("Cheques que se intentarían actualizar (simulado):", chequesParaActualizar);
-          setChequesRechazados(prevCheques => prevCheques.filter(ch => !chequesParaActualizar.some(updatedCh => String(updatedCh.idCheque) === String(ch.idCheque)))); // Corregido: updatedH a updatedCheque
-          setSelectedChequesData(prevData => {
-            const newData = { ...prevData };
-            chequesParaActualizar.forEach(updatedCh => {
-              delete newData[String(updatedCh.idCheque)];
-            });
-            return newData;
-          });
-        } else {
-          setImportStatus('error');
-          setImportMessage('Simulación: Fallo al actualizar cheques.');
-        }
+        setImportStatus('error');
+        setImportMessage('API updateCheque3 no disponible.');
       }
     } catch (error) {
       console.error("Error al importar cheques:", error);
@@ -257,10 +303,8 @@ export default function Cheques3() {
     }
   };
 
-
-
-  const isImportButtonDisabled = importStatus === 'loading' ||
-    Object.values(selectedChequesData).every(data => !data.isSelected || data.situacionId == null || data.situacionId === '');
+  // botón deshabilitado solo si está cargando
+  const isImportButtonDisabled = importStatus === 'loading';
 
   return (
     <div className={pageStyles.body}>
@@ -274,6 +318,12 @@ export default function Cheques3() {
         isImportButtonDisabled={isImportButtonDisabled}
         importStatus={importStatus}
         importMessage={importMessage}
+        // NUEVO
+        onSelectAllChange={selectAllCheques}
+        onGlobalSituacionChange={handleGlobalSituacionChange}
+        refreshKey={refreshKey}
+        runLogs={runLogs}
+        runErrors={runErrors}
       />
     </div>
   );

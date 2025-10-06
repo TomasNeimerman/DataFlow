@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import UserAccordion from '../components/UserAccordion';
+import logo from '../assets/icon/app-icon.png'
+import Image from 'next/image';
 
 export default function Home() {
   const [data, setData] = useState([]);
@@ -55,9 +57,9 @@ export default function Home() {
 
   return (
     <main className="body">
-      {/* Si tenés un logo, descomentá:
-      <img className="img" src="/logo.png" alt="logo" />
-      */}
+      {
+      <Image className="brandLogo" src={logo} alt="Panel de Sesiones" width={120} height={120} priority />
+}
       <div className="container">
         <div className="titleContainer">
           <h1 className="title">Panel de <span className="titlespan">Sesiones</span></h1>

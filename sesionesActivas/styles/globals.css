@@ -142,3 +142,13 @@ body::-webkit-scrollbar { width: 0; height: 0; }
 /* Utilidades */
 .hr { height: 1px; background: #eee; border: 0; margin: 12px 0; }
 .small { opacity: .75; font-size: 12px; }
+/* Logo fijo arriba a la izquierda */
+.brandLogo {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  width: 120px;     /* ajustá a gusto: 32–64px */
+  height: 120px;
+  z-index: 1000;   /* por encima de la card central */
+  user-select: none;
+}

@@ -1,36 +1,49 @@
 // electron/modulesService/Empresa.js
+// ✅ Usa userDbConfig como única fuente (server/user/pass/port fijos), y solo cambia DB_DATABASE.
+// ✅ No duplica plantillas ni rutas: escribe siempre en userData via writeAdminDbConfig({ database }).
+
 const sql = require('mssql');
 const mysql = require('mysql2/promise');
-const fs = require('fs').promises;
-const path = require('path');
-const { getDbConfig } = require('../dbConfig.js');
+const { getDbConfig } = require('../dbConfig.js');            // MySQL (nube)
+const { getAdminDbConfig, writeAdminDbConfig } = require('../userDbConfig.js'); // MSSQL local (solo DB cambia)
 
-// ====== MSSQL local (manager) ======
-const MSSQL_LOCAL_STATIC = {
-  user: 'bejerman',
-  password: 'tiMCLmu27qtQwD',
-  server: 'localhost',
-  port: 1433,
-  options: { encrypt: false, trustServerCertificate: true },
-  pool: { max: 5, min: 0, idleTimeoutMillis: 30000 },
-};
-function mssqlLocalCfg(database = 'master') {
-  return { ...MSSQL_LOCAL_STATIC, database, options: { ...MSSQL_LOCAL_STATIC.options, database } };
+function norm(s) {
+  return String(s ?? '').trim().toLowerCase();
 }
 
+function mssqlCfg(database) {
+  const base = getAdminDbConfig();
+  return {
+    ...base,
+    database,
+    options: { ...(base.options || {}), database },
+  };
+}
+
+/**
+ * ¿Existe la BD local "manager"?
+ */
 async function hasManagerDb() {
   let pool;
   try {
-    pool = await sql.connect(mssqlLocalCfg('master'));
-    const rs = await pool.request().query(`SELECT CASE WHEN DB_ID('manager') IS NULL THEN 0 ELSE 1 END AS ok;`);
+    pool = await sql.connect(mssqlCfg('master'));
+    const rs = await pool.request().query(
+      `SELECT CASE WHEN DB_ID('manager') IS NULL THEN 0 ELSE 1 END AS ok;`
+    );
     return !!(rs?.recordset?.[0]?.ok);
-  } finally { try { await pool?.close(); } catch {} }
+  } finally {
+    try { await pool?.close(); } catch {}
+  }
 }
 
+/**
+ * Empresas habilitadas en manager.dbo.emp
+ * SELECT emp_codigo, emp_razsoc, emp_cuit WHERE emp_habili=1
+ */
 async function getEmpresasHabilitadas() {
   let pool;
   try {
-    pool = await sql.connect(mssqlLocalCfg('manager'));
+    pool = await sql.connect(mssqlCfg('manager'));
     const rs = await pool.request().query(`
       SELECT
         LTRIM(RTRIM(emp_codigo)) AS Codigo,
@@ -43,15 +56,26 @@ async function getEmpresasHabilitadas() {
       ORDER BY emp_codigo;
     `);
     return rs.recordset || [];
-  } finally { try { await pool?.close(); } catch {} }
+  } finally {
+    try { await pool?.close(); } catch {}
+  }
 }
 
-// ====== MySQL nube (Empresas por cliente) ======
+/**
+ * Empresas de la nube por cliente
+ * SELECT Nombre, InstanciaBD, RazonSocial FROM Empresas WHERE IdCliente = ?
+ */
 async function getEmpresasNubeByCliente(idCliente) {
   const cfg = getDbConfig();
   const pool = await mysql.createPool({
-    host: cfg.server, port: cfg.port, user: cfg.user, password: cfg.password,
-    database: cfg.database, waitForConnections: true, connectionLimit: 10, queueLimit: 0
+    host: cfg.server,
+    port: cfg.port,
+    user: cfg.user,
+    password: cfg.password,
+    database: cfg.database,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
   });
   try {
     const [rows] = await pool.execute(
@@ -59,48 +83,48 @@ async function getEmpresasNubeByCliente(idCliente) {
       [idCliente]
     );
     return rows || [];
-  } finally { await pool.end(); }
+  } finally {
+    await pool.end();
+  }
 }
 
-// ====== Escribimos userDbConfig.properties ======
-async function writeUserDbConfigProperties(dbName) {
-  const content =
-`DB_USER=${MSSQL_LOCAL_STATIC.user}
-DB_PASSWORD=${MSSQL_LOCAL_STATIC.password}
-DB_SERVER=${MSSQL_LOCAL_STATIC.server}
-DB_PORT=${MSSQL_LOCAL_STATIC.port}
-DB_DATABASE=${dbName}
-`;
-  const dir = path.join(__dirname, '..', 'fileConfigUpdater');
-  const filePath = path.join(dir, 'userDbConfig.properties');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(filePath, content, 'utf8');
-  return filePath;
-}
-
-// ====== Verificar habilitación y guardar ======
-function norm(s) { return String(s ?? '').trim().toLowerCase(); }
-
+/**
+ * Verifica que el usuario tenga habilitada la empresa (Nombre == emp_codigo).
+ * Si matchea, escribe userDbConfig.properties con SOLO DB_DATABASE = InstanciaBD.
+ */
 async function verifyEmpresaHabilitadaYGuardar(idCliente, empCodigo) {
   if (!idCliente || !empCodigo) {
     return { success: false, message: 'Faltan parámetros (idCliente/empCodigo).' };
   }
 
+  // 1) Buscar en la nube si el usuario tiene esa empresa
   const empresas = await getEmpresasNubeByCliente(idCliente);
-  const match = empresas.find(r => norm(r.Nombre) === norm(empCodigo));
+  const match = empresas.find((r) => norm(r.Nombre) === norm(empCodigo));
+
   if (!match) {
-    return { success: false, code: 'NOT_ENABLED', message: 'El usuario no esta habilitado para operar esa empresa' };
+    return {
+      success: false,
+      code: 'NOT_ENABLED',
+      message: 'El usuario no esta habilitado para operar esa empresa',
+    };
   }
 
-  const filePath = await writeUserDbConfigProperties(match.InstanciaBD);
+  // 2) Persistir SOLO la DB en el properties (server/user/pass/port son fijos en userDbConfig)
+  const propertiesPath = writeAdminDbConfig({ database: match.InstanciaBD });
+
+  // 3) (Opcional) Confirmar qué DB quedó activa
+  const effective = getAdminDbConfig();
+  const effectiveDb = effective?.database;
+
   return {
     success: true,
     data: {
       nombre: match.Nombre,
       instanciaBD: match.InstanciaBD,
       razonSocial: match.RazonSocial,
-      propertiesPath: filePath
-    }
+      propertiesPath,
+      effectiveDatabase: effectiveDb,
+    },
   };
 }
 

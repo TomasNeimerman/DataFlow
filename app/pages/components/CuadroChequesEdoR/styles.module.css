@@ -119,11 +119,9 @@
   cursor: pointer;
   width: 100%;
 }
-.select {
+.situacionCell .select {
   width: 100%;
-  margin-bottom: 10px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  min-width: 180px;
 }
 .btn:hover{
   background-color: #d42602;
@@ -135,3 +133,44 @@
 .boldText {
   font-weight: bold;
 }
+.massActions {
+  display: flex;
+
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 12px;
+}
+
+/* Panel de logs informativos */
+.logBox {
+  border: 1px solid #bcd;
+  background: #eef6ff;
+  color: #0a2540;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 10px;
+}
+.logTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.logList {
+  margin: 0;
+  padding-left: 20px;
+}
+.logItem {
+  margin: 2px 0;
+}
+
+/* Caja de errores (ya existía una similar; si no, añadila) */
+.errorBox {
+  border: 1px solid #ffb3b3;
+  background: #ffe6e6;
+  color: #990000;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 10px;
+}
+.errorTitle { font-weight: 600; margin-bottom: 6px; }
+.errorList { margin: 0; padding-left: 20px; }
+.errorItem { margin: 2px 0; }
