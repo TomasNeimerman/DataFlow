@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import styles from "./styles.module.css";
 
 /* ────────── Cuadro de Resultados integrado ────────── */
+/*
 const ChequesActualizados = ({ cheques = [], validar = false }) => {
   return (
     <div className={styles.resultsContainer}>
@@ -45,9 +46,9 @@ const ChequesActualizados = ({ cheques = [], validar = false }) => {
     </div>
   );
 };
-
+*/
 /* ────────── ModulesForm ────────── */
-const ModuleForm = ({
+const ArticulosForm = ({
   idCliente,
   nombreModulo,
   onImportar,
@@ -268,4 +269,4 @@ const ModuleForm = ({
   );
 };
 
-export default ModuleForm;
+export default ArticulosForm;

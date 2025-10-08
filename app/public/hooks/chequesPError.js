@@ -1,137 +1,160 @@
 // app/hooks/useChequesError.js
 import { useState } from 'react';
-import * as XLSX from 'xlsx'; // Se mantiene la importación de XLSX por si se usa en el futuro, aunque no se usa directamente en las funciones expuestas.
+import * as XLSX from 'xlsx'; // reservado para usos futuros
 
 const useChequesError = () => {
-    const [importStatus, setImportStatus] = useState(''); // Estado general de la importación (éxito/error/sin cambios)
-    const [importMessage, setImportMessage] = useState(''); // Mensaje detallado (error o éxito)
+  const [importStatus, setImportStatus] = useState('');   // "Importado correctamente" | "hubo un error en la importacion" | "Importación sin cambios"
+  const [importMessage, setImportMessage] = useState(''); // Mensaje detallado
 
-    // Definición de las columnas esperadas del Excel
-    const expectedColumns = [
-        "CodEmpresa",
-        "Emp.",
-        "ID Cheque",
-        "Mov. - F. Emisión",
-        "Mov.",
-        "Cheque - Tipo Valor - Cód.",
-        "Cheq. / Doc. / Obl. - Estado",
-        "Cheq. / Doc. / Obl. - F. Vto.",
-        "Cheq. / Doc. / Obl. - Nro.",
-        "Nro Definitivo",
-        "IMPORTE"
-    ];
+  // Encabezados esperados EXACTOS (fila 1 de la plantilla chequesp.xlsx)
+  const expectedColumns = [
+    "CodEmpresa",
+    "Emp.",
+    "ID Cheque",
+    "Mov. - F. Emisión",
+    "Mov.",
+    "Cheque - Tipo Valor - Cód.",
+    "Cheq. / Doc. / Obl. - Estado",
+    "Cheq. / Doc. / Obl. - F. Vto.",
+    "Cheq. / Doc. / Obl. - Nro.",
+    "Nro Definitivo",
+    "IMPORTE"
+  ];
 
-    /**
-     * Verifica si los encabezados del archivo Excel coinciden con las columnas esperadas.
-     * Establece el estado de error y el mensaje si faltan columnas.
-     * @param {string[]} actualHeaders - Los encabezados reales leídos del archivo Excel.
-     * @returns {boolean} - True si todas las columnas esperadas están presentes, false en caso contrario.
-     */
-    const validateExcelColumns = (actualHeaders) => {
-        // Limpiar mensajes anteriores de validación de columnas
-        setImportStatus('');
-        setImportMessage('');
+  /** Valida encabezados vs la plantilla. */
+  const validateExcelColumns = (actualHeaders = []) => {
+    setImportStatus('');
+    setImportMessage('');
 
-        const missingColumns = expectedColumns.filter(col => !actualHeaders.includes(col));
+    const missingColumns = expectedColumns.filter(col => !actualHeaders.includes(col));
+    if (missingColumns.length > 0) {
+      setImportStatus("hubo un error en la importacion");
+      setImportMessage(`Faltan las siguientes columnas en el archivo: ${missingColumns.join(', ')}.`);
+      return false;
+    }
+    return true;
+  };
 
-        if (missingColumns.length > 0) {
-            setImportStatus("hubo un error en la importacion");
-            setImportMessage(`Faltan las siguientes columnas en el archivo: ${missingColumns.join(', ')}.`);
-            return false;
-        }
-        return true;
-    };
+  // Helpers
+  const toTrim = (v) => (v == null ? '' : String(v)).trim();
+  const parseIntSafe = (v) => {
+    if (typeof v === 'number' && Number.isFinite(v)) return Math.trunc(v);
+    const s = toTrim(v);
+    if (!s) return NaN;
+    const n = Number.parseInt(s, 10);
+    return Number.isFinite(n) ? n : NaN;
+  };
 
-    /**
-     * Procesa la lista de cheques parseados, los obtiene de la API y los actualiza si es necesario.
-     * Actualiza los estados de importación (status y message) y retorna un resumen de los cambios.
-     * Esta función NO lee el archivo Excel; solo procesa los datos ya parseados.
-     * @param {Array<Object>} parsedCheques - Array de objetos de cheque parseados del Excel.
-     * @param {Function} obtenerChequeApiFn - Función API para obtener un cheque (ej. window.api.obtenerCheques).
-     * @param {Function} updateChequeApiFn - Función API para actualizar un cheque (ej. window.api.updateCheques).
-     * @param {string} idCliente - ID del cliente actual.
-     * @returns {Object} - Objeto con chequesProcesados y un resumen de los cambios.
-     */
-    const processChequeUpdates = async (parsedCheques, obtenerChequeApiFn, updateChequeApiFn, idCliente) => {
-        // Limpiar mensajes anteriores de procesamiento de actualizaciones
-        setImportStatus('');
-        setImportMessage('');
+  /**
+   * Procesa cheques ya parseados desde el Excel.
+   * - Solo ACTUALIZA y DEVUELVE cheques con "Nro Definitivo" NO vacío y diferente al actual.
+   * - El array `chequesProcesados` contiene **solo** los que fueron actualizados.
+   */
+  const processChequeUpdates = async (parsedCheques, obtenerChequeApiFn, updateChequeApiFn, idCliente) => {
+    setImportStatus('');
+    setImportMessage('');
 
-        const chequesProcesados = [];
-        let huboCambios = false;
-        let errorEnActualizacion = false;
-        let chequesActualizadosCount = 0;
-        let chequesNoEncontradosCount = 0;
-        let chequesSinCambiosCount = 0;
+    const actualizadosSolo = []; // <- lo que vamos a devolver
 
-        for (const cheque of parsedCheques) {
-            const res = await obtenerChequeApiFn(cheque.idCheque);
-            console.log("Cheque obtenido de la API:", res);
-            // Determinar si es ChequesP o Cheques3 por el nombre del campo ID
-            const chequeIdFromDb = res?.cheque?.chp_ID || res?.cheque?.ch3_ID;
-            const nroDefinitivoActualFromDb = res?.cheque?.chp_NroCheq || res?.cheque?.ch3_NroDefinitivo; // Ajustar según la base de datos
+    let huboCambios = false;
+    let errorEnActualizacion = false;
 
-            if (chequeIdFromDb === cheque.idCheque) {
-                const nroDefinitivoNuevo = cheque.nroDefinitivo;
-                const actualizado = nroDefinitivoNuevo != nroDefinitivoActualFromDb;
+    let chequesActualizadosCount = 0;
+    let chequesNoEncontradosCount = 0;
+    let chequesSinCambiosCount = 0;
+    let chequesSinNroDefinitivoCount = 0;
 
-                if (actualizado) {
-                    const updateResult = await updateChequeApiFn(cheque);
-                    if (updateResult?.error) {
-                        console.error(`Error al actualizar el cheque ID ${cheque.idCheque}:`, updateResult.error);
-                        errorEnActualizacion = true;
-                    } else {
-                        console.log(`🔁 Actualizado cheque ID ${cheque.idCheque}`);
-                        huboCambios = true;
-                        chequesActualizadosCount++;
-                    }
-                } else {
-                    console.log(`✅ Cheque ID ${cheque.idCheque} no necesita cambios.`);
-                    chequesSinCambiosCount++;
-                }
+    for (const cheque of parsedCheques) {
+      const nroNuevoRaw = toTrim(cheque?.nroDefinitivo);
 
-                chequesProcesados.push({
-                    cheque,
-                    actualizado
-                });
-            } else {
-                console.log(`⛔ Cheque ID ${cheque.idCheque} no encontrado.`);
-                chequesNoEncontradosCount++;
-            }
+      // Requisito: Nro Definitivo debe venir con valor
+      if (!nroNuevoRaw) {
+        chequesSinNroDefinitivoCount++;
+        continue;
+      }
+
+      const nroNuevoInt = parseIntSafe(nroNuevoRaw);
+      if (!Number.isFinite(nroNuevoInt)) {
+        chequesSinCambiosCount++;
+        continue;
+      }
+
+      try {
+        const res = await obtenerChequeApiFn(cheque.idCheque);
+        const chequeIdFromDb = res?.cheque?.chp_ID ?? res?.cheque?.ch3_ID;
+        const nroActualFromDb = res?.cheque?.chp_NroCheq ?? res?.cheque?.ch3_NroDefinitivo ?? '';
+
+        if (chequeIdFromDb !== cheque.idCheque) {
+          chequesNoEncontradosCount++;
+          continue;
         }
 
-        let finalMessage = "";
-        if (errorEnActualizacion) {
-            finalMessage = "Hubo errores al actualizar algunos cheques.";
-            setImportStatus("hubo un error en la importacion");
-        } else if (huboCambios) {
-            finalMessage = `Importado correctamente. ${chequesActualizadosCount} cheque(s) actualizado(s).`;
-            if (chequesSinCambiosCount > 0) {
-                finalMessage += ` ${chequesSinCambiosCount} cheque(s) sin cambios.`;
-            }
-            if (chequesNoEncontradosCount > 0) {
-                finalMessage += ` ${chequesNoEncontradosCount} cheque(s) no encontrado(s).`;
-            }
-            setImportStatus("Importado correctamente");
-        } else {
-            finalMessage = `Importación completada. No se encontraron cambios para actualizar.`;
-            if (chequesNoEncontradosCount > 0) {
-                finalMessage += ` ${chequesNoEncontradosCount} cheque(s) no encontrado(s).`;
-            }
-            setImportStatus("Importación sin cambios");
+        // Si es igual, no hay cambio
+        if (String(nroActualFromDb) === String(nroNuevoInt)) {
+          chequesSinCambiosCount++;
+          continue;
         }
 
-        setImportMessage(finalMessage);
+        // Actualiza usando el Nro Definitivo como nuevo chp_NroCheq
+        const payload = { ...cheque, nroDefinitivo: nroNuevoInt };
+        const updateResult = await updateChequeApiFn(payload);
 
-        return { chequesProcesados, huboCambios, errorEnActualizacion, chequesActualizadosCount, chequesNoEncontradosCount, chequesSinCambiosCount };
-    };
+        if (!updateResult?.success) {
+          errorEnActualizacion = true;
+          continue;
+        }
+
+        // OK: sólo pusheamos los actualizados
+        huboCambios = true;
+        chequesActualizadosCount++;
+        actualizadosSolo.push({ cheque: payload, actualizado: true });
+      } catch (_e) {
+        errorEnActualizacion = true;
+      }
+    }
+
+    // Mensajería final coherente con tu UI
+    let finalMessage = '';
+    if (errorEnActualizacion) {
+      setImportStatus('hubo un error en la importacion');
+      finalMessage = 'Hubo errores al actualizar algunos cheques.';
+    } else if (huboCambios) {
+      setImportStatus('Importado correctamente');
+      finalMessage = `Importado correctamente. ${chequesActualizadosCount} cheque(s) actualizado(s).`;
+    } else {
+      setImportStatus('Importación sin cambios');
+      finalMessage = 'Importación completada. No se encontraron cambios para actualizar.';
+    }
+
+    if (chequesSinNroDefinitivoCount > 0) {
+      finalMessage += ` ${chequesSinNroDefinitivoCount} fila(s) sin "Nro Definitivo" — no se actualizaron.`;
+    }
+    if (chequesSinCambiosCount > 0) {
+      finalMessage += ` ${chequesSinCambiosCount} fila(s) sin cambios.`;
+    }
+    if (chequesNoEncontradosCount > 0) {
+      finalMessage += ` ${chequesNoEncontradosCount} cheque(s) no encontrado(s).`;
+    }
+
+    setImportMessage(finalMessage);
 
     return {
-        importStatus,
-        importMessage,
-        validateExcelColumns, // Expone la función de validación de columnas
-        processChequeUpdates // Expone la función de procesamiento de actualizaciones
+      chequesProcesados: actualizadosSolo,   // <- SOLO los actualizados
+      huboCambios,
+      errorEnActualizacion,
+      chequesActualizadosCount,
+      chequesNoEncontradosCount,
+      chequesSinCambiosCount,
+      chequesSinNroDefinitivoCount,
     };
+  };
+
+  return {
+    importStatus,
+    importMessage,
+    validateExcelColumns,
+    processChequeUpdates,
+  };
 };
 
 export default useChequesError;

@@ -1,6 +1,6 @@
 {
   "name": "dataflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "DataFlow",
   "private": true,
   "author": "Consultora de Negocios Empresrios S.R.L.",
@@ -18,7 +18,7 @@
     "build:web": "next build",
     "clear:store:local": "electron ./electron/helpers/clear-store.js",
     "dist": "npm run build:web && electron-builder --win",
-    "clean": "rimraf DataFlow ${version} .next",
+    "clean": "node electron/helpers/clean.js",
     "dist:fresh": "npm run clear:store:local && electron-builder --win",
     "dist:fresh:bound": "npm run clear:store:local && cross-env APP_RESET_POLICY=BOUND_ONLY electron-builder --win",
     "dist:fresh:full": "npm run clear:store:local && cross-env APP_RESET_POLICY=FULL electron-builder --win",

@@ -4,7 +4,7 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import styles from "./styles.module.css";
-import ModuleForm from "../../components/ModulesForm";
+import ChequesPForm from "../../components/ChequesPForm";
 import useChequesError from "../../../public/hooks/chequesPError";
 
 export default function ChequesP() {
@@ -81,8 +81,6 @@ export default function ChequesP() {
     estado: row[6],
     fechaVenc: formatFecha(row[7]),
     chequeCodigo: row[8],
-    // ⚠️ HOY usa la columna "Nro Definitivo" (índice 9).
-    // Cuando quieras cambiar a "el de la izquierda" (col 8), solo reemplazá por: row[8]
     nroDefinitivo: row[9],
     importe: row[10],
     idCliente,
@@ -117,9 +115,8 @@ export default function ChequesP() {
           window.api.updateCheques,
           idCliente
         );
-
-        setCheques(summary.chequesProcesados);
-        setValidar(summary.huboCambios);
+        setCheques(summary.chequesProcesados); // ahora trae SOLO actualizados
+        setValidar(summary.huboCambios);       // muestra resultados solo si hubo cambios
       } catch (error) {
         console.error("Error al procesar el archivo en ChequesP:", error);
         setCheques([]);
@@ -136,7 +133,7 @@ export default function ChequesP() {
 
   return (
     <div className={styles.body}>
-      <ModuleForm
+      <ChequesPForm
         idCliente={idCliente}
         nombreModulo="Cheques Propios"
         onImportar={handleImportar}

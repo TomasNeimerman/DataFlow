@@ -172,8 +172,10 @@ async function actualizarCheque(cheque) {
     const { idCheque, nroDefinitivo, usuario } = cheque;
 
     // Validación mínima
-    if (!idCheque) return { success: false, message: 'Falta idCheque' };
-    if (nroDefinitivo == null) return { success: false, message: 'Falta nroDefinitivo' };
+   const nroStr = (nroDefinitivo ?? '').toString().trim();
+const nroInt = Number.parseInt(nroStr, 10);
+if (!nroStr) return { success: false, message: 'Falta nroDefinitivo' };
+if (!Number.isFinite(nroInt)) return { success: false, message: 'nroDefinitivo inválido' };
 
     const existe = await pool.request()
       .input('id', sql.Int, idCheque)
@@ -189,7 +191,7 @@ async function actualizarCheque(cheque) {
     // ✅ Actualizamos número + fecha de modificación + usuario
     await pool.request()
       .input('idCheque', sql.Int, idCheque)
-      .input('nroDefinitivo', sql.Int, nroDefinitivo)
+      .input('nroDefinitivo', sql.Int, nroInt)
       .input('fecMod', sql.DateTime, fechaMod)
       .input('codigoUsuario', sql.VarChar(50), codigoUsuario)
       .query(`

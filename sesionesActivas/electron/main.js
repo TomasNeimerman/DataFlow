@@ -1,56 +1,50 @@
 // electron/main.js
 const { app, BrowserWindow, Menu, dialog } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const http = require('http');
 const next = require('next');
 
+const conf = require(path.join(process.resourcesPath, 'next.config.js'));
 const isDev = !app.isPackaged;
-
-// ===== logger a archivo (Documents/PanelSesiones/log.txt) =====
-function logLine(msg) {
-  try {
-    const dir = path.join(app.getPath('documents'), 'PanelSesiones');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, 'log.txt'), `[${new Date().toISOString()}] ${msg}\n`);
-  } catch {}
-}
-
-let win;
 
 async function createWindow() {
   try {
-    // ——— Directorio de la app Next (dentro de app.asar en prod) ———
-    const appDir = path.resolve(__dirname, '..'); // ✅ funciona empaquetado y en dev
-    logLine(`appDir: ${appDir}`);
+    // Cuando está empaquetado, __dirname = ".../resources/app.asar/electron"
+    // dir -> raíz del proyecto (dentro del asar)
+    const dir = path.resolve(__dirname, '..');
 
-    const nextApp = next({ dev: isDev, dir: appDir });
+    // ✅ Pasamos la config inline -> Next NO busca next.config.js
+    const nextApp = next({
+      dev: isDev,
+      dir,
+      conf: {
+        reactStrictMode: true,
+        distDir: '.next'    // lo que ya tenés en build
+        // agrega aquí cualquier ajuste que tuvieses en tu next.config.js
+      }
+    });
+
     await nextApp.prepare();
-    logLine('nextApp.prepare OK');
-
     const handle = nextApp.getRequestHandler();
+
     const server = http.createServer((req, res) => handle(req, res));
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
-    logLine(`Next server on 127.0.0.1:${port}`);
 
-    // ——— Menú fuera y AppUserModelId para icono ———
     Menu.setApplicationMenu(null);
-    app.setAppUserModelId('com.tomi.sesiones'); // ✅ necesitado para icono en Windows
+    app.setAppUserModelId('com.panel.sesiones');
+    
 
-    // En prod, el icono se copia a resources (ver build config abajo)
-    const runtimeIcon = isDev
-      ? path.join(appDir, 'assets', 'icon', 'icon.ico')
-      : path.join(process.resourcesPath, 'icon.ico'); // buildResources
 
-    win = new BrowserWindow({
+    const win = new BrowserWindow({
       width: 1100,
       height: 800,
-      useContentSize: true,
-      autoHideMenuBar: true,
       backgroundColor: '#FFE3E3',
-      show: false, // mostramos cuando cargó
-      icon: runtimeIcon,
+      autoHideMenuBar: true,
+      show: false,
+      icon: isDev
+        ? path.join(dir, 'build', 'app-icon.ico')
+        : path.join(process.resourcesPath, 'app-icon.ico'), // ver nota abajo
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
@@ -60,11 +54,9 @@ async function createWindow() {
 
     win.on('ready-to-show', () => win.show());
     win.on('closed', () => server.close());
-
     await win.loadURL(`http://127.0.0.1:${port}`);
   } catch (err) {
-    logLine(`FATAL: ${err && err.stack ? err.stack : err}`);
-    dialog.showErrorBox('Error al iniciar', String(err?.message || err));
+    dialog.showErrorBox('Error al iniciar', String(err?.stack || err));
     app.quit();
   }
 }

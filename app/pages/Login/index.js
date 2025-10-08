@@ -44,7 +44,7 @@ export default function LoginPage() {
   return (
     <div className={styles.body}>
       <div className={styles.container}>
-        <h1 className={styles.title}>Actualizador</h1>
+        <h1 className={styles.title}>Ingresar</h1>
 
         <div className={styles.inputgroup}>
           <label htmlFor="usuario" className={styles.label}>Usuario</label>

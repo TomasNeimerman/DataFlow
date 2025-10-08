@@ -19,9 +19,8 @@
 
 # production
 /build
-/DataFlow 0.2.0
-/DataFlow 0.2.0.zip
-
+/DataFlow *
+/DataFlow *.zip
 # misc
 .DS_Store
 *.pem

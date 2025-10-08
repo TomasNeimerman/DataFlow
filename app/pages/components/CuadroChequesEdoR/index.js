@@ -4,34 +4,50 @@ import React, { useState, useEffect } from "react";
 import styles from './styles.module.css';
 
 const ChequesRechazados = ({
-  chequesRechazados,
-  situaciones,
-  onChequeToggle,
-  onSituacionChange, // compatibilidad
-  selectedChequesData,
-  onImportarClick,
-  isImportButtonDisabled,
-  importStatus,
-  importMessage,
-  // NUEVO
-  onSelectAllChange,
-  onGlobalSituacionChange,
-  refreshKey,
+  chequesRechazados = [],
+  situaciones = [],
+  onChequeToggle = () => {},
+  onSituacionChange = () => {},
+  selectedChequesData = {},
+  onImportarClick = () => {},
+  isImportButtonDisabled = false,
+  importStatus = null,
+  importMessage = '',
   runLogs = [],
   runErrors = [],
+  onSelectAllChange = () => {},
+  onGlobalSituacionChange = () => {},
+  refreshKey = 0,
 }) => {
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [sortedCheques, setSortedCheques] = useState([]);
   const [updatedFechasById, setUpdatedFechasById] = useState({});
 
+  // 👉 Mostrar la fecha “plana”: si es string, no la parseo; si es Date, la convierto.
+  const showFecha = (val) => {
+    if (!val) return '';
+    if (val instanceof Date) return val.toLocaleString();
+    if (typeof val === 'string') return val.replace('T',' ').replace('Z','');
+    return String(val);
+  };
+
+  const getSitDesc = (code) => {
+    if (code === undefined || code === null || code === '') return '';
+    const sit = Array.isArray(situaciones)
+      ? situaciones.find(s => String(s.sit_Cod) === String(code))
+      : null;
+    return sit ? sit.sit_Desc : String(code);
+  };
+
   useEffect(() => {
     const fetchUpdatedDates = async () => {
       try {
-        const data = await window.api.getUpdatedFecha();
-        setUpdatedFechasById(data.data || {});
-      } catch (error) {
-        console.error("Error al obtener las fechas de actualización:", error);
+        if (typeof window !== 'undefined' && window.api?.getUpdatedFecha) {
+          const data = await window.api.getUpdatedFecha();
+          setUpdatedFechasById(data?.data || {});
+        }
+      } catch {
         setUpdatedFechasById({});
       }
     };
@@ -39,19 +55,23 @@ const ChequesRechazados = ({
   }, [refreshKey]);
 
   useEffect(() => {
-    if (!chequesRechazados?.length) { setSortedCheques([]); return; }
+    if (!Array.isArray(chequesRechazados) || chequesRechazados.length === 0) {
+      setSortedCheques([]);
+      return;
+    }
     const arr = [...chequesRechazados];
+
     if (sortColumn) {
       arr.sort((a, b) => {
-        let valA = a[sortColumn];
-        let valB = b[sortColumn];
+        let valA = a?.[sortColumn];
+        let valB = b?.[sortColumn];
 
         if (sortColumn === 'fvto') {
-          valA = a.fvtoRaw instanceof Date && !isNaN(a.fvtoRaw) ? a.fvtoRaw.getTime() : 0;
-          valB = b.fvtoRaw instanceof Date && !isNaN(b.fvtoRaw) ? b.fvtoRaw.getTime() : 0;
+          valA = a?.fvtoRaw instanceof Date && !isNaN(a.fvtoRaw) ? a.fvtoRaw.getTime() : 0;
+          valB = b?.fvtoRaw instanceof Date && !isNaN(b.fvtoRaw) ? b.fvtoRaw.getTime() : 0;
         } else if (sortColumn === 'importe') {
-          valA = parseFloat(String(valA).replace(/[^0-9,-]+/g, "").replace(",", "."));
-          valB = parseFloat(String(valB).replace(/[^0-9,-]+/g, "").replace(",", "."));
+          valA = parseFloat(String(valA ?? '').replace(/[^0-9,-]+/g, "").replace(",", "."));
+          valB = parseFloat(String(valB ?? '').replace(/[^0-9,-]+/g, "").replace(",", "."));
           if (isNaN(valA)) valA = 0;
           if (isNaN(valB)) valB = 0;
         } else if (sortColumn === 'idCheque' || sortColumn === 'nroDefinitivo') {
@@ -79,9 +99,13 @@ const ChequesRechazados = ({
     </span>
   );
 
-  const selectedIds = Object.keys(selectedChequesData).filter(id => selectedChequesData[id]?.isSelected);
+  const selectedIds = Object.keys(selectedChequesData || {}).filter(id => selectedChequesData?.[id]?.isSelected);
   const selectedCount = selectedIds.length;
-  const allSelected = chequesRechazados.length > 0 && selectedCount === chequesRechazados.length;
+  const allSelected = Array.isArray(chequesRechazados) && chequesRechazados.length > 0 && selectedCount === chequesRechazados.length;
+
+  const handleHeaderSelectAll = (checked) => {
+    onSelectAllChange?.(!!checked);
+  };
 
   return (
     <div className={styles.container}>
@@ -89,17 +113,16 @@ const ChequesRechazados = ({
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
       </div>
 
-      {/* Select global: aparece si hay seleccionados */}
       {selectedCount > 0 && (
         <div className={styles.massActions}>
           <span>Situación para {allSelected ? 'todos' : 'seleccionados'}:</span>
           <select
-            onChange={(e) => onGlobalSituacionChange(e.target.value)}
+            onChange={(e) => onGlobalSituacionChange?.(e.target.value)}
             className={styles.select}
             defaultValue=""
           >
             <option value="">Seleccionar...</option>
-            {situaciones.map(situacion => (
+            {Array.isArray(situaciones) && situaciones.map(situacion => (
               <option key={situacion.sit_Cod} value={situacion.sit_Cod}>
                 {situacion.sit_Desc}
               </option>
@@ -133,25 +156,27 @@ const ChequesRechazados = ({
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={(e) => onSelectAllChange(e.target.checked)}
+                  onChange={(e) => handleHeaderSelectAll(e.target.checked)}
                   title="Seleccionar todos"
                 />
               </th>
             </tr>
           </thead>
           <tbody>
-            {sortedCheques.length === 0 ? (
+            {!sortedCheques?.length ? (
               <tr>
                 <td colSpan="9" className={styles.noResults}>No hay cheques para actualizar.</td>
               </tr>
             ) : (
               sortedCheques.map(cheque => {
-                const isSelected = selectedChequesData[cheque.idCheque]?.isSelected || false;
+                const isSelected = !!selectedChequesData?.[cheque.idCheque]?.isSelected;
+                const chosenSit = selectedChequesData?.[cheque.idCheque]?.situacionId;
+                const currentSit = chosenSit || cheque.situacion || '';
                 const id = parseInt(cheque.idCheque, 10);
 
                 const fechaActualizacion = Array.isArray(updatedFechasById)
                   ? updatedFechasById.find(item => item.c3sch3_ID === id)?.c3s_FCmbio
-                  : updatedFechasById[id]?.c3s_FCmbio;
+                  : updatedFechasById?.[id]?.c3s_FCmbio;
 
                 const isUpdated = !!fechaActualizacion;
 
@@ -164,17 +189,20 @@ const ChequesRechazados = ({
                     <td className={isUpdated ? styles.boldText : ''}>{cheque.importe}</td>
                     <td className={isUpdated ? styles.boldText : ''}>{cheque.estado}</td>
                     <td className={isUpdated ? styles.boldText : ''}>
-                      {fechaActualizacion
-                        ? new Date(fechaActualizacion).toLocaleDateString('es-AR') + ' ' +
-                          new Date(fechaActualizacion).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-                        : 'Sin actualizar'}
+                      {fechaActualizacion ? showFecha(fechaActualizacion) : 'Sin actualizar'}
                     </td>
-                    <td className={styles.situacionCell}>&nbsp;</td>
+
+                    <td className={styles.situacionCell}>
+                      <span className={styles.situacionText}>
+                        {getSitDesc(currentSit) || (isSelected ? 'Seleccioná arriba…' : '—')}
+                      </span>
+                    </td>
+
                     <td className={styles.actionCell}>
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => onChequeToggle(cheque.idCheque)} // toggle individual
+                        onChange={() => onChequeToggle?.(cheque.idCheque)}
                       />
                     </td>
                   </tr>
@@ -185,8 +213,7 @@ const ChequesRechazados = ({
         </table>
       </div>
 
-      {/* 🟦 LOGS DEL BACK (incluye “Verificando…” y “No se requiere…”) */}
-      {runLogs.length > 0 && (
+      {Array.isArray(runLogs) && runLogs.length > 0 && (
         <div className={styles.logBox}>
           <div className={styles.logTitle}>Resultado de la operación</div>
           <ul className={styles.logList}>
@@ -197,8 +224,7 @@ const ChequesRechazados = ({
         </div>
       )}
 
-      {/* 🟥 ERRORES (si los hubo) */}
-      {runErrors.length > 0 && (
+      {Array.isArray(runErrors) && runErrors.length > 0 && (
         <div className={styles.errorBox}>
           <div className={styles.errorTitle}>Errores detectados</div>
           <ul className={styles.errorList}>
@@ -218,7 +244,7 @@ const ChequesRechazados = ({
         <button
           className={styles.btn}
           onClick={onImportarClick}
-          disabled={isImportButtonDisabled}
+          disabled={!!isImportButtonDisabled}
         >
           Actualizar Cheques Seleccionados
         </button>

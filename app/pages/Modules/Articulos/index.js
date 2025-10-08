@@ -2,7 +2,7 @@
 "use client";
 
 import styles from './styles.module.css';
-import ModuleForm from '../../components/ModulesForm';
+import ArticulosForm from '../../components/ArticulosForm';
 import { useState, useEffect } from 'react';
 
 
@@ -116,7 +116,7 @@ export default function Articulos() {
 
     return (
         <div className={styles.body}>
-            <ModuleForm
+            <ArticulosForm
                 idCliente={idCliente}
                 nombreModulo="Articulos"
                 onImportar={false}

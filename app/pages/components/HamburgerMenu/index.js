@@ -1,7 +1,6 @@
-// components/HamburgerMenu.jsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import styles from "./styles.module.css";
 
 export default function HamburgerMenu() {
@@ -10,35 +9,35 @@ export default function HamburgerMenu() {
   const [loadingMods, setLoadingMods] = useState(false);
   const [errorMods, setErrorMods] = useState(null);
   const [filter, setFilter] = useState("");
-  const [isDev, setIsDev] = useState(false); 
+  const [isDev, setIsDev] = useState(false);
   const panelRef = useRef(null);
 
-  // --- Fetch módulos desde Electron usando la función del preload ---
-  const fetchModules = async () => {
+  // --- helper: fetch módulos con gate de empresa
+  const fetchModules = useCallback(async () => {
     setLoadingMods(true);
     setErrorMods(null);
     try {
-      const idCliente = await window.api.getStoreValue("idCliente");
+      if (!window?.api) throw new Error("API no disponible (preload).");
 
-      if (!idCliente) {
+      // Gate: exigir empresa seleccionada
+      const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
+      if (!selectedCode) {
         setModules([]);
-        setLoadingMods(false);
+        setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
         return;
       }
 
-      // *** ACA usamos la función que mostraste ***
-      const res = await window.api.getModules(idCliente);
+      const idCliente = await window.api.getStoreValue?.("idCliente");
+      if (!idCliente) throw new Error("No se encontró idCliente en el store.");
 
-      // Soportar dos formatos: array plano o { success, modulos }
+      const res = await window.api.getModules?.(idCliente);
       const list = Array.isArray(res) ? res : res?.modulos || [];
-
-      // Normalizar shape por si vienen otras keys
       const mapped = (list || []).map((m, i) => ({
         id: m.id ?? m.Id ?? m.ID ?? i,
         nombre: m.nombre ?? m.texto ?? "Módulo",
         texto: m.texto ?? m.nombre ?? "",
         link: m.link ?? "/Index",
-        icono: m.icono,
+        icono: (m.icono ?? "").toString().trim(),
         countClientesPorModulo: m.countClientesPorModulo,
       }));
 
@@ -49,23 +48,33 @@ export default function HamburgerMenu() {
     } finally {
       setLoadingMods(false);
     }
-  };
-   useEffect(() => {
+  }, []);
+
+  // saber si es dev (opcional)
+  useEffect(() => {
     (async () => {
       try { setIsDev(!!(await window?.api?.isDev?.())); } catch { setIsDev(false); }
     })();
   }, []);
-  // Prefetch al montar (para que ya estén cuando abras)
+
+  // prefetch al montar
   useEffect(() => {
     fetchModules();
-  }, []);
+  }, [fetchModules]);
 
-  // Si abrís y no hay módulos (o falló antes), reintenta
+  // refrescar cuando se guarda/borra empresa (evento global)
   useEffect(() => {
-    if (open && !loadingMods && modules.length === 0 && !errorMods) {
-      fetchModules();
-    }
-  }, [open]);
+    const onEmpresaSelected = (e) => {
+      const code = e?.detail?.id || "";
+      if (code) fetchModules();
+      else {
+        setModules([]);
+        setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
+      }
+    };
+    window.addEventListener("empresa:selected", onEmpresaSelected);
+    return () => window.removeEventListener("empresa:selected", onEmpresaSelected);
+  }, [fetchModules]);
 
   // Cerrar con clic afuera o ESC
   useEffect(() => {
@@ -82,7 +91,12 @@ export default function HamburgerMenu() {
     };
   }, [open]);
 
-  const goToModule = (m) => {
+  const goToModule = async (m) => {
+    const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
+    if (!selectedCode) {
+      setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
+      return;
+    }
     try {
       const nombre = m?.nombre ?? m?.texto ?? "Modulo";
       const link = m?.link ?? "/Index";
@@ -117,7 +131,7 @@ export default function HamburgerMenu() {
         </svg>
       </button>
 
-      {/* Overlay transparente para captar click afuera */}
+      {/* Overlay */}
       <div className={`${styles.overlay} ${open ? styles.show : ""}`}>
         <aside
           id="hm-panel"
@@ -133,7 +147,7 @@ export default function HamburgerMenu() {
             <button className={styles.close} aria-label="Cerrar" onClick={() => setOpen(false)}>✕</button>
           </div>
 
-          {/* Contenido scroll */}
+          {/* Contenido */}
           <div className={styles.scroll}>
             {/* Grupo: Módulos */}
             <div className={styles.group}>
@@ -147,7 +161,6 @@ export default function HamburgerMenu() {
                 />
               </div>
 
-              {/* Estados: loading / error / lista */}
               {loadingMods && <div className={styles.info}>Cargando módulos…</div>}
               {errorMods && <div className={styles.error}>⚠ {errorMods}</div>}
 
@@ -156,25 +169,47 @@ export default function HamburgerMenu() {
                   {filtered.length === 0 && (
                     <li className={styles.empty}>No hay módulos para mostrar</li>
                   )}
-                  {filtered.map((m) => (
-                    <li
-                      key={m.id ?? m.nombre ?? m.texto}
-                      className={styles.item}
-                      onClick={() => goToModule(m)}
-                    >
-                      <div className={styles.bullet}>
-                        {(m?.nombre ?? m?.texto ?? "M")[0]?.toUpperCase()}
-                      </div>
-                      <div className={styles.itemBody}>
-                        <div className={styles.itemTitle}>{m?.nombre ?? m?.texto}</div>
-                      </div>
-                    </li>
-                  ))}
+                  {filtered.map((m) => {
+                    const icono = (m.icono || "").trim();
+                    const isImg =
+                      icono.startsWith("http") ||
+                      icono.startsWith("data:") ||
+                      icono.startsWith("/");
+
+                    const iconText =
+                      icono || (m.nombre || "?").trim().charAt(0).toUpperCase();
+
+                    return (
+                      <li
+                        key={m.id ?? m.nombre ?? m.texto}
+                        className={styles.item}
+                        onClick={() => goToModule(m)}
+                      >
+                        <div className={styles.bullet}>
+                          {isImg ? (
+                            <img
+                              src={icono}
+                              alt={m.nombre}
+                              className={styles.iconImg}
+                              style={{ width: 24, height: 24, objectFit: "contain" }}
+                            />
+                          ) : (
+                            <span className={styles.initial} style={{ letterSpacing: 0 }}>
+                              {iconText}
+                            </span>
+                          )}
+                        </div>
+                        <div className={styles.itemBody}>
+                          <div className={styles.itemTitle}>{m?.nombre ?? m?.texto}</div>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
 
-            {/* Grupo: Otros — full-width */}
+            {/* Grupo: Otros */}
             <div className={styles.group}>
               <div className={styles.groupHeader}>
                 <span className={styles.groupTitle}>Otros</span>
@@ -188,12 +223,13 @@ export default function HamburgerMenu() {
                   (F5) Recargar
                 </button>
 
-                  <button
-                    className={styles.actionWide}
-                    onClick={() => window?.api?.toggleDevTools?.()}>
+                <button
+                  className={styles.actionWide}
+                  onClick={() => window?.api?.toggleDevTools?.()}
+                >
                   (F12) DevTools
                 </button>
-            
+
                 <button
                   className={styles.actionWide}
                   onClick={async () => {
@@ -203,6 +239,7 @@ export default function HamburgerMenu() {
                 >
                   Cerrar sesión
                 </button>
+
                 <button
                   className={styles.actionDangerWide}
                   onClick={() => window?.api?.quit?.()}

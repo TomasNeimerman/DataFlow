@@ -14,9 +14,8 @@ export default function Cheques3() {
   const [importMessage, setImportMessage] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // 🔵 logs y errores de la corrida (lo que querés arriba del botón)
-  const [runLogs, setRunLogs] = useState([]);   // info + “no se requiere…”
-  const [runErrors, setRunErrors] = useState([]); // errores reales
+  const [runLogs, setRunLogs] = useState([]);
+  const [runErrors, setRunErrors] = useState([]);
 
   useEffect(() => {
     const fetchIdCliente = async () => {
@@ -72,9 +71,9 @@ export default function Cheques3() {
                 situacion: ch.ch3sit_Cod,
                 suc: ch.ch3suc_Cod,
                 fvtoRaw: fvtoDate,
-                fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '',
-                fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString('es-AR') : '',
-                importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : '',
+                fvto: fvtoDate ? fvtoDate.toLocaleDateString() : '',
+                fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString() : '',
+                importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString(undefined, { style: 'currency', currency: 'ARS' }) : '',
               };
             });
             setChequesRechazados(chequesData);
@@ -98,31 +97,35 @@ export default function Cheques3() {
         setImportMessage('Error general al cargar los datos.');
         setChequesRechazados([]);
         setSituaciones([]);
-        setSelectedChequesData({});
+        setSelectedChequesData([]);
       }
     };
 
     fetchData();
   }, [idCliente]);
 
-  // ✅ toggle individual
   const handleChequeToggle = useCallback((idCheque) => {
     setSelectedChequesData(prevData => {
       const curr = prevData[idCheque] || { isSelected: false, situacionId: '', situacionLabel: '' };
       const newState = !curr.isSelected;
+
+      const row = chequesRechazados.find(ch => String(ch.idCheque) === String(idCheque));
+      const baseSit = row?.situacion ? String(row.situacion) : '';
+      const found = situaciones.find(s => String(s.sit_Cod) === baseSit);
+      const baseLabel = found ? found.sit_Desc : '';
+
       return {
         ...prevData,
         [idCheque]: {
           ...curr,
           isSelected: newState,
-          situacionId: newState ? curr.situacionId : '',
-          situacionLabel: newState ? curr.situacionLabel : ''
+          situacionId: newState ? (curr.situacionId || baseSit) : '',
+          situacionLabel: newState ? (curr.situacionLabel || baseLabel) : ''
         }
       };
     });
-  }, []);
+  }, [chequesRechazados, situaciones]);
 
-  // (compatibilidad si querés usarlo por fila)
   const handleSituacionChange = useCallback((idCheque, selectedValue) => {
     setSelectedChequesData(prevData => {
       const sanitized = String(selectedValue || '');
@@ -139,7 +142,6 @@ export default function Cheques3() {
     });
   }, [situaciones]);
 
-  // ✅ seleccionar TODOS desde el header
   const selectAllCheques = useCallback((checked) => {
     setSelectedChequesData(prev => {
       const newData = {};
@@ -154,7 +156,6 @@ export default function Cheques3() {
     });
   }, [chequesRechazados]);
 
-  // ✅ un solo select global que aplica la situación a TODOS los seleccionados
   const handleGlobalSituacionChange = useCallback((selectedValue) => {
     const sanitized = String(selectedValue || '');
     const selectedSit = situaciones.find(sit => String(sit.sit_Cod) === sanitized);
@@ -174,7 +175,6 @@ export default function Cheques3() {
     });
   }, [situaciones]);
 
-  // 🔁 recarga post-actualización
   const reloadAfterUpdate = useCallback(async () => {
     try {
       if (window.api?.obtenerCheque3Rechazado && idCliente) {
@@ -206,9 +206,9 @@ export default function Cheques3() {
               situacion: ch.ch3sit_Cod,
               suc: ch.ch3suc_Cod,
               fvtoRaw: fvtoDate,
-              fvto: fvtoDate ? fvtoDate.toLocaleDateString('es-AR') : '',
-              fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString('es-AR') : '',
-              importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' }) : '',
+              fvto: fvtoDate ? fvtoDate.toLocaleDateString() : '',
+              fMod: ch.ch3_FCmbio ? new Date(ch.ch3_FCmbio).toLocaleDateString() : '',
+              importe: ch.ch3_Importe ? parseFloat(ch.ch3_Importe).toLocaleString(undefined, { style: 'currency', currency: 'ARS' }) : '',
             };
           });
 
@@ -218,7 +218,7 @@ export default function Cheques3() {
             initialSelected[cheque.idCheque] = { isSelected: false, situacionId: '', situacionLabel: '' };
           });
           setSelectedChequesData(initialSelected);
-          setRefreshKey(k => k + 1); // fuerza relectura de “Fecha modificación”
+          setRefreshKey(k => k + 1);
         } else {
           setChequesRechazados([]);
           setSelectedChequesData({});
@@ -230,8 +230,8 @@ export default function Cheques3() {
   }, [idCliente]);
 
   const handleImportarClick = async () => {
-    setRunLogs([]);   // limpiamos logs previos
-    setRunErrors([]); // limpiamos errores previos
+    setRunLogs([]);
+    setRunErrors([]);
 
     const chequesParaActualizar = Object.keys(selectedChequesData)
       .filter(id => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.situacionId)
@@ -303,7 +303,6 @@ export default function Cheques3() {
     }
   };
 
-  // botón deshabilitado solo si está cargando
   const isImportButtonDisabled = importStatus === 'loading';
 
   return (
@@ -318,7 +317,6 @@ export default function Cheques3() {
         isImportButtonDisabled={isImportButtonDisabled}
         importStatus={importStatus}
         importMessage={importMessage}
-        // NUEVO
         onSelectAllChange={selectAllCheques}
         onGlobalSituacionChange={handleGlobalSituacionChange}
         refreshKey={refreshKey}
