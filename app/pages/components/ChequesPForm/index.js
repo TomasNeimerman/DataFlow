@@ -188,7 +188,7 @@ const ChequesPForm = ({
             title="Descargar planilla de ChequesP con datos"
             style={{ marginLeft: 8 }}
           >
-            ⬇
+            ⇩
           </button>
         )}
       </div>

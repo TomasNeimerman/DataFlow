@@ -45,8 +45,32 @@ function writeToLog(message) {
 }
 writeToLog(`SO: ${os.platform()} ${os.release()} | Node ${process.version} | Electron ${process.versions.electron}`);
 
-process.on('uncaughtException', (err) => { writeToLog(`Uncaught: ${err.message}\n${err.stack}`); setTimeout(() => app.quit(), 1000); });
-process.on('unhandledRejection', (r,p) => { writeToLog(`Rejection: ${r}`); });
+process.on('uncaughtException', async (err) => {
+  writeToLog(`Uncaught: ${err?.message}\n${err?.stack}`);
+  await finalizeActiveSession('uncaughtException');
+  setTimeout(() => app.quit(), 250);
+});
+
+process.on('unhandledRejection', async (reason, p) => {
+  writeToLog(`Rejection: ${reason}`);
+  await finalizeActiveSession('unhandledRejection');
+});
+process.on('SIGINT', async () => {
+  await finalizeActiveSession('SIGINT');
+  app.quit();
+  process.exit(0);
+});
+process.on('SIGTERM', async () => {
+  await finalizeActiveSession('SIGTERM');
+  app.quit();
+  process.exit(0);
+});
+process.on('SIGHUP', async () => {
+  await finalizeActiveSession('SIGHUP');
+  app.quit();
+  process.exit(0);
+});
+
 
 // AL PRINCIPIO (junto a otros requires)
 const {
@@ -92,6 +116,26 @@ let mainWindow;
 let store;
 let activeSession = null; // { usuario, deviceId, token }
 let modulosCache = [];    // cache de módulos para el menú hamburguesa
+
+
+let isFinalizing = false;
+async function finalizeActiveSession(reason = 'unknown') {
+  if (isFinalizing) return;
+  isFinalizing = true;
+  try {
+    if (activeSession?.usuario && activeSession?.deviceId) {
+      writeToLog(`finalizeActiveSession[${reason}] ${activeSession.usuario}@${activeSession.deviceId}`);
+      await finalizarSesionActivaService({
+        usuario: activeSession.usuario,
+        deviceId: activeSession.deviceId
+      });
+    }
+  } catch (e) {
+    writeToLog(`finalizeActiveSession error: ${e?.message}`);
+  } finally {
+    stopSessionHeartbeat();
+  }
+}
 
 // --- Utils ---
 function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
@@ -167,89 +211,111 @@ async function refreshModulosCache() {
   }
 }
 
-// --- Menú Hamburguesa (popup) ---
-// (tu implementación previa va aquí si la estás usando)
+const FORCE_LOGIN_ON_START = true;
 
+async function loadLoginOnly(base) {
+  const target = `${base}/Login`;
+  clearStoreForLogin();     // deja deviceId
+  modulosCache = [];
+  activeSession = null;
+  stopSessionHeartbeat();
+  writeToLog(`Navegando a (forzado): ${target}`);
+  await mainWindow.loadURL(target);
+}
 // --- Ventana principal ---
 async function createMainWindow() {
   writeToLog('createMainWindow...');
   store = new Store();
 
+  // fuerza login siempre al iniciar
+  const FORCE_LOGIN_ON_START = true;
+
   const preloadPath = path.join(__dirname, 'preload.js');
   const hasPreload = fs.existsSync(preloadPath);
 
   const windowOptions = {
-    width: 1280, height: 920, show: true,
+    width: 1280,
+    height: 920,
+    show: true,
     webPreferences: {
       preload: hasPreload ? preloadPath : undefined,
-      contextIsolation: true, nodeIntegration: false, webSecurity: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
       devTools: true,
-      experimentalFeatures: false, enableRemoteModule: false,
-    }
+      experimentalFeatures: false,
+      enableRemoteModule: false,
+    },
   };
-  if (isLegacyWindows) {
-    windowOptions.webPreferences.enableBlinkFeatures = '';
-    windowOptions.webPreferences.disableBlinkFeatures = 'Auxclick';
-    windowOptions.resizable = true;
-  }
 
   mainWindow = new BrowserWindow(windowOptions);
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); if (!isLegacyWindows && !isDev) mainWindow.maximize(); });
-  mainWindow.webContents.on('did-fail-load', (_e, code, desc, theUrl, isMainFrame) => writeToLog(`did-fail-load ${theUrl} (${code}) ${desc} MF=${isMainFrame}`));
-  mainWindow.webContents.on('render-process-gone', (_ , details) => writeToLog(`render gone: ${details.reason} (${details.exitCode})`));
+mainWindow.setMenuBarVisibility(false);
+mainWindow.removeMenu();
+try { Menu.setApplicationMenu(null); } catch {}
+  // abrir links externos en el navegador del SO
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try { shell.openExternal(url); } catch {}
+    return { action: 'deny' };
+  });
 
-  // 🔕 Ocultar completamente el menú de aplicación nativo
-  Menu.setApplicationMenu(null);
-
-  const loadWithAutoResume = async (base) => {
-    const { startPath, active, modulos } = await tryAutoResume({
-      store,
-      getDeviceId: () => getDeviceId(store),
-      verificarSesionActiva: (payload) => verificarSesionActivaService(payload),
-      registrarSesionActiva: (payload) => registrarSesionActivaService(payload),
-      obtenerModulos: (idCliente) => obtenerModulosService(idCliente),
-      buildAppMenu: (mods) => { modulosCache = Array.isArray(mods) ? mods : []; }, // cacheamos, no aplicamos menú
-      startSessionHeartbeat: ({ usuario, deviceId }) => {
-        stopSessionHeartbeat();
-        startSessionHeartbeat(
-          heartbeatSesionActivaService,
-          { usuario, deviceId },
-          30_000
-        );
-      },
-      writeToLog
-    });
-
-    const target = `${base}${startPath || '/Login'}`;
-    if (target.endsWith('/Login')) clearStoreForLogin();
-
-    writeToLog(`Navegando a: ${target}`);
-    await mainWindow.loadURL(target);
-
-    if (active) activeSession = active;
-    if (Array.isArray(modulos) && modulos.length) {
-      modulosCache = modulos;
+  // seguridad de navegación básica (mismo origen)
+  mainWindow.webContents.on('will-navigate', (e, navUrl) => {
+    const base = getBaseOrigin();
+    if (base && !navUrl.startsWith(base)) {
+      e.preventDefault();
+      try { shell.openExternal(navUrl); } catch {}
     }
-  };
+  });
 
+  // Al cerrar la ventana, marcar sesión inactiva y parar heartbeat
+  mainWindow.on('close', async () => {
+    try {
+      if (activeSession?.usuario && activeSession?.deviceId) {
+        await finalizarSesionActivaService({
+          usuario: activeSession.usuario,
+          deviceId: activeSession.deviceId,
+        });
+      }
+    } catch (e) {
+      writeToLog(`finalizarSesion (window.close) error: ${e?.message}`);
+    } finally {
+      stopSessionHeartbeat();
+    }
+  });
+
+  // ------- Carga de la app (DEV/PROD) --------
   if (isDev) {
     const DEV_BASE = 'http://localhost:3000';
     try {
       // limpiar .next/trace corrupto (si pasa)
       try {
         const projectRoot = path.resolve(__dirname, '..');
-        const tracePath   = path.join(projectRoot, '.next', 'trace');
+        const tracePath = path.join(projectRoot, '.next', 'trace');
         if (fs.existsSync(tracePath) && fs.statSync(tracePath).isDirectory()) {
           fs.rmSync(tracePath, { recursive: true, force: true });
           writeToLog('DEV: borrado .next/trace corrupto');
         }
       } catch {}
+
       await waitForUrl(DEV_BASE, 30000, 500);
-      await loadWithAutoResume(DEV_BASE);
+
+      if (FORCE_LOGIN_ON_START) {
+        // limpiar store (dejando deviceId) y navegar a /Login
+        clearStoreForLogin();
+        modulosCache = [];
+        activeSession = null;
+        stopSessionHeartbeat();
+        await mainWindow.loadURL(`${DEV_BASE}/Login`);
+      } else {
+        await loadWithAutoResume(DEV_BASE);
+      }
+
       try { mainWindow.webContents.openDevTools(); } catch {}
     } catch (e) {
       writeToLog(`DEV load error: ${e.message}`);
-      await mainWindow.loadURL('data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>');
+      await mainWindow.loadURL(
+        'data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>'
+      );
     }
   } else {
     const { createServer } = require('http');
@@ -263,14 +329,21 @@ async function createMainWindow() {
       const handle = nextApp.getRequestHandler();
 
       let server, ok = false;
-      for (let i=0;i<MAX_PORT_ATTEMPTS;i++){
+      for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
         try {
-          server = createServer((req,res)=>handle(req,res));
-          await new Promise((resolve,reject)=>{
-            server.listen(currentPort, () => { ok = true; writeToLog(`Servidor en http://localhost:${currentPort}`); resolve(); });
-            server.once('error', (err)=> {
-              if (err && err.code === 'EADDRINUSE') { currentPort++; try{ server.close(); }catch{}; reject(err); }
-              else reject(err);
+          server = createServer((req, res) => handle(req, res));
+          await new Promise((resolve, reject) => {
+            server.listen(currentPort, () => {
+              ok = true;
+              writeToLog(`Servidor en http://localhost:${currentPort}`);
+              resolve();
+            });
+            server.once('error', (err) => {
+              if (err && err.code === 'EADDRINUSE') {
+                currentPort++;
+                try { server.close(); } catch {}
+                reject(err);
+              } else reject(err);
             });
           });
           if (ok) break;
@@ -278,15 +351,26 @@ async function createMainWindow() {
           if (!e || e.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) throw e;
         }
       }
-      await loadWithAutoResume(`http://localhost:${currentPort}`);
+
+      const BASE = `http://localhost:${currentPort}`;
+      if (FORCE_LOGIN_ON_START) {
+        clearStoreForLogin();
+        modulosCache = [];
+        activeSession = null;
+        stopSessionHeartbeat();
+        await mainWindow.loadURL(`${BASE}/Login`);
+      } else {
+        await loadWithAutoResume(BASE);
+      }
     } catch (e) {
       writeToLog(`PROD prepare error: ${e.message}`);
       await mainWindow.loadURL('data:text/html,<h1>Error iniciando servidor interno</h1>');
-      setTimeout(()=> app.quit(), 1500);
+      setTimeout(() => app.quit(), 1500);
       return;
     }
   }
 }
+
 
 // --- Ciclo de vida ---
 app.whenReady().then(async () => {
@@ -295,13 +379,16 @@ app.whenReady().then(async () => {
   createMainWindow().catch(e => writeToLog(`createMainWindow error: ${e.message}`));
 });
 
-app.on('before-quit', async () => {
-  try {
-    if (activeSession?.usuario && activeSession?.deviceId) {
-      await finalizarSesionActivaService({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
-    }
-  } catch (e) { writeToLog(`finalizarSesionActiva on quit: ${e?.message}`); }
-  finally { stopSessionHeartbeat(); }
+app.on('before-quit', (e) => {
+  if (isFinalizing) return;        // ya estamos cerrando, no loops
+  e.preventDefault();              // detenemos el cierre mientras limpiamos
+  (async () => {
+    await finalizeActiveSession('before-quit');
+    app.exit(0);                   // cerrar de verdad (evita volver a disparar before-quit)
+  })();
+});
+app.on('will-quit', async () => {
+  await finalizeActiveSession('will-quit');
 });
 
 app.on('window-all-closed', () => {

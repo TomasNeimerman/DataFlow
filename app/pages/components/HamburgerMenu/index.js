@@ -23,7 +23,7 @@ export default function HamburgerMenu() {
       const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
       if (!selectedCode) {
         setModules([]);
-        setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
+        setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
         return;
       }
 
@@ -69,7 +69,7 @@ export default function HamburgerMenu() {
       if (code) fetchModules();
       else {
         setModules([]);
-        setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
+        setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
       }
     };
     window.addEventListener("empresa:selected", onEmpresaSelected);
@@ -94,7 +94,7 @@ export default function HamburgerMenu() {
   const goToModule = async (m) => {
     const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
     if (!selectedCode) {
-      setErrorMods("Debes seleccionar una empresa para habilitar los módulos.");
+      setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
       return;
     }
     try {

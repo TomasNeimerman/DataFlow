@@ -21,7 +21,7 @@ export default function Actualizador() {
   return (
     <div className={styles.body}>
       <ListaPreciosForm
-        nombreModulo="Actualizador de lista de precios"
+        nombreModulo="Actualizador de Lista de Precios"
         idCliente={idCliente}
         onDescargarLista={handleDescargarLista}
         onImportar={handleImportar}

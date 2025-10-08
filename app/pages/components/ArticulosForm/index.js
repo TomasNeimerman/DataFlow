@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import styles from "./styles.module.css";
+import DownloadIcon from "../DownloadButton"
 
 /* ────────── Cuadro de Resultados integrado ────────── */
 /*
@@ -187,21 +188,11 @@ const ArticulosForm = ({
             onClick={handleDownloadAndOpenTemplate}
             title="Descargar Excel modelo"
           >
-            ⇩
+            <DownloadIcon variant="svg" size={28} stroke={2.6} headSpread={5} pointDepth={4} compact />
           </button>
         )}
 
-        {/* NUEVO: Descargar planilla ChequesP con datos (igual UX que precios) */}
-        {nombreModulo === "Cheques Propios" && (
-          <button
-            className={styles.template}
-            onClick={handleDescargarPlanillaChequesP}
-            title="Descargar planilla de ChequesP con datos"
-            style={{ marginLeft: 8 }}
-          >
-            ⬇
-          </button>
-        )}
+  
       </div>
 
       {/* Tabs: Importar (siempre) | Resultados (solo tras intentar importar) */}

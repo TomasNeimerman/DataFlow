@@ -20,7 +20,7 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
       const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
       if (!selectedCode) {
         setModules([]);
-        setError("Debes seleccionar una empresa para habilitar los módulos.");
+        setError("Debes seleccionar una empresa para habilitar tus módulos.");
         return;
       }
 
@@ -46,7 +46,7 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
       if (code) fetchModules();
       else {
         setModules([]);
-        setError("Debes seleccionar una empresa para habilitar los módulos.");
+        setError("Debes seleccionar una empresa para habilitar tus módulos.");
       }
     };
     window.addEventListener("empresa:selected", onEmpresaSelected);
@@ -56,7 +56,7 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
   const goTo = async (mod) => {
     const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
     if (!selectedCode) {
-      setError("Debes seleccionar una empresa para habilitar los módulos.");
+      setError("Debes seleccionar una empresa para habilitar tus módulos.");
       return;
     }
     if (onNavigate) return onNavigate(mod);
