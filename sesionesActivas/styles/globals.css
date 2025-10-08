@@ -152,3 +152,33 @@ body::-webkit-scrollbar { width: 0; height: 0; }
   z-index: 1000;   /* por encima de la card central */
   user-select: none;
 }
+/* Estado expirado */
+.userCard.expired { box-shadow: 0 0 0 2px rgba(232, 44, 2, .15), 0 6px 20px rgba(0,0,0,.05); }
+.accordionHeader.expired { background: #fff5f5; border-left: 4px solid #e82c02; }
+.chip.danger { border-color: #e82c02; color: #e82c02; background: #ffe7e3; }
+.btn.danger { background-color: #e82c02; color: #fff; }
+.btn.danger:hover { background-color: #d42602; }
+
+/* Modal */
+.modalBackdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000;
+}
+.modalCard {
+  background: #fff; width: 420px; max-width: 92vw;
+  border-radius: 12px; padding: 20px;
+  box-shadow: 0 12px 36px rgba(0,0,0,.2);
+}
+.label { display: block; font-size: 14px; margin: 12px 0 6px; }
+.input {
+  width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px;
+}
+.modalButtons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.inputGroup { position: relative; }
+.inputGroup .togglePwd {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  border: none; background: transparent; cursor: pointer; font-size: 16px; opacity: .7;
+}
+.inputGroup .togglePwd:hover { opacity: 1; }

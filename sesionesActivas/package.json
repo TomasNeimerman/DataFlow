@@ -36,11 +36,11 @@
   "dbconfig.js",
   "package.json",
   "node_modules/**/*"
-    ],
+],
     "extraResources": [
-      { "from": "fileConfigUpdater", "to": "fileConfigUpdater" },
-      { "from": "next.config.js", "to": "next.config.js" }
-    ],
+  { "from": "fileConfigUpdater", "to": "fileConfigUpdater" },
+  { "from": "build/app-icon.ico", "to": "app-icon.ico" }
+],
     "win": {
       "icon": "build/app-icon.ico",
       "target": [{ "target": "nsis", "arch": ["x64"] }]

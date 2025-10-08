@@ -1,20 +1,58 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
-export default function UserAccordion({ user, sessions, onActivate, onDeactivate }) {
+function fmt(d) {
+  if (!d) return '—';
+  try {
+    const [y,m,dd] = d.slice(0,10).split('-'); // YYYY-MM-DD
+    return `${dd}/${m}/${y}`;
+  } catch {
+    return d;
+  }
+}
+
+// ✅ vence el día inclusive, sin efectos de TZ/DST
+function isExpired(dateStr) {
+  if (!dateStr) return false;
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const expUTC = Date.UTC(y, (m || 1) - 1, d || 1);           // 00:00 UTC del día de expiración
+  const now = new Date();
+  const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return expUTC <= todayUTC;                                   // ← inclusivo
+}
+
+export default function UserAccordion({
+  user, userId, expireAt, sessions,
+  onActivate, onDeactivate, onOpenRenew
+}) {
   const [open, setOpen] = useState(false);
-  const activeCount = sessions.filter(s => s.active).length;
+
+  const expired = useMemo(() => isExpired(expireAt), [expireAt]);
+
+  const headerClass = `accordionHeader ${expired ? 'expired' : ''}`;
 
   return (
-    <div className="userCard">
-      <div className="accordionHeader" onClick={() => setOpen(o => !o)}>
+    <div className={`userCard ${expired ? 'expired' : ''}`}>
+      <div className={headerClass} onClick={() => { if (!expired) setOpen(o => !o); }}>
         <div className="accordionTitle">
           <strong>{user}</strong>
-          <span className="count">— {activeCount} activa(s)</span>
+          <span className={`chip ${expired ? 'danger' : ''}`}>
+            {expired ? `Clave expirada el ${fmt(expireAt)}` : `Expira: ${fmt(expireAt)}`}
+          </span>
         </div>
-        <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
+
+        {expired ? (
+          <button
+            className="btn btn-sm danger"
+            onClick={(e) => { e.stopPropagation(); onOpenRenew?.({ user, userId, expireAt }); }}
+          >
+            Renovar Clave
+          </button>
+        ) : (
+          <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
+        )}
       </div>
 
-      {open && (
+      {!expired && open && (
         <div className="accordionBody">
           {sessions.map(s => (
             <div key={s.deviceId} className="sessionRow">
@@ -24,9 +62,10 @@ export default function UserAccordion({ user, sessions, onActivate, onDeactivate
                   <span className="chip id">deviceId</span>
                   {s.active && <span className="chip active">ACTIVA</span>}
                 </div>
-                <div className="meta">LastSeen: {s.lastSeen ? new Date(s.lastSeen).toLocaleString() : '—'}</div>
+                <div className="meta">
+                  LastSeen: {s.lastSeen ? new Date(s.lastSeen).toLocaleString() : '—'}
+                </div>
               </div>
-
               <div style={{ display: 'flex', gap: 8 }}>
                 {!s.active ? (
                   <button className="btn btn-sm" onClick={(e) => { e.stopPropagation(); onActivate(user, s.deviceId); }}>
