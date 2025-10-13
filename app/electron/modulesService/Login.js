@@ -20,7 +20,7 @@ async function withAdminPool(fn) {
     queueLimit: 0
   };
   const pool = await mysql.createPool(mysqlConfigAdmin);
-  try { return await fn(pool); } finally { await pool.end(); }
+  try { return await fn(pool); } finally { try { await pool.end(); } catch {} }
 }
 
 /*==============================================================================
@@ -72,7 +72,7 @@ DB_DATABASE=${empresaData.InstanciaBD}
     console.error('Error al obtener configuración de la empresa:', error);
     return null;
   } finally {
-    if (poolAdmin) await poolAdmin.end();
+    if (poolAdmin) try { await poolAdmin.end(); } catch {}
   }
 }
 
@@ -86,7 +86,7 @@ function toYMD(d) {
   return `${y}-${m}-${day}`;
 }
 
-async function iniciarSesion({ usuario, contraseña, deviceId }) {
+async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
   return withAdminPool(async (poolAdmin) => {
     const [usrRows] = await poolAdmin.execute(`
       SELECT Id, Nombre, Apellido, Email, IdCliente, Usuario, Contraseña,
@@ -97,61 +97,41 @@ async function iniciarSesion({ usuario, contraseña, deviceId }) {
     `, [usuario]);
 
     if (!usrRows.length) {
-      return { success: false, message: 'Usuario o contraseña incorrectos.' };
+      return { success: false, code: 'BAD_CREDENTIALS', message: 'Usuario o contraseña incorrectos.' };
     }
 
     const row = usrRows[0];
 
-    // ¿expirada?
-    let expired = false;
-    if (row.FechaExpiracionClave) {
-      const hoy = new Date(); hoy.setHours(0,0,0,0);
-      const exp = new Date(row.FechaExpiracionClave); exp.setHours(0,0,0,0);
-      expired = hoy.getTime() >= exp.getTime();
+    // Estado (si no es 1, bloquear)
+    const estado = Number(row.Estado ?? 1);
+    if (estado !== 1) {
+      return { success: false, code: 'USER_DISABLED', message: 'Usuario deshabilitado.' };
     }
-    if (expired) {
-      try { await poolAdmin.execute('UPDATE Usuarios SET Estado = 0 WHERE Usuario = ?', [usuario]); } catch {}
-      const expStr = new Date(row.FechaExpiracionClave).toISOString().slice(0,10);
-      return { success: false, message: `Tu contraseña expiró el ${expStr}. Contactá al admin.` };
+
+    // ¿contraseña expirada? -> bloquear sin modificar Estado
+    if (row.FechaExpiracionClave) {
+      const hoy = new Date();
+      const exp = new Date(row.FechaExpiracionClave);
+      if (hoy.getTime() > exp.getTime()) {
+        return {
+          success: false,
+          code: 'PASS_EXPIRED',
+          message: `Tu contraseña expiró el ${toYMD(exp)}. Contactá al admin.`
+        };
+      }
     }
 
     // Password (sin hash en este esquema)
     if (String(row.Contraseña) !== String(contraseña)) {
-      return { success: false, message: 'Usuario o contraseña incorrectos.' };
-    }
-
-    // 🔐 Política de "Estado" (habilitado/deshabilitado)
-    // - Si Estado != 1, permitimos login si NO hay sesión activa en ningún device.
-    // - Si hay sesión activa en OTRO device, bloqueamos con mensaje claro.
-    // - Si la sesión activa es en ESTE mismo device, permitimos (override).
-    const estado = Number(row.Estado ?? 1);
-    if (estado !== 1) {
-      const [act] = await poolAdmin.execute(
-        `SELECT DeviceId FROM SesionesActivas WHERE Usuario=? AND Activa=1 LIMIT 1`,
-        [usuario]
-      );
-
-      if (act.length) {
-        const devEnUso = String(act[0].DeviceId || '');
-        if (deviceId && devEnUso === String(deviceId)) {
-          // Activa en este equipo → permitir
-        } else {
-          return {
-            success: false,
-            code: 'ACTIVE_OTHER_DEVICE',
-            message: `Usuario activo. Intente en el dispositivo que está en uso${devEnUso ? ` ("${devEnUso}")` : ''}.`
-          };
-        }
-      }
-      // Si NO hay sesión activa en ningún lado → PERMITIR login aun con Estado!=1
+      return { success: false, code: 'BAD_CREDENTIALS', message: 'Usuario o contraseña incorrectos.' };
     }
 
     const empresaConfig = await obtenerConfiguracionEmpresa(row.IdCliente);
     if (!empresaConfig) {
-      return { success: false, message: 'No se encontró la configuración de la base de datos para su empresa.' };
+      return { success: false, code: 'NO_COMPANY_CONFIG', message: 'No se encontró la configuración de la base de datos para su empresa.' };
     }
 
-    // Fecha último acceso (ajuste -3h)
+    // Fecha último acceso (best-effort, -3h)
     let fechaActual = new Date();
     fechaActual.setHours(fechaActual.getHours() - 3);
     try { await poolAdmin.execute('UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?', [fechaActual, usuario]); } catch {}
@@ -171,7 +151,6 @@ async function iniciarSesion({ usuario, contraseña, deviceId }) {
     return { success: true, user, token, empresaConfig };
   });
 }
-
 
 /*==============================================================================
 // Módulos
@@ -208,7 +187,10 @@ async function obtenerModulos(idCliente) {
 }
 
 /*==============================================================================
-// SesionesActivas
+// SesionesActivas  — Política: sesión única por usuario en un único DeviceId
+// Si hay Activa=1 en OTRO device → bloquear login.
+// Si no hay activa o es el mismo device → permitir.
+// Al registrar, NO se apagan otras filas (no hacemos UPDATE ... Activa=0 <> device).
 ==============================================================================*/
 async function verificarSesionActiva({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
@@ -236,15 +218,9 @@ async function verificarSesionActiva({ usuario, deviceId }) {
   });
 }
 
-
-
 async function registrarSesionActiva({ usuario, deviceId, token, storeBlob }) {
   return withAdminPool(async (pool) => {
-    await pool.execute(
-      `UPDATE SesionesActivas SET Activa = 0 WHERE Usuario = ? AND DeviceId <> ?`,
-      [usuario, deviceId]
-    );
-
+    // ⛔️ No desactivar otros devices aquí.
     const [ex] = await pool.execute(
       `SELECT 1 FROM SesionesActivas WHERE Usuario = ? AND DeviceId = ? LIMIT 1`,
       [usuario, deviceId]
@@ -253,7 +229,7 @@ async function registrarSesionActiva({ usuario, deviceId, token, storeBlob }) {
     if (ex.length) {
       await pool.execute(
         `UPDATE SesionesActivas
-         SET Token = ?, StoreData = ?, LastSeen = NOW(), Activa = 1
+           SET Token = ?, StoreData = ?, LastSeen = NOW(), Activa = 1
          WHERE Usuario = ? AND DeviceId = ?`,
         [token || null, storeBlob || null, usuario, deviceId]
       );

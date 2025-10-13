@@ -30,14 +30,18 @@ const EmpresaSelected = () => {
   }, []);
 
   return (
+    <>
+    {idCliente != null ? (
     <div className={styles.container}>
-      {idCliente != null ? (
+      
         <h4>
           Empresa Seleccionada: <span className={styles.empresa}>{empresaSeleccionada}</span>
         </h4>
-      ) : null}
+      
     </div>
-  );
+    ) : null}
+  </>
+  )
 };
 
 export default EmpresaSelected;

@@ -47,7 +47,7 @@ const ChequesActualizados = ({ cheques = [], validar = false }) => {
 };
 
 /* ────────── ModulesForm ────────── */
-const ChequesPForm = ({
+const   ChequesPForm = ({
   idCliente,
   nombreModulo,
   onImportar,

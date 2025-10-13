@@ -185,7 +185,7 @@ await window.api.setStoreValue({ key: "selectedInstanciaBD", value: verify?.data
             className={styles.btn}
             disabled={loading || saving || !selectedCodigo}
           >
-            {saving ? "Guardando..." : "Guardar"}
+            {saving ? "Guardando..." : "Aceptar"}
           </button>
         )}
 

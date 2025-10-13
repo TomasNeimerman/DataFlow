@@ -29,7 +29,7 @@ const CuadroPrecios = ({ precios, onActualizar, isUpdating, progress, error, suc
       {/* Botón + barra de progreso */}
       <div className={styles.importButtonContainer}>
         <button className={styles.btn} onClick={onActualizar} disabled={isUpdating}>
-          {isUpdating ? 'Actualizando...' : 'Actualizar Precios'}
+          {isUpdating ? 'Generando...' : 'Aceptar'}
         </button>
       </div>
 

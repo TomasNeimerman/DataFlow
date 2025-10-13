@@ -134,18 +134,20 @@
   font-weight: bold;
 }
 .massActions {
-  display: flex;
-
-  gap: 8px;
-  align-items: center;
-  margin: 8px 0 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    font-weight: 700;
+    align-items: stretch;
+    margin: 8px 0 12px;
 }
+
 
 /* Panel de logs informativos */
 .logBox {
   border: 1px solid #bcd;
-  background: #eef6ff;
-  color: #0a2540;
+  background: #cdffcd;
+  color: #007a14;
   border-radius: 8px;
   padding: 10px 12px;
   margin: 8px 0 10px;

@@ -70,6 +70,69 @@ process.on('SIGHUP', async () => {
   app.quit();
   process.exit(0);
 });
+// --- Watchdog de Sesión: cierra si Activa pasa a 0 ---
+let sessionWatchdogTimer = null;
+let logoutInFlight = false;
+
+function stopSessionWatchdog() {
+  if (sessionWatchdogTimer) {
+    clearInterval(sessionWatchdogTimer);
+    sessionWatchdogTimer = null;
+  }
+}
+
+// fuerza logout local y vuelve a /Login
+async function forceLogout(reason = 'remote-inactive') {
+  if (logoutInFlight) return;
+  logoutInFlight = true;
+  try {
+    const usuario  = activeSession?.usuario;
+    const deviceId = activeSession?.deviceId;
+
+    // best-effort: marcar inactiva (si ya está en 0, no pasa nada)
+    if (usuario && deviceId) {
+      try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
+    }
+
+    stopSessionHeartbeat();
+    stopSessionWatchdog();
+
+    activeSession = null;
+    modulosCache = [];
+    clearStoreForLogin();
+
+    const base = getBaseOrigin();
+    await mainWindow?.loadURL(`${base}/Login`);
+    writeToLog(`Sesión finalizada por watchdog (${reason}).`);
+  } catch (e) {
+    writeToLog(`forceLogout error: ${e.message}`);
+  } finally {
+    logoutInFlight = false;
+  }
+}
+
+/**
+ * Inicia un polling que revisa SesionesActivas cada X ms.
+ * Si la fila del usuario+deviceId no existe o Activa != 1 ⇒ forceLogout().
+ */
+function startSessionWatchdog({ usuario, deviceId, intervalMs = 10_000 }) {
+  stopSessionWatchdog();
+  sessionWatchdogTimer = setInterval(async () => {
+    try {
+      const r = await obtenerSesionPorDeviceService({ usuario, deviceId });
+      const activa = r?.success ? Number(r.row?.Activa ?? 0) : 0;
+      if (activa !== 1) {
+        await forceLogout('activa=0');
+      }
+    } catch (e) {
+      // si falla la consulta repetidamente también conviene proteger
+      writeToLog(`watchdog check error: ${e.message}`);
+    }
+  }, intervalMs);
+}
+
+// Asegurate de parar el watchdog en todos los cierres
+
 
 
 // AL PRINCIPIO (junto a otros requires)
@@ -123,17 +186,20 @@ async function finalizeActiveSession(reason = 'unknown') {
   if (isFinalizing) return;
   isFinalizing = true;
   try {
-    if (activeSession?.usuario && activeSession?.deviceId) {
-      writeToLog(`finalizeActiveSession[${reason}] ${activeSession.usuario}@${activeSession.deviceId}`);
-      await finalizarSesionActivaService({
-        usuario: activeSession.usuario,
-        deviceId: activeSession.deviceId
-      });
+    const usuario  = activeSession?.usuario;
+    const deviceId = activeSession?.deviceId;
+
+    writeToLog(`finalizeActiveSession [${reason}] user=${usuario || '-'} device=${deviceId || '-'}`);
+
+    // Marcar Activa = 0 (best-effort)
+    if (usuario && deviceId) {
+      try { await finalizarSesionActivaService({ usuario, deviceId }); }
+      catch (e) { writeToLog(`finalizarSesionActiva error: ${e.message}`); }
     }
-  } catch (e) {
-    writeToLog(`finalizeActiveSession error: ${e?.message}`);
   } finally {
-    stopSessionHeartbeat();
+    // detener timers
+    try { stopSessionHeartbeat?.(); } catch {}
+    try { stopSessionWatchdog?.(); } catch {}
   }
 }
 
@@ -380,13 +446,15 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', (e) => {
-  if (isFinalizing) return;        // ya estamos cerrando, no loops
+  if (isFinalizing) return;        // ya estamos cerrando, sin loops
   e.preventDefault();              // detenemos el cierre mientras limpiamos
   (async () => {
     await finalizeActiveSession('before-quit');
-    app.exit(0);                   // cerrar de verdad (evita volver a disparar before-quit)
+    app.exit(0);                   // cerrar de verdad (evita re-disparar before-quit)
   })();
 });
+
+// Red de seguridad adicional
 app.on('will-quit', async () => {
   await finalizeActiveSession('will-quit');
 });
@@ -503,7 +571,11 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
     const result = await iniciarSesionService({ usuario, contraseña, deviceId });
 
     if (!(result?.success && result.user && result.token && result.user.IdCliente)) {
-      return { success: false, message: result?.message || 'Credenciales inválidas' };
+      return {
+        success: false,
+        code: result?.code || 'BAD_CREDENTIALS',
+        message: result?.message || 'Credenciales inválidas'
+      };
     }
 
     // Sesión única / Activa
@@ -512,14 +584,15 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
       return {
         success: false,
-        message: check?.message || `Usuario activo. Intente en el dispositivo que está en uso${dev}.`,
-        code: 'ACTIVE_OTHER_DEVICE'
+        code: 'ACTIVE_OTHER_DEVICE',
+        message: check?.message || `Usuario activo. Intente en el dispositivo que está en uso${dev}.`
       };
     }
 
+    // Lock en ESTE device (no desactiva otros)
     const lock = await registrarSesionActivaService({ usuario, deviceId, token: result.token });
     if (!lock?.success) {
-      return { success: false, message: lock?.message || 'No se pudo registrar la sesión', code: 'SESSION_LOCK_FAILED' };
+      return { success: false, code: 'SESSION_LOCK_FAILED', message: lock?.message || 'No se pudo registrar la sesión' };
     }
 
     // Persistencia local mínima
@@ -541,18 +614,28 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       }
     } catch (e) { writeToLog(`decode StoreData error (no bloqueante): ${e.message}`); }
 
-    // Heartbeat
+    // Heartbeat (sigue igual)
     activeSession = { usuario, deviceId, token: result.token };
     stopSessionHeartbeat();
-    startSessionHeartbeat(heartbeatSesionActivaService, { usuario, deviceId }, 30_000);
+    startSessionHeartbeat({
+      usuario,
+      deviceId,
+      onTick: async ({ usuario, deviceId }) => {
+        try { await heartbeatSesionActivaService({ usuario, deviceId }); } catch {}
+      }
+    });
+
+    // **Watchdog**: si Activa deja de ser 1 → forceLogout()
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 10_000 });
 
     // Módulos → cache para el popup
     const modulesResult = await obtenerModulosService(result.user.IdCliente);
     if (!modulesResult?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
       stopSessionHeartbeat();
+      stopSessionWatchdog();
       activeSession = null;
-      return { success: false, message: modulesResult?.message || 'No se pudo cargar módulos.' };
+      return { success: false, code: 'MODULES_FAIL', message: modulesResult?.message || 'No se pudo cargar módulos.' };
     }
     modulosCache = modulesResult.modulos.map(m => ({
       id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
@@ -568,10 +651,12 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       }
     } catch {}
     stopSessionHeartbeat();
+    stopSessionWatchdog();
     activeSession = null;
-    return { success: false, message: `Error interno al intentar iniciar sesión: ${e.message}` };
+    return { success: false, code: 'INTERNAL', message: `Error interno al intentar iniciar sesión: ${e.message}` };
   }
 });
+
 
 // --- Otros IPC (igual que tenías) ---
 const safeIpc = (name, handler) => {

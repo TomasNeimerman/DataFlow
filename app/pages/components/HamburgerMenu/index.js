@@ -124,11 +124,7 @@ export default function HamburgerMenu() {
         onClick={() => setOpen((v) => !v)}
         disabled={open}
       >
-        <svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true">
-          <line x1="1" y1="2"  x2="21" y2="2"  stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-          <line x1="1" y1="8"  x2="21" y2="8"  stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-          <line x1="1" y1="14" x2="21" y2="14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-        </svg>
+        Menú
       </button>
 
       {/* Overlay */}

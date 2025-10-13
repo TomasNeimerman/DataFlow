@@ -1,6 +1,6 @@
 {
   "name": "panel-sesiones",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "main": "electron/main.js",
   "engines": {
@@ -12,10 +12,10 @@
     "dev": "npm-run-all -p next electron",
     "clean": "rimraf PanelSesiones .next node_modules/.cache",
     "wipe": "rimraf node_modules .next PanelSesiones package-lock.json && npm install",
-    "build:next": "cross-env NEXT_DISABLE_SWC=1 next build",
-    "dist:win": "npm run build:next && electron-builder --win",
-    "dist:linux": "npm run build:next && electron-builder --linux AppImage",
-    "dist:mac": "npm run build:next && electron-builder --mac"
+    "build": "cross-env NEXT_DISABLE_SWC=1 next build",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:linux": "npm run build && electron-builder --linux AppImage",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "build": {
     "appId": "com.panel.sesiones",
