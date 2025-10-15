@@ -19,8 +19,8 @@ html, body, #__next, .page-container {
 /* Posiciona el logo en la esquina superior izquierda */
 .overlay-top-left {
   position: absolute;
-  top: 0rem;  /* 24px desde arriba */
-  left: 2.5rem; /* 40px desde la izquierda */
+  bottom: 0rem;  /* 24px desde arriba */
+  left: 0rem; /* 40px desde la izquierda */
   z-index: 10;    /* Asegura que esté por encima del contenido */
   width: 160px;
 }

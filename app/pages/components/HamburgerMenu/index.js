@@ -225,9 +225,14 @@ export default function HamburgerMenu() {
                 >
                   (F12) DevTools
                 </button>
-
                 <button
                   className={styles.actionWide}
+                  onClick={() => { window.location.href = "/Index"; }}
+                >
+                  Inicio
+                </button>
+                <button
+                  className={styles.actionDangerWide}
                   onClick={async () => {
                     try { await window?.api?.logout?.(); } catch {}
                     window.location.href = "/Login";

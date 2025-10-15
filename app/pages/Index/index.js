@@ -9,6 +9,7 @@ export default function Home() {
 
       <div className={styles.container}>
         <h1 className={styles.title}><span className={styles.titlespan}>Data</span>Flow</h1>
+        <p className={styles.slogan}>Tus, datos en movimiento</p>
         <p className={styles.p}>Bienvenido a la aplicación.</p>
         <BDSelect />
          <ModulosGrid />

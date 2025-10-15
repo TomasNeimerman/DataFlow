@@ -1,4 +1,3 @@
-//components/BDSelect
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import styles from "./styles.module.css";
@@ -13,6 +12,19 @@ const BDSelect = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // Suscripción que funciona con window.api.on/off y con CustomEvent (fallback)
+  const subscribe = useCallback((channel, handler) => {
+    if (typeof window === "undefined") return () => {};
+    if (window?.api?.on) {
+      window.api.on(channel, handler);
+      return () => window.api.off?.(channel, handler);
+    } else {
+      const h = (e) => handler(e.detail);
+      window.addEventListener(channel, h);
+      return () => window.removeEventListener(channel, h);
+    }
+  }, []);
 
   const cargarEmpresas = useCallback(async () => {
     setLoading(true);
@@ -30,20 +42,21 @@ const BDSelect = () => {
         return;
       }
 
-      // 1) Traer empresas locales habilitadas (manager.dbo.emp WHERE emp_habili = 1)
+      // 1) Traer empresas locales habilitadas
       const res = await window.api.listEmpresasLocal?.();
       if (!res?.success) throw new Error(res?.message || "No se pudieron cargar las empresas locales.");
       const data = Array.isArray(res.data) ? res.data : [];
       setEmpresas(data);
 
       // 2) Restaurar selección previa (si existe)
-      const savedCode = await window.api.getStoreValue("selectedEmpresaCodigo");
-      const savedName = await window.api.getStoreValue("selectedEmpresaNombre");
+      const savedCode  = await window.api.getStoreValue?.("selectedEmpresaCodigo");
+      const savedName  = await window.api.getStoreValue?.("selectedEmpresaNombre");
+      const instDB     = await window.api.getStoreValue?.("selectedInstanciaBD");
 
-      if (savedCode) {
-        setSelectedCodigo(String(savedCode));
-        setIsConfigured(true);
-        setSuccessMessage(`Empresa seleccionada: ${savedName || savedCode}`);
+      if (savedCode || instDB) {
+        setSelectedCodigo(String(savedCode || ""));
+        setIsConfigured(Boolean(instDB));
+        if (instDB) setSuccessMessage(`Empresa seleccionada: ${savedName || savedCode}`);
       }
     } catch (err) {
       console.error("Error al cargar empresas:", err);
@@ -53,9 +66,50 @@ const BDSelect = () => {
     }
   }, []);
 
+  useEffect(() => { cargarEmpresas(); }, [cargarEmpresas]);
+
+  // 🔔 Reaccionar a selección de empresa emitida por el main
   useEffect(() => {
-    cargarEmpresas();
-  }, [cargarEmpresas]);
+    const unsub = subscribe("empresa:selected", async (payload) => {
+      // payload: { idCliente, empCodigo, instanciaBD, nombre }
+      if (payload?.instanciaBD) {
+        setIsConfigured(true);
+        if (payload?.empCodigo) setSelectedCodigo(payload.empCodigo);
+        setSuccessMessage(`Empresa seleccionada: ${payload?.nombre || payload?.empCodigo || ""}`);
+        setError("");
+      }
+    });
+    return unsub;
+  }, [subscribe]);
+
+  // 🔔 Reaccionar a cambios de store (ej: limpiar selección, logout, etc.)
+  useEffect(() => {
+    const unsub = subscribe("store:any-change", async (delta) => {
+      if ("selectedInstanciaBD" in delta && !delta.selectedInstanciaBD) {
+        // Se limpió la instancia => hay que reconfigurar
+        setIsConfigured(false);
+        setSuccessMessage("");
+      }
+      if ("selectedEmpresaNombre" in delta) {
+        const nombre = delta.selectedEmpresaNombre || "";
+        if (nombre) setSuccessMessage(`Empresa seleccionada: ${nombre}`);
+      }
+    });
+    return unsub;
+  }, [subscribe]);
+
+  // 🔔 Si la sesión se cierra remotamente, limpiar UI
+  useEffect(() => {
+    const unsub = subscribe("session:state", (s) => {
+      if (s?.status === "logged-out") {
+        setIsConfigured(false);
+        setSelectedCodigo("");
+        setSuccessMessage("");
+        setError("Sesión finalizada. Iniciá sesión para seleccionar empresa.");
+      }
+    });
+    return unsub;
+  }, [subscribe]);
 
   const onSelectChange = (e) => {
     setSelectedCodigo(e.target.value);
@@ -76,33 +130,29 @@ const BDSelect = () => {
       setSuccessMessage("");
 
       // 1) Id del cliente (guardado en el login)
-      const idCliente = await window.api.getStoreValue("idCliente");
+      const idCliente = await window.api.getStoreValue?.("idCliente");
       if (!idCliente) throw new Error("No se encontró idCliente. Inicie sesión.");
 
-      // 2) Verificar en nube si está habilitado (Nombre == emp_codigo) y escribir properties si corresponde
-const verify = await window.api.verifyEmpresaForUser?.({ idCliente, empCodigo: selectedCodigo });
-if (!verify?.success) throw new Error(verify?.message || "El usuario no esta habilitado...");
+      // 2) Verificar en nube si está habilitado y setear instancia en store (main lo hace)
+      const verify = await window.api.verifyEmpresaForUser?.({ idCliente, empCodigo: selectedCodigo });
+      if (!verify?.success) throw new Error(verify?.message || "El usuario no está habilitado...");
 
-const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
-const razon = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
+      // 3) Persistir también código y nombre en el store (útil para UI)
+      const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
+      const razon    = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
 
-// guardá también la DB activa
-await window.api.setStoreValue({ key: "selectedEmpresaCodigo", value: selectedCodigo });
-await window.api.setStoreValue({ key: "selectedEmpresaNombre", value: razon });
-await window.api.setStoreValue({ key: "selectedInstanciaBD", value: verify?.data?.instanciaBD }); // 👈 NUEVO
+      await window.api.setStoreValue?.("selectedEmpresaCodigo", selectedCodigo);
+      await window.api.setStoreValue?.("selectedEmpresaNombre", razon);
+      // Nota: selectedInstanciaBD lo setea el main en 'empresa:verify-and-save'
 
       setIsConfigured(true);
       setSuccessMessage("¡Configuración guardada exitosamente!");
+      setError("");
 
-      // 4) Notificar a otros componentes (EmpresaSelected)
-      try {
-        window.dispatchEvent(
-          new CustomEvent("empresa:selected", { detail: { id: selectedCodigo, nombre: razon } })
-        );
-      } catch {}
+      // No disparamos CustomEvent manual; dejamos que el main emita 'empresa:selected'
     } catch (err) {
       console.error("BDSelect handleGuardar:", err);
-      setError(err.message || "El usuario no esta habilitado para operar esa empresa");
+      setError(err.message || "El usuario no está habilitado para operar esa empresa.");
     } finally {
       setSaving(false);
     }
@@ -114,16 +164,14 @@ await window.api.setStoreValue({ key: "selectedInstanciaBD", value: verify?.data
       setError("");
       setSuccessMessage("");
 
-      await window.api.setStoreValue("selectedEmpresaCodigo", "");
-      await window.api.setStoreValue("selectedEmpresaNombre", "");
+      // Limpiamos selección local y marcadores de instancia
+      await window.api.setStoreValue?.("selectedEmpresaCodigo", "");
+      await window.api.setStoreValue?.("selectedEmpresaNombre", "");
+      await window.api.setStoreValue?.("selectedInstanciaBD", "");
 
       setIsConfigured(false);
       setSelectedCodigo("");
       setSuccessMessage("Selección borrada. Elegí otra empresa y guardá.");
-
-      try {
-        window.dispatchEvent(new CustomEvent("empresa:selected", { detail: { id: "", nombre: "" } }));
-      } catch {}
     } catch (err) {
       console.error("Error al limpiar selección:", err);
       setError(err.message || "No se pudo limpiar la selección.");

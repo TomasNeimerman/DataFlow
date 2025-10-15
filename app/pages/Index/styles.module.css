@@ -18,12 +18,17 @@
 }
 .title {
     color: black;
+    font-size: 48px;
+}
+.slogan {
+    color: black;
+    font-weight: bold;
 }
 .titlespan{
     color: #e82c02;
 }
 .p {
-    margin-top: 20px;
+    margin-top: 0;
 }
 .img {
     width: 160px;

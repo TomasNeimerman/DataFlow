@@ -45,6 +45,33 @@ function writeToLog(message) {
 }
 writeToLog(`SO: ${os.platform()} ${os.release()} | Node ${process.version} | Electron ${process.versions.electron}`);
 
+// --- Broadcast a todas las ventanas ---
+function broadcast(channel, payload = {}) {
+  try {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(channel, payload);
+    }
+  } catch (e) { writeToLog?.(`broadcast ${channel} error: ${e?.message}`); }
+}
+
+// Sólo exponemos cambios seguros del store
+const STORE_BROADCAST_WHITELIST = new Set([
+  'idCliente',
+  'user',
+  'selectedInstanciaBD',
+  'selectedEmpresaNombre',
+]);
+
+function pickWhitelistedDelta(nextObj = {}, prevObj = {}) {
+  const delta = {};
+  for (const k of STORE_BROADCAST_WHITELIST) {
+    const a = nextObj?.[k] ?? null;
+    const b = prevObj?.[k] ?? null;
+    if (a !== b) delta[k] = a;
+  }
+  return delta;
+}
+
 process.on('uncaughtException', async (err) => {
   writeToLog(`Uncaught: ${err?.message}\n${err?.stack}`);
   await finalizeActiveSession('uncaughtException');
@@ -96,6 +123,9 @@ async function forceLogout(reason = 'remote-inactive') {
 
     stopSessionHeartbeat();
     stopSessionWatchdog();
+
+    // avisar al front ANTES de navegar
+    broadcast('session:state', { status: 'logged-out', reason, at: Date.now() });
 
     activeSession = null;
     modulosCache = [];
@@ -226,9 +256,14 @@ function clearStoreForLogin() {
   if (!store) return;
   const keep = { deviceId: store.get('deviceId') };
   try {
+    const prev = { ...store.store };
     store.clear();
     if (keep.deviceId) store.set('deviceId', keep.deviceId);
     writeToLog('electron-store limpiado por navegación a /Login');
+
+    const next = { ...store.store };
+    const delta = pickWhitelistedDelta(next, prev);
+    if (Object.keys(delta).length) broadcast('store:any-change', delta);
   } catch (e) {
     writeToLog(`Error limpiando store: ${e.message}`);
   }
@@ -261,19 +296,26 @@ function navigateTo(pathname) {
 async function refreshModulosCache() {
   try {
     const idCliente = store?.get('idCliente');
-    if (!idCliente) { modulosCache = []; return; }
+    if (!idCliente) {
+      modulosCache = [];
+      broadcast('menu:modules-updated', { modulos: [] });
+      return;
+    }
     const res = await obtenerModulosService(idCliente);
     if (res?.success) {
       modulosCache = (res.modulos || []).map(m => ({
         id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
         link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
       }));
+      broadcast('menu:modules-updated', { modulos: modulosCache });
     } else {
       modulosCache = [];
+      broadcast('menu:modules-updated', { modulos: [] });
     }
   } catch (e) {
     writeToLog(`refreshModulosCache error: ${e.message}`);
     modulosCache = [];
+    broadcast('menu:modules-updated', { modulos: [] });
   }
 }
 
@@ -292,6 +334,27 @@ async function loadLoginOnly(base) {
 async function createMainWindow() {
   writeToLog('createMainWindow...');
   store = new Store();
+
+  // 🔔 Broadcast de cambios del store (whitelist)
+  try {
+    if (typeof store.onDidAnyChange === 'function') {
+      store.onDidAnyChange((newValue, oldValue) => {
+        const delta = pickWhitelistedDelta(newValue, oldValue);
+        if (Object.keys(delta).length) broadcast('store:any-change', delta);
+      });
+    } else {
+      // Fallback: polling liviano
+      let prevSnap = { ...store.store };
+      setInterval(() => {
+        try {
+          const nextSnap = { ...store.store };
+          const delta = pickWhitelistedDelta(nextSnap, prevSnap);
+          if (Object.keys(delta).length) broadcast('store:any-change', delta);
+          prevSnap = nextSnap;
+        } catch {}
+      }, 1000);
+    }
+  } catch {}
 
   // fuerza login siempre al iniciar
   const FORCE_LOGIN_ON_START = true;
@@ -315,9 +378,9 @@ async function createMainWindow() {
   };
 
   mainWindow = new BrowserWindow(windowOptions);
-mainWindow.setMenuBarVisibility(false);
-mainWindow.removeMenu();
-try { Menu.setApplicationMenu(null); } catch {}
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.removeMenu();
+  try { Menu.setApplicationMenu(null); } catch {}
   // abrir links externos en el navegador del SO
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try { shell.openExternal(url); } catch {}
@@ -333,7 +396,7 @@ try { Menu.setApplicationMenu(null); } catch {}
     }
   });
 
-  // Al cerrar la ventana, marcar sesión inactiva y parar heartbeat
+  // Al cerrar la ventana, marcar sesión inactiva y parar heartbeat/watchdog
   mainWindow.on('close', async () => {
     try {
       if (activeSession?.usuario && activeSession?.deviceId) {
@@ -346,6 +409,7 @@ try { Menu.setApplicationMenu(null); } catch {}
       writeToLog(`finalizarSesion (window.close) error: ${e?.message}`);
     } finally {
       stopSessionHeartbeat();
+      stopSessionWatchdog();
     }
   });
 
@@ -373,7 +437,7 @@ try { Menu.setApplicationMenu(null); } catch {}
         stopSessionHeartbeat();
         await mainWindow.loadURL(`${DEV_BASE}/Login`);
       } else {
-        await loadWithAutoResume(DEV_BASE);
+        await loadLoginOnly(DEV_BASE);
       }
 
       try { mainWindow.webContents.openDevTools(); } catch {}
@@ -426,7 +490,7 @@ try { Menu.setApplicationMenu(null); } catch {}
         stopSessionHeartbeat();
         await mainWindow.loadURL(`${BASE}/Login`);
       } else {
-        await loadWithAutoResume(BASE);
+        await loadLoginOnly(BASE);
       }
     } catch (e) {
       writeToLog(`PROD prepare error: ${e.message}`);
@@ -469,7 +533,16 @@ app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) creat
 
 // --- IPC: electron-store helpers ---
 ipcMain.handle('electron-store-get', (_e, key) => store ? store.get(key) : undefined);
-ipcMain.handle('electron-store-set', (_e, { key, value }) => { if (store) store.set(key, value); });
+ipcMain.handle('electron-store-set', (_e, { key, value }) => {
+  if (!store) return;
+  const prev = { ...store.store };
+  store.set(key, value);
+  if (STORE_BROADCAST_WHITELIST.has(key)) {
+    const next = { ...store.store };
+    const delta = pickWhitelistedDelta(next, prev);
+    if (Object.keys(delta).length) broadcast('store:any-change', delta);
+  }
+});
 ipcMain.handle('whoami', () => ({
   user: store?.get('user') || null,
   deviceId: store?.get('deviceId') || null
@@ -493,6 +566,7 @@ ipcMain.handle('ui:show-hamburger', async (_e, coords) => {
 // --- IPC: construir/actualizar cache de módulos (opcional) ---
 ipcMain.handle('menu:set-modules', async (_e, modulos) => {
   modulosCache = Array.isArray(modulos) ? modulos : [];
+  broadcast('menu:modules-updated', { modulos: modulosCache });
   return { success: true };
 });
 
@@ -503,11 +577,17 @@ ipcMain.handle('logout', async () => {
       await finalizarSesionActivaService({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
     }
     stopSessionHeartbeat();
+    stopSessionWatchdog();
     activeSession = null;
     if (store) {
       const did = store.get('deviceId');
+      const prev = { ...store.store };
       store.clear(); if (did) store.set('deviceId', did);
+      const next = { ...store.store };
+      const delta = pickWhitelistedDelta(next, prev);
+      if (Object.keys(delta).length) broadcast('store:any-change', delta);
     }
+    broadcast('session:state', { status: 'logged-out', reason: 'manual', at: Date.now() });
     return { success: true };
   } catch (e) {
     return { success: false, message: e.message };
@@ -558,6 +638,15 @@ ipcMain.handle('empresa:verify-and-save', async (_e, { idCliente, empCodigo }) =
 
     // Persistimos la DB activa en electron-store
     try { store?.set('selectedInstanciaBD', r.data.instanciaBD); } catch {}
+
+    // Avísale al front
+    broadcast('empresa:selected', {
+      idCliente,
+      empCodigo,
+      instanciaBD: r?.data?.instanciaBD ?? null,
+      nombre: r?.data?.emp_razsoc ?? r?.data?.empNombre ?? null,
+    });
+
     return { success: true, data: r.data };
   } catch (e) {
     return { success: false, message: e?.message || 'Error verificando empresa.' };
@@ -642,6 +731,10 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
     }));
 
+    // Broadcast de estado de sesión y módulos iniciales
+    broadcast('session:state', { status: 'logged-in', usuario, deviceId, at: Date.now() });
+    broadcast('menu:modules-updated', { modulos: modulosCache });
+
     return { success: true, user: result.user, modulos: modulosCache, token: result.token };
   } catch (e) {
     writeToLog(`login IPC error: ${e.message}`);
@@ -668,12 +761,14 @@ const safeIpc = (name, handler) => {
 
 safeIpc('get-modules', obtenerModulosService);
 safeIpc('obtener-cheques', obtenerChequeService);
-safeIpc('update-cheques', (payload) =>
-  actualizarChequeService({
+safeIpc('update-cheques', async (payload) => {
+  const res = await actualizarChequeService({
     ...payload,
     usuario: (store && store.get?.('user')) || payload?.usuario || 'desconocido'
-  })
-);
+  });
+  if (res?.success) broadcast('cheques:updated', { at: Date.now(), info: res });
+  return res;
+});
 safeIpc('update-cheque3', ({ IDCheque, sit }) => actualizarCheque3Service(IDCheque, sit));
 safeIpc('cheque3-rechazado', cheque3R);
 safeIpc('cheque3-situacion', situacion);
@@ -784,6 +879,7 @@ ipcMain.handle('precios:actualizar-excel', async (_evt, items) => {
   try {
     const { actualizarPreciosExcel } = require('./modulesService/ActualizadorPrecios');
     const res = await actualizarPreciosExcel(items);
+    if (res?.success) broadcast('precios:updated', { at: Date.now(), info: res });
     return res;
   } catch (e) {
     console.error('IPC precios:actualizar-excel', e);
