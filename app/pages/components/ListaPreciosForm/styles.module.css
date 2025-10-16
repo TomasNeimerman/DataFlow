@@ -6,6 +6,11 @@
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0,0,0,.1);
   margin: 20px auto;
+  max-width: 880px;
+  max-height: 720px;
+}
+.container::-webkit-scrollbar{
+  display: none;
 }
 
 /* Responsivo */
@@ -22,6 +27,7 @@
   padding: 2px 4px;
   border-radius: 3px;
 }
+
 
 .titleContainer {
   display: flex;          /* título y botón en línea */
@@ -166,4 +172,152 @@
 .num {
   text-align: right !important;
   white-space: nowrap;
+}
+/* ===== Modal ===== */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+}
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 1000px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.2);
+  overflow: hidden;
+}
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+.modalBody {
+  padding: 12px 16px 16px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.modalClose {
+  border: 1px solid #ddd;
+  background: #f7f7f7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.modalClose:hover { background: #efefef; }
+
+/* ===== Filtros Clientes ===== */
+/* ===== Modal ===== */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+}
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 1000px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.2);
+  overflow: hidden;
+}
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #eee;
+}
+.modalBody {
+  padding: 12px 16px 16px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.modalClose {
+  border: 1px solid #ddd;
+  background: #f7f7f7;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.modalClose:hover { background: #efefef; }
+
+/* ===== Filtros ===== */
+.filtersBar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 8px 12px;
+  align-items: end;
+  margin: 6px 0 8px;
+}
+.filterItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.filterItem :global(.select) {
+  min-height: 38px;
+  box-sizing: border-box;
+}
+/* Fila completa (para "Lista (actual)") */
+.filterFull {
+  grid-column: 1 / -1;
+}
+
+/* Botones de filtros abajo y a lo ancho */
+.filterActions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.filterActions :global(button) {
+  height: 38px;
+  box-sizing: border-box;
+}
+
+/* ===== Contenedor: altura uniforme + scroll interno ===== */
+.container { display: flex; flex-direction: column; }
+.sectionContent {
+  overflow: auto;      /* scroll adentro del container */
+  max-height: 68vh;    /* altura homogénea entre solapas */
+  min-height: 0;
+  padding-right: 2px;  /* evita salto por scrollbar */
+}
+.sectionContent::-webkit-scrollbar{
+  display: none;
+}
+/* Tabla y resumen */
+.summaryLine { font-size: 0.95rem; color: #444; margin-bottom: 6px; display: flex; align-items: center; }
+.tableWrapper { width: 100%; max-width: 100%; overflow: auto; }
+.checkCell { width: 36px; text-align: center; vertical-align: middle; }
+
+/* Footer aplicar */
+.applyBar { display: flex; gap: 12px; align-items: end; margin-top: 12px; flex-wrap: wrap; }
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .filtersBar { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+}
+@media (max-width: 900px) {
+  .filtersBar { grid-template-columns: 1fr; }
+  .filterActions { grid-column: 1 / -1; }
 }

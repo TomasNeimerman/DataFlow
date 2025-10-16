@@ -4,6 +4,8 @@ import '../public/styles/globals.css';
 import Imagen from './components/Image';
 import EmpresaSelected from './components/EmpresaSelected';
 import HamburgerButton from './components/HamburgerMenu';
+import logo_cone from '../public/logo_cone.png'
+import logo from '../public/logo.png'
 
 function MyApp({ Component, pageProps }) {
   const isDevRef = useRef(false);
@@ -49,10 +51,12 @@ function MyApp({ Component, pageProps }) {
     <div className="page-container">
       <Component {...pageProps} />
 
-      <div className="overlay-top-left">
-        <Imagen />
+      <div className="overlay-bottom-right">
+        <Imagen logo={logo_cone}/>
       </div>
-
+      <div className="overlay-bottom-left">
+        <Imagen logo={logo}/>
+      </div>
       <div className="overlay-top-right">
         <EmpresaSelected />
       </div>

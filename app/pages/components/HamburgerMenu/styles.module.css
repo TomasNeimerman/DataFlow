@@ -8,9 +8,10 @@
   height: 44px;
   display: grid;
   place-items: center;
+  font-size: bold;
   border: 0;
   border-radius: 12px;
-  background: rgba(245,245,245,.9);
+  background: rgba(255, 255, 255, 0.9);
   color: #111;
   backdrop-filter: blur(10px) saturate(160%);
   -webkit-backdrop-filter: blur(10px) saturate(160%);
@@ -18,15 +19,19 @@
   cursor: pointer;
   transition: transform .12s ease, background-color .12s ease, opacity .12s ease;
 }
+.bold{
+  font-weight: bolder;
+}
 .hamburgerBtn:hover { transform: translateY(-1px); background: rgba(235,235,235,.95); }
 
 @media (prefers-color-scheme: dark) {
   .hamburgerBtn {
-    background: rgba(24,24,24,.62);
+    background: #e82c02;
     color: #fff;
     box-shadow: 0 10px 32px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.08);
+    font-size: bold;
   }
-  .hamburgerBtn:hover { background: rgba(32,32,32,.7); }
+  .hamburgerBtn:hover { background: #d42602; }
 }
 
 /* Deshabilitado cuando el menú está abierto */

@@ -1,6 +1,72 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import styles from "./styles.module.css";
+import DownloadIcon from "../DownloadButton";
+
+const Modal = ({ open, title, onClose, children }) => {
+  if (!open) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "min(1100px, 95vw)",
+          maxHeight: "85vh",
+          background: "#fff",
+          borderRadius: 12,
+          boxShadow: "0 10px 30px rgba(0,0,0,.25)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            padding: "12px 16px",
+            borderBottom: "1px solid #eee",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <h3 style={{ margin: 0 }}>{title}</h3>
+          <button onClick={onClose} className={styles.template} title="Cerrar">
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: 12, overflow: "auto" }}>{children}</div>
+      </div>
+    </div>
+  );
+};
+
+/* ────────── Helpers ────────── */
+const toDMY = (val) => {
+  if (!val) return "";
+  if (typeof val === "string") return val;
+  const d = new Date(val);
+  if (isNaN(d)) return "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+};
+const money = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "0,00";
+  return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
 /* ────────── Cuadro de Resultados integrado ────────── */
 const ChequesActualizados = ({ cheques = [], validar = false }) => {
@@ -46,8 +112,8 @@ const ChequesActualizados = ({ cheques = [], validar = false }) => {
   );
 };
 
-/* ────────── ModulesForm ────────── */
-const   ChequesPForm = ({
+/* ────────── Form ────────── */
+const ChequesPForm = ({
   idCliente,
   nombreModulo,
   onImportar,
@@ -67,6 +133,12 @@ const   ChequesPForm = ({
   // tabs
   const [activeSection, setActiveSection] = useState("importar"); // importar | resultados
   const [importTried, setImportTried] = useState(false); // habilita la pestaña Resultados
+
+  // 🔎 Preview modal state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRows, setPreviewRows] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
 
   useEffect(() => {
     const fetchModulos = async () => {
@@ -109,9 +181,9 @@ const   ChequesPForm = ({
   const handleImportarClick = async () => {
     if (file && onImportar) {
       try {
-        await onImportar(file);      // la page procesa y setea estados
+        await onImportar(file); // la page procesa y setea estados
       } finally {
-        setImportTried(true);        // habilita pestaña Resultados
+        setImportTried(true); // habilita pestaña Resultados
       }
     }
   };
@@ -135,7 +207,7 @@ const   ChequesPForm = ({
     }
   };
 
-  // ====== NUEVO: descarga rápida de planilla ChequesP ======
+  // ====== Descarga rápida de planilla ChequesP ======
   const openWithRetry = async (p, tries = 3) => {
     for (let i = 0; i < tries; i++) {
       const r = await window.api.openPath(p);
@@ -164,6 +236,28 @@ const   ChequesPForm = ({
     }
   };
 
+  // ====== Vista previa (modal) ======
+  const handleOpenPreview = useCallback(async () => {
+    try {
+      setPreviewError("");
+      setPreviewLoading(true);
+      const res = await window.api?.chequespPreview?.();
+      if (!res?.success) {
+        setPreviewError(res?.message || "No se pudo obtener la vista previa.");
+        setPreviewRows([]);
+      } else {
+        setPreviewRows(Array.isArray(res.data) ? res.data : []);
+      }
+      setPreviewOpen(true);
+    } catch (e) {
+      setPreviewError(e?.message || "Error en vista previa.");
+      setPreviewRows([]);
+      setPreviewOpen(true);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
   const titulo = modulos.length > 0 ? modulos[0].texto : "Cargando...";
 
   const lower = (estadoImportar || "").toLowerCase();
@@ -179,16 +273,15 @@ const   ChequesPForm = ({
       <div className={styles.titleContainer}>
         <h1 className={styles.title}>{titulo}</h1>
 
-  
-        {/* NUEVO: Descargar planilla ChequesP con datos (igual UX que precios) */}
-        {template  && (
+        {/* Descargar planilla ChequesP con datos */}
+        {template && (
           <button
             className={styles.template}
             onClick={handleDescargarPlanillaChequesP}
             title="Descargar planilla de ChequesP con datos"
             style={{ marginLeft: 8 }}
           >
-            ⇩
+            <DownloadIcon variant="svg" size={28} stroke={2.6} headSpread={5} pointDepth={4} compact />
           </button>
         )}
       </div>
@@ -216,6 +309,9 @@ const   ChequesPForm = ({
       {/* ─────── Importar ─────── */}
       {activeSection === "importar" && (
         <>
+          {/* Botón de VISTA PREVIA — arriba de "Limpiar" */}
+          
+
           <input
             type="file"
             className={styles.input}
@@ -223,11 +319,18 @@ const   ChequesPForm = ({
             accept=".xlsx, .xls"
             onChange={handleFileChange}
           />
-
+          <button
+              className={styles.btn}
+              onClick={handleOpenPreview}
+              title="Ver vista previa de todos los cheques en la base"
+            >
+              Vista previa de cheques
+            </button>
           <div className={styles.buttonsContainer}>
             <button className={styles.btn} id="cancel" onClick={handleCancel}>
               Limpiar
             </button>
+            
             <button
               className={styles.btn}
               id="saveButton"
@@ -254,6 +357,52 @@ const   ChequesPForm = ({
       {activeSection === "resultados" && (
         <ChequesActualizados cheques={resultadosCheques} validar={validarResultados} />
       )}
+
+      {/* Modal Vista previa */}
+      <Modal
+        open={previewOpen}
+        title="Vista previa de Cheques"
+        onClose={() => setPreviewOpen(false)}
+      >
+        {previewLoading ? (
+          <p>Cargando cheques…</p>
+        ) : previewError ? (
+          <p className={styles.error}>{previewError}</p>
+        ) : previewRows.length === 0 ? (
+          <p className={styles.noResults}>No hay cheques para mostrar.</p>
+        ) : (
+          <div style={{ overflow: "auto" }}>
+            <table className={styles.resultsTable}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th>ID</th>
+                  <th>Empresa</th>
+                  <th>Cod. Emp</th>
+                  <th>Nº Actual</th>
+                  <th>F. Emisión</th>
+                  <th>F. Vto</th>
+                  <th className={styles.num}>Importe</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((r) => (
+                  <tr key={r.ID_Cheque}>
+                    <td>{r.ID_Cheque}</td>
+                    <td>{r.Empresa || ""}</td>
+                    <td>{r.CodEmpresa || ""}</td>
+                    <td>{r.NumeroActual || ""}</td>
+                    <td>{toDMY(r.Mov_FEmision)}</td>
+                    <td>{toDMY(r.ChequeFVto)}</td>
+                    <td className={styles.num}>{money(r.Importe)}</td>
+                    <td>{r.Estado || ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

@@ -161,6 +161,35 @@ async function obtenerCheque(id) {
     if (pool) await pool.close();
   }
 }
+async function obtenerChequesPreview() {
+  let pool;
+  try {
+    pool = await sql.connect(getAdminDbConfig());
+    const query = `
+      SELECT
+        chp.chp_ID                  AS ID_Cheque,
+        chp.chpemp_Codigo          AS CodEmpresa,
+        emp.emp_razsoc             AS Empresa,
+        chp.chp_NroCheq            AS NumeroActual,
+        mf.mfocmf_FMov             AS Mov_FEmision,
+        chp.chp_FVto               AS ChequeFVto,
+        chp.chp_Importe            AS Importe,
+        chp.chp_Edo                AS Estado
+      FROM ChequesP chp
+      LEFT JOIN Emp  emp ON emp.emp_codigo COLLATE DATABASE_DEFAULT = chp.chpemp_Codigo COLLATE DATABASE_DEFAULT
+      LEFT JOIN MovF mf  ON mf.mfo_ID = mfocmf_ID
+      ORDER BY chp.chp_ID DESC;
+    `;
+    const rs = await pool.request().query(query);
+    const rows = rs.recordset || [];
+    return { success: true, data: rows };
+  } catch (err) {
+    console.error('❌ Error en obtenerChequesPreview:', err);
+    return { success: false, message: err?.message || 'Error al obtener vista previa de cheques.' };
+  } finally {
+    try { await pool?.close(); } catch {}
+  }
+}
 
 async function actualizarCheque(cheque) {
   let pool;
@@ -211,4 +240,9 @@ if (!Number.isFinite(nroInt)) return { success: false, message: 'nroDefinitivo i
   }
 }
 
-module.exports = { obtenerCheque, actualizarCheque, ChequesPExcel };
+module.exports = {
+  obtenerCheque,
+  actualizarCheque,
+  ChequesPExcel,
+  obtenerChequesPreview, // 👈 NUEVO
+};

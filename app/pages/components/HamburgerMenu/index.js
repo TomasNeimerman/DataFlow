@@ -124,7 +124,7 @@ export default function HamburgerMenu() {
         onClick={() => setOpen((v) => !v)}
         disabled={open}
       >
-        Menú
+        <p className={styles.bold}>Menú</p>
       </button>
 
       {/* Overlay */}

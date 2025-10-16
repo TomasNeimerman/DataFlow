@@ -55,11 +55,12 @@ contextBridge.exposeInMainWorld('api', {
   // ======================
   obtenerCheques: (id) => ipcRenderer.invoke('obtener-cheques', id),
   updateCheques: (cheque) => ipcRenderer.invoke('update-cheques', cheque),
+  chequespPreview: () => ipcRenderer.invoke('chequesp:preview'),
   updateCheque3: (IDCheque, sit) => ipcRenderer.invoke('update-cheque3', { IDCheque, sit }),
   getSituacion: () => ipcRenderer.invoke('cheque3-situacion'),
-  setRegistro: (emp, suc, IDCheque, sit, sitAnt) =>
-    ipcRenderer.invoke('registro-cheque3-sit', { emp, suc, IDCheque, sit, sitAnt }),
+  setRegistro: (emp, suc, IDCheque, sit, sitAnt) => ipcRenderer.invoke('registro-cheque3-sit', { emp, suc, IDCheque, sit, sitAnt }),
   obtenerCheque3Rechazado: () => ipcRenderer.invoke('cheque3-rechazado'),
+  updateCheque3Field: (IDCheque, campo, valor) => ipcRenderer.invoke('cheque3-update-field', { IDCheque, campo, valor }),
 
   // ======================
   // Artículos / catálogos
@@ -81,7 +82,7 @@ contextBridge.exposeInMainWorld('api', {
   getPrecios: () => ipcRenderer.invoke('get-precios'),
   // ⚠️ Ojo: 'precios:actualizar' no existe en el main provisto; dejalo sólo si tenés ese IPC.
   actualizarPrecios: (opts) => ipcRenderer.invoke('precios:actualizar', opts),
-
+  
   onPreciosProgress: (cb) => {
     const handler = (_evt, payload) => { try { cb && cb(payload); } catch {} };
     ipcRenderer.on('precios:update-progress', handler);
@@ -89,7 +90,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   getPreciosActualizados: () => ipcRenderer.invoke('get-precios-actualizados'),
-
+  previewLista: (listaCod, limit) => ipcRenderer.invoke('precios:preview-lista', { listaCod, limit }),
   // --- nuevos bridges de Precios ---
   getCodigosLista: () => ipcRenderer.invoke('precios:codigos-lista'),
   // Genera Excel usando /public/templates/precios.xlsx y datos de la lista elegida
@@ -101,6 +102,11 @@ contextBridge.exposeInMainWorld('api', {
   actualizarPreciosExcel: (items) => ipcRenderer.invoke('precios:actualizar-excel', items),
   getPreciosExcelUltimos: () => ipcRenderer.invoke('precios:excel-ultimos'),
 
+  // ===== Clientes =====
+getListasClientes: () => ipcRenderer.invoke('clientes:listas-habilitadas'),
+clientesListar: (payload) => ipcRenderer.invoke('clientes:listar', payload),              
+clientesActualizarFiltrado: (payload) => ipcRenderer.invoke('clientes:actualizar-filtrado', payload), 
+getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
   // ======================
   // Store
   // ======================

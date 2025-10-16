@@ -171,7 +171,12 @@ const {
   getEmpresasHabilitadas,
   verifyEmpresaHabilitadaYGuardar:verifyEmpresaHabilitada
 } = require('./modulesService/Empresa');
-const { obtenerCheque: obtenerChequeService, actualizarCheque: actualizarChequeService,ChequesPExcel  } = require('./modulesService/ChequesP');
+const {
+  obtenerCheque: obtenerChequeService,
+  actualizarCheque: actualizarChequeService,
+  ChequesPExcel: ChequesPExcel,
+  obtenerChequesPreview: obtenerChequesPreviewService, // 👈 NUEVO
+} = require('./modulesService/ChequesP');
 const {
   iniciarSesion: iniciarSesionService,
   obtenerModulos: obtenerModulosService,
@@ -185,10 +190,12 @@ const {
 const {
   registroCheq3Sit: registro,
   actualizarCheque3: actualizarCheque3Service,
+  actualizarCheque3Campo: actualizarCheque3CampoService,
   obtenerCheque3Rechazado: cheque3R,
   getSituacion: situacion,
   getUpdatedbyRegistro: getupdreg
 } = require('./modulesService/Cheques3');
+
 const {
   getArticulos, getClases, getProveedores, getRubros,
   getTasasIVA, getArticuloDetailsById, claseExiste, rubroExiste,
@@ -202,7 +209,7 @@ const {
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
 } = require('./modulesService/GeneradorPrecios.js');
 const ActualizadorPrecios = require("./modulesService/ActualizadorPrecios.js");
-
+const ClientesSvc = require('./modulesService/Clientes');
 // --- Estado global ---
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -784,13 +791,41 @@ safeIpc('rubro-existe', rubroExiste);
 safeIpc('get-proveedor-details', getProveedorDetails);
 safeIpc('get-tasa-iva-details', getTasaIVADetails);
 safeIpc('get-updated-fecha', getupdreg);
+safeIpc('cheque3-update-field', (payload) => actualizarCheque3CampoService(payload));
 
+
+ipcMain.handle('clientes:listas-habilitadas', async () => ClientesSvc.getListasHabilitadas());
+
+ipcMain.handle('clientes:listar', async (_e, payload) => {
+  // payload: { listaCod }
+  return ClientesSvc.listarClientesHabilitados(payload || {});
+});
+
+ipcMain.handle('clientes:actualizar-filtrado', async (_e, payload) => {
+  // payload: { toCod, fromCod?, filtros?, cliCods? }
+  return ClientesSvc.actualizarListaPorFiltros(payload || {});
+});
 // 🧩 PRECIOS: lectura simple
 ipcMain.handle('get-precios', async () => {
   writeToLog('[IPC] get-precios');
   return obtenerPreciosService();
 });
-
+ipcMain.handle('precios:preview-lista', async (_e, { listaCod, limit }) => {
+  try {
+    const res = await ActualizadorPrecios.obtenerPreviewLista(listaCod, limit || 15);
+    return res;
+  } catch (e) {
+    return { success: false, message: e?.message || 'Error en preview de lista.' };
+  }
+});
+ipcMain.handle('chequesp:preview', async () => {
+  try {
+    const res = await obtenerChequesPreviewService();
+    return res;
+  } catch (e) {
+    return { success: false, message: e?.message || 'No se pudo obtener la vista previa.' };
+  }
+});
 // 🧩 PRECIOS: última corrida/auditoría
 ipcMain.handle('get-precios-actualizados', async () => {
   writeToLog('[IPC] get-precios-actualizados');
@@ -891,7 +926,9 @@ ipcMain.handle("precios:excel-ultimos", async () => {
   try { return await ActualizadorPrecios.obtenerPreciosExcelActualizados(); }
   catch (e) { return { success: false, message: e?.message || "Error obteniendo últimos actualizados" }; }
 });
-
+ipcMain.handle('paramgen:get-ordenamientos', async () => {
+  return ClientesSvc.getOrdenamientos();
+});
 ipcMain.handle('env:is-dev', () => isDev);
 ipcMain.handle('app:toggle-devtools', () => {
   try {

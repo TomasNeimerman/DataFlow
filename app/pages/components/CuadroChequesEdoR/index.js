@@ -7,7 +7,6 @@ const ChequesRechazados = ({
   chequesRechazados = [],
   situaciones = [],
   onChequeToggle = () => {},
-  onSituacionChange = () => {},
   selectedChequesData = {},
   onImportarClick = () => {},
   isImportButtonDisabled = false,
@@ -16,21 +15,18 @@ const ChequesRechazados = ({
   runLogs = [],
   runErrors = [],
   onSelectAllChange = () => {},
-  onGlobalSituacionChange = () => {},
   refreshKey = 0,
+
+  // 👇 nuevos props
+  fieldMode = 'situacion',
+  onFieldModeChange = () => {},
+  onRowValueChange = () => {},
+  onGlobalValueChange = () => {},
 }) => {
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
   const [sortedCheques, setSortedCheques] = useState([]);
   const [updatedFechasById, setUpdatedFechasById] = useState({});
-
-  // 👉 Mostrar la fecha “plana”: si es string, no la parseo; si es Date, la convierto.
-  const showFecha = (val) => {
-    if (!val) return '';
-    if (val instanceof Date) return val.toLocaleString();
-    if (typeof val === 'string') return val.replace('T',' ').replace('Z','');
-    return String(val);
-  };
 
   const getSitDesc = (code) => {
     if (code === undefined || code === null || code === '') return '';
@@ -45,12 +41,14 @@ const ChequesRechazados = ({
       try {
         if (typeof window !== 'undefined' && window.api?.getUpdatedFecha) {
           const data = await window.api.getUpdatedFecha();
-          setUpdatedFechasById(data?.data || {});
+          setUpdatedFejasByIdSafe(data?.data || {});
         }
       } catch {
-        setUpdatedFechasById({});
+        setUpdatedFejasByIdSafe({});
       }
     };
+    // Safe setter for SSR build
+    const setUpdatedFejasByIdSafe = (v) => setUpdatedFechasById(v);
     fetchUpdatedDates();
   }, [refreshKey]);
 
@@ -107,29 +105,106 @@ const ChequesRechazados = ({
     onSelectAllChange?.(!!checked);
   };
 
+  // Render editor para el valor global
+  const renderGlobalEditor = () => {
+    if (selectedCount === 0) return null;
+    if (fieldMode === 'situacion') {
+      return (
+        <select className={styles.select} defaultValue="" onChange={(e) => onGlobalValueChange(e.target.value)}>
+          <option value="">Seleccionar...</option>
+          {Array.isArray(situaciones) && situaciones.map(s => (
+            <option key={s.sit_Cod} value={s.sit_Cod}>{s.sit_Desc}</option>
+          ))}
+        </select>
+      );
+    } else if (fieldMode === 'fvto') {
+      return (
+        <input type="date" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />
+      );
+    } else if (fieldMode === 'numero') {
+      return (
+        <input type="text" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />
+      );
+    }
+    return null;
+  };
+
+  // Render editor por fila
+  const renderRowEditor = (cheque) => {
+    const isSelected = !!selectedChequesData?.[cheque.idCheque]?.isSelected;
+    if (!isSelected) return <span className={styles.muted}>—</span>;
+
+    const rowVal = selectedChequesData?.[cheque.idCheque]?.newValue || '';
+
+    if (fieldMode === 'situacion') {
+      return (
+        <select
+          className={styles.select}
+          value={rowVal}
+          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+        >
+          <option value="">Seleccionar...</option>
+          {Array.isArray(situaciones) && situaciones.map(s => (
+            <option key={s.sit_Cod} value={s.sit_Cod}>{s.sit_Desc}</option>
+          ))}
+        </select>
+      );
+    } else if (fieldMode === 'fvto') {
+      return (
+        <input
+          type="date"
+          className={styles.input}
+          value={rowVal}
+          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+        />
+      );
+    } else if (fieldMode === 'numero') {
+      return (
+        <input
+          type="text"
+          className={styles.input}
+          value={rowVal}
+          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+        />
+      );
+    }
+    return null;
+  };
+
+  const newValueHeader =
+    fieldMode === 'situacion' ? 'Nueva situación' :
+    fieldMode === 'fvto'      ? 'Nueva fecha vto.' :
+                                'Nuevo número';
+
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
       </div>
 
-      {selectedCount > 0 && (
-        <div className={styles.massActions}>
-          <span>Situación para {allSelected ? 'todos' : 'seleccionados'}:</span>
+      {/* Selector de campo + editor global si hay filas seleccionadas */}
+      <div className={styles.massBar}>
+        <div className={styles.massLeft}>
+          <label className={styles.label}>Campo a actualizar:</label>
           <select
-            onChange={(e) => onGlobalSituacionChange?.(e.target.value)}
             className={styles.select}
-            defaultValue=""
+            value={fieldMode}
+            onChange={(e) => onFieldModeChange(e.target.value)}
           >
-            <option value="">Seleccionar...</option>
-            {Array.isArray(situaciones) && situaciones.map(situacion => (
-              <option key={situacion.sit_Cod} value={situacion.sit_Cod}>
-                {situacion.sit_Desc}
-              </option>
-            ))}
+            <option value="situacion">Situación</option>
+            <option value="fvto">Fecha de vencimiento</option>
+            <option value="numero">Número de cheque</option>
           </select>
         </div>
-      )}
+        {selectedCount > 0 && (
+          <div className={styles.massRight}>
+            <label className={styles.label}>
+              {newValueHeader} (para {allSelected ? 'todos' : 'seleccionados'}):
+            </label>
+            {renderGlobalEditor()}
+          </div>
+        )}
+      </div>
 
       <div className={styles.tableContainer}>
         <table className={styles.table}>
@@ -151,6 +226,7 @@ const ChequesRechazados = ({
               <th>Estado</th>
               <th>Fecha modificación</th>
               <th>Situación</th>
+              <th>{newValueHeader}</th>
               <th>
                 Actualizar&nbsp;
                 <input
@@ -165,7 +241,7 @@ const ChequesRechazados = ({
           <tbody>
             {!sortedCheques?.length ? (
               <tr>
-                <td colSpan="9" className={styles.noResults}>No hay cheques para actualizar.</td>
+                <td colSpan="10" className={styles.noResults}>No hay cheques para actualizar.</td>
               </tr>
             ) : (
               sortedCheques.map(cheque => {
@@ -189,13 +265,19 @@ const ChequesRechazados = ({
                     <td className={isUpdated ? styles.boldText : ''}>{cheque.importe}</td>
                     <td className={isUpdated ? styles.boldText : ''}>{cheque.estado}</td>
                     <td className={isUpdated ? styles.boldText : ''}>
-                      {fechaActualizacion ? showFecha(fechaActualizacion) : 'Sin actualizar'}
+                      {fechaActualizacion || 'Sin actualizar'}
                     </td>
 
+                    {/* Situación actual (solo texto) */}
                     <td className={styles.situacionCell}>
                       <span className={styles.situacionText}>
                         {getSitDesc(currentSit) || (isSelected ? 'Seleccioná arriba…' : '—')}
                       </span>
+                    </td>
+
+                    {/* Editor por fila según campo */}
+                    <td className={styles.editCell}>
+                      {renderRowEditor(cheque)}
                     </td>
 
                     <td className={styles.actionCell}>

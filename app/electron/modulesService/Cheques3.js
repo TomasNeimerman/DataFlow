@@ -1,17 +1,13 @@
-// electron/modulesService/Cheques3.js
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../userDbConfig.js');
 
-// ⛔️ No uses toISOString() (eso mete UTC/Z)
-
-// --- LISTADO DE CHEQUES R ---
-async function obtenerCheque3Rechazado(_idIgnorado) {
+// --- LISTADO ---
+async function obtenerCheque3Rechazado() {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
 
-    // Traigo la última fecha de cambio por cheque y la convierto a string sin TZ
     const result = await pool.request().query(`
       SELECT
         C.ch3emp_Codigo,
@@ -39,7 +35,7 @@ async function obtenerCheque3Rechazado(_idIgnorado) {
   }
 }
 
-// --- UPDATE CHEQUE3 ---
+// --- UPDATE SITUACION (legacy, se mantiene) ---
 async function actualizarCheque3(IDCheque, sit) {
   let pool;
   try {
@@ -47,14 +43,11 @@ async function actualizarCheque3(IDCheque, sit) {
     pool = await sql.connect(dbConfig);
 
     const parsedIDCheque = parseInt(IDCheque, 10);
-    if (isNaN(parsedIDCheque)) {
-      throw new Error(`ID de Cheque inválido: '${IDCheque}'. Debe ser un número válido.`);
-    }
-    const sanitizedSit = (sit === undefined || sit === null) ? '' : String(sit);
+    if (isNaN(parsedIDCheque)) throw new Error(`ID inválido: '${IDCheque}'`);
 
     const request = new sql.Request(pool);
     request.input('idCheque', sql.Int, parsedIDCheque);
-    request.input('sit', sql.NVarChar, sanitizedSit);
+    request.input('sit', sql.NVarChar, String(sit ?? ''));
 
     await request.query(`
       UPDATE Cheques3
@@ -63,42 +56,95 @@ async function actualizarCheque3(IDCheque, sit) {
       WHERE ch3_ID = @idCheque
     `);
 
-    return { success: true, message: 'Cheque3 actualizado correctamente.' };
+    return { success: true, message: 'Situación actualizada.' };
   } catch (err) {
     console.error('❌ Error en actualizarCheque3 (Cheques3):', err);
     return { success: false, message: err.message };
   } finally {
-    if (pool) {
-      console.log('[db-operations/Cheques3.js] Cerrando conexión a la base de datos.');
-      await pool.close();
-    }
+    if (pool) { await pool.close(); }
   }
 }
 
-// --- SITUACIONES ---
-async function getSituacion(){
+// --- NUEVO: UPDATE por CAMPO ---
+async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    const result = await pool.request()
-      .query(`SELECT sit_Cod, sit_Desc FROM Situacion`);
-    return { success: true, data: result.recordset || [] };
+
+    const id = parseInt(IDCheque, 10);
+    if (isNaN(id)) throw new Error(`ID inválido: '${IDCheque}'`);
+
+    if (!['situacion','fvto','numero'].includes(String(campo))) {
+      throw new Error(`Campo no soportado: '${campo}'`);
+    }
+
+    const r = new sql.Request(pool);
+    r.input('idCheque', sql.Int, id);
+
+    if (campo === 'situacion') {
+      r.input('val', sql.NVarChar, String(valor ?? ''));
+      await r.query(`
+        UPDATE Cheques3
+        SET ch3sit_Cod = @val,
+            ch3_FecMod = GETDATE()
+        WHERE ch3_ID = @idCheque
+      `);
+      return { success: true, message: 'Situación actualizada.' };
+    }
+
+    if (campo === 'fvto') {
+      // Valor esperado 'YYYY-MM-DD'
+      r.input('val', sql.NVarChar, String(valor ?? ''));
+      await r.query(`
+        UPDATE Cheques3
+        SET ch3_FVto = CONVERT(datetime, @val, 120),
+            ch3_FecMod = GETDATE()
+        WHERE ch3_ID = @idCheque
+      `);
+      return { success: true, message: 'Fecha de vencimiento actualizada.' };
+    }
+
+    if (campo === 'numero') {
+      r.input('val', sql.NVarChar, String(valor ?? ''));
+      await r.query(`
+        UPDATE Cheques3
+        SET ch3_NroCheq = @val,
+            ch3_FecMod = GETDATE()
+        WHERE ch3_ID = @idCheque
+      `);
+      return { success: true, message: 'Número de cheque actualizado.' };
+    }
+
+    return { success: false, message: 'Sin cambios.' };
   } catch (err) {
-    console.error('❌ Error en getSituacion (Situacion):', err);
+    console.error('❌ actualizarCheque3Campo:', err);
     return { success: false, message: err.message };
   } finally {
     if (pool) await pool.close();
   }
 }
 
-// --- REGISTRO CAMBIO DE SITUACION ---
+async function getSituacion(){
+  let pool;
+  try {
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
+    const result = await pool.request().query(`SELECT sit_Cod, sit_Desc FROM Situacion`);
+    return { success: true, data: result.recordset || [] };
+  } catch (err) {
+    console.error('❌ getSituacion:', err);
+    return { success: false, message: err.message };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+
 async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
   let pool;
   const messages = [];
   try{
-    if (suc === undefined) suc = ' ';
-
+    if (suc === undefined) { suc = ' '; }
     messages.push(`Verificando si la situacion del cheque ya existe: ${sitAnt} con ${sit}`);
 
     if (sitAnt != sit ) {
@@ -126,7 +172,7 @@ async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
       return { success: true, message: messages.join('\n') };
     }
   } catch(err){
-    console.error('❌ No se pudo generar el registro:', err);
+    console.error('❌ registroCheq3Sit:', err);
     messages.push(`❌ No se pudo generar el registro: ${err.message}`);
     return { success: false, message: messages.join('\n') };
   } finally {
@@ -134,30 +180,28 @@ async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
   }
 }
 
-// --- ULTIMA FECHA POR CHEQUE (para pintar en la grilla) ---
 async function getUpdatedbyRegistro(){
   let pool;
   try{
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
     const result = await pool.request().query(`
-      SELECT
-        c3sch3_ID,
-        CONVERT(varchar(19), MAX(c3s_FCmbio), 120) AS c3s_FCmbio
+      SELECT c3sch3_ID, CONVERT(varchar(19), MAX(c3s_FCmbio), 120) AS c3s_FCmbio
       FROM Cheq3Sit
-      GROUP BY c3sch3_ID
+      GROUP BY c3sch3_ID;
     `);
-    return { success: true, data: result.recordset || [] };
-  } catch(err){
-    console.error('❌ Error en getUpdatedbyRegister (Cheques3):', err);
+    return {success: true, data: result.recordset || []};
+  }catch(err){
+    console.error('❌ getUpdatedbyRegister:', err);
     return { success: false, message: err.message };
-  } finally {
+  }finally {
     if (pool) await pool.close();
   }
 }
 
 module.exports = {
   actualizarCheque3,
+  actualizarCheque3Campo,
   obtenerCheque3Rechazado,
   getSituacion,
   registroCheq3Sit,

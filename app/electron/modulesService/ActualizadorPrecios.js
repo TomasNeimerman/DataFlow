@@ -178,6 +178,50 @@ async function descargarListaXlsx(listaCod) {
     try { await pool?.close(); } catch {}
   }
 }
+async function obtenerPreviewLista(listaCod, limit = 15) {
+  let pool;
+  try {
+    const lista = String(listaCod ?? '').trim();
+    if (!lista) return { success: false, message: 'Debe seleccionar una lista.' };
+
+    pool = await sql.connect(getAdminDbConfig());
+    const req = pool.request();
+    req.input('lista', sql.VarChar(10), lista);
+    req.input('lim', sql.Int, Number(limit) || 15);
+
+    const q = `
+      SELECT TOP (@lim)
+        lp.lprdlp_Cod     AS CodigoLista,
+        d.dlp_Desc        AS ListaPrecios,
+        lp.lprart_CodGen  AS CodGenerico,
+        lp.lprart_CodEle1 AS CodElemento1,
+        lp.lprart_CodEle2 AS CodElemento2,
+        lp.lprart_CodEle3 AS CodElemento3,
+        a.art_DescGen     AS DescripcionGen,
+        a.artele_Desc1    AS DescripcionEle1,
+        a.artele_Desc2    AS DescripcionEle2,
+        a.artele_Desc3    AS DescripcionEle3,
+        m.mon_descrip     AS Moneda,
+        lp.lpr_Precio     AS Precio
+      FROM dbo.mon        AS m
+      INNER JOIN dbo.DefListP  AS d
+        ON CONVERT(varbinary(256), m.mon_codigo) = CONVERT(varbinary(256), d.dlpmon_Codigo)
+      INNER JOIN dbo.ListaPrec AS lp
+        ON lp.lprdlp_Cod = d.dlp_Cod
+      INNER JOIN dbo.Articulos AS a
+        ON  a.art_codgen  = lp.lprart_CodGen
+        AND a.art_codele1 = lp.lprart_codele1
+        AND a.art_codele2 = lp.lprart_codele2
+        AND a.art_codele3 = lp.lprart_codele3
+      WHERE lp.lprdlp_Cod = @lista
+      ORDER BY CodGenerico, CodElemento1, CodElemento2, CodElemento3;
+    `;
+    const rs = await req.query(q);
+    return { success: true, data: rs.recordset || [] };
+  } catch (e) {
+    return { success: false, message: e?.message || 'Error obteniendo vista previa.' };
+  } finally { try { await pool?.close(); } catch {} }
+}
 
 
 /* ============================================================
@@ -493,4 +537,5 @@ module.exports = {
   descargarListaXlsx,
   actualizarPreciosExcel,
   obtenerPreciosExcelActualizados,
+  obtenerPreviewLista,
 };
