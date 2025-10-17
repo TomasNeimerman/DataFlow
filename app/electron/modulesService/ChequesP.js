@@ -174,11 +174,12 @@ async function obtenerChequesPreview() {
         mf.mfocmf_FMov             AS Mov_FEmision,
         chp.chp_FVto               AS ChequeFVto,
         chp.chp_Importe            AS Importe,
-        chp.chp_Edo                AS Estado
+        chp.chp_Edo                AS Estado,
+        chp.chp_FecMod             AS FechaMod
       FROM ChequesP chp
       LEFT JOIN Emp  emp ON emp.emp_codigo COLLATE DATABASE_DEFAULT = chp.chpemp_Codigo COLLATE DATABASE_DEFAULT
       LEFT JOIN MovF mf  ON mf.mfo_ID = mfocmf_ID
-      ORDER BY chp.chp_ID DESC;
+      ORDER BY chp.chp_ID ASC;
     `;
     const rs = await pool.request().query(query);
     const rows = rs.recordset || [];

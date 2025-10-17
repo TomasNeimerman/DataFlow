@@ -27,10 +27,10 @@ html, body, #__next, .page-container {
 }
 .overlay-bottom-left{
   position: absolute;
-  bottom: 0rem;  /* 24px desde arriba */
+  bottom: 0.5rem;  /* 24px desde arriba */
   left: 1rem; /* 40px desde la izquierda */
   z-index: 10;    /* Asegura que esté por encima del contenido */
-  width: 120px;
+  width: 180px;
 }
 
 /* Posiciona la empresa en la esquina superior derecha */

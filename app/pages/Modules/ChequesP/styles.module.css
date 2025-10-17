@@ -1,24 +1,77 @@
+/* ↓ EXISTENTE: sin cambios en .body */
 .body {
-    font-family: 'Public Sans', sans-serif;
-    margin: 0;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    align-items: center; /* Centra horizontalmente */
-    justify-content: center; /* Centra verticalmente */
-    min-height: 100vh;
-    height: 1080;
-    width: 1920;
-    overflow-x: auto;
-    background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
-  }
-  .img {
-    width: 160px;
-    height: 80px;
-    position: absolute;
-    top: 0;
-    left: 0;
-    margin: 10px;
-  }
-  
- 
+  font-family: 'Public Sans', sans-serif;
+  margin: 0;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  overflow-x: auto;
+  background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
+}
+
+.title { color: black; }
+
+.titleContainer {
+  display: flex;
+  align-items: center;
+  gap: 16px;                /* 20px -> 16px */
+  margin-bottom: 14px;      /* 20px -> 14px */
+}
+
+/* 🔽 achicar un poco la “card” */
+.container {
+  background: #fff;
+  max-width: 1024px;        /* 1200px -> 1024px */
+  max-height: 680px;        /* 720px -> 680px */
+  width: 1024px;        /* 1200px -> 1024px */
+  height: 680px;
+  padding: 24px;            /* 32px -> 24px */
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+  margin: 0 auto;
+}
+
+.img { width: 160px; height: 80px; position: absolute; top: 0; left: 0; margin: 10px; }
+
+.toggleContainer {
+  display: flex;
+  width: 100%;
+  gap: 0;
+  margin-bottom: 22px;      /* 30px -> 22px */
+  border-bottom: none;
+}
+
+.toggleButton {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 10px 0;          /* 14px -> 10px */
+  cursor: pointer;
+  font-size: 15px;          /* 16px -> 15px */
+  color: #666;
+  position: relative;
+  text-align: center;
+  transition: color .2s ease;
+}
+
+.toggleButton::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 3px; background-color: #000; opacity: .75;
+}
+
+.toggleButton:hover { color: #333; }
+.toggleButton.active { color: #111; font-weight: 600; }
+.toggleButton.active::after { background-color: #e82c02; opacity: 1; height: 4px; }
+
+/* 👇 necesaria para poder usar `${styles.active}` desde React */
+
+
+@media (max-width: 1280px) {
+  .container { max-width: 960px; padding: 20px; }
+  .toggleButton { font-size: 14px; padding: 8px 0; }
+}

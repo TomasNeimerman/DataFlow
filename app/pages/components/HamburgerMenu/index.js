@@ -9,22 +9,23 @@ export default function HamburgerMenu() {
   const [loadingMods, setLoadingMods] = useState(false);
   const [errorMods, setErrorMods] = useState(null);
   const [filter, setFilter] = useState("");
-  const [isDev, setIsDev] = useState(false);
   const panelRef = useRef(null);
 
-  // --- helper: fetch módulos con gate de empresa
-  const fetchModules = useCallback(async () => {
+  // Carga de módulos con “gate” opcional
+  const fetchModules = useCallback(async (force = false) => {
     setLoadingMods(true);
     setErrorMods(null);
     try {
       if (!window?.api) throw new Error("API no disponible (preload).");
 
-      // Gate: exigir empresa seleccionada
-      const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
-      if (!selectedCode) {
-        setModules([]);
-        setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
-        return;
+      // Gate: exigir empresa seleccionada, salvo que venga forzado
+      if (!force) {
+        const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
+        if (!selectedCode) {
+          setModules([]);
+          setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
+          return;
+        }
       }
 
       const idCliente = await window.api.getStoreValue?.("idCliente");
@@ -50,24 +51,20 @@ export default function HamburgerMenu() {
     }
   }, []);
 
-  // saber si es dev (opcional)
+  // Prefetch al montar
   useEffect(() => {
-    (async () => {
-      try { setIsDev(!!(await window?.api?.isDev?.())); } catch { setIsDev(false); }
-    })();
-  }, []);
-
-  // prefetch al montar
-  useEffect(() => {
-    fetchModules();
+    fetchModules(); // si aún no hay empresa, mostrará el mensaje y listo
   }, [fetchModules]);
 
-  // refrescar cuando se guarda/borra empresa (evento global)
+  // Reaccionar INSTANT al elegir/limpiar empresa desde BDSelect
   useEffect(() => {
     const onEmpresaSelected = (e) => {
       const code = e?.detail?.id || "";
-      if (code) fetchModules();
-      else {
+      if (code) {
+        setErrorMods(null);     // limpia “debes seleccionar…” al toque
+        setModules([]);         // resetea listado
+        fetchModules(true);     // fuerza recarga sin depender del store
+      } else {
         setModules([]);
         setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
       }
@@ -75,6 +72,11 @@ export default function HamburgerMenu() {
     window.addEventListener("empresa:selected", onEmpresaSelected);
     return () => window.removeEventListener("empresa:selected", onEmpresaSelected);
   }, [fetchModules]);
+
+  // Reintenta cada vez que se abre el panel
+  useEffect(() => {
+    if (open) fetchModules(); // si ya hay empresa, carga; si no, muestra el gate
+  }, [open, fetchModules]);
 
   // Cerrar con clic afuera o ESC
   useEffect(() => {
@@ -92,6 +94,7 @@ export default function HamburgerMenu() {
   }, [open]);
 
   const goToModule = async (m) => {
+    // doble check por si alguien limpia la empresa desde otro lado
     const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
     if (!selectedCode) {
       setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
@@ -124,7 +127,7 @@ export default function HamburgerMenu() {
         onClick={() => setOpen((v) => !v)}
         disabled={open}
       >
-        <p className={styles.bold}>Menú</p>
+       Menú
       </button>
 
       {/* Overlay */}
@@ -145,7 +148,6 @@ export default function HamburgerMenu() {
 
           {/* Contenido */}
           <div className={styles.scroll}>
-            {/* Grupo: Módulos */}
             <div className={styles.group}>
               <div className={styles.groupHeader}>
                 <span className={styles.groupTitle}>Módulos</span>
@@ -171,10 +173,7 @@ export default function HamburgerMenu() {
                       icono.startsWith("http") ||
                       icono.startsWith("data:") ||
                       icono.startsWith("/");
-
-                    const iconText =
-                      icono || (m.nombre || "?").trim().charAt(0).toUpperCase();
-
+                    const iconText = icono || (m.nombre || "?").trim().charAt(0).toUpperCase();
                     return (
                       <li
                         key={m.id ?? m.nombre ?? m.texto}
@@ -205,7 +204,6 @@ export default function HamburgerMenu() {
               )}
             </div>
 
-            {/* Grupo: Otros */}
             <div className={styles.group}>
               <div className={styles.groupHeader}>
                 <span className={styles.groupTitle}>Otros</span>
@@ -227,10 +225,11 @@ export default function HamburgerMenu() {
                 </button>
                 <button
                   className={styles.actionWide}
-                  onClick={() => { window.location.href = "/Index"; }}
+                  onClick={() => window.location.href = "/Index"}
                 >
                   Inicio
                 </button>
+
                 <button
                   className={styles.actionDangerWide}
                   onClick={async () => {

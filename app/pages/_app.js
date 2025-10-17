@@ -4,12 +4,13 @@ import '../public/styles/globals.css';
 import Imagen from './components/Image';
 import EmpresaSelected from './components/EmpresaSelected';
 import HamburgerButton from './components/HamburgerMenu';
+import Router from 'next/router';
 import logo_cone from '../public/logo_cone.png'
 import logo from '../public/logo.png'
 
 function MyApp({ Component, pageProps }) {
   const isDevRef = useRef(false);
-
+  const router = Router
   useEffect(() => {
     // preguntamos al main si es dev
     (async () => {
@@ -54,7 +55,7 @@ function MyApp({ Component, pageProps }) {
       <div className="overlay-bottom-right">
         <Imagen logo={logo_cone}/>
       </div>
-      <div className="overlay-bottom-left">
+      <div className="overlay-bottom-left" onClick={() => router.push("/Login")}>
         <Imagen logo={logo}/>
       </div>
       <div className="overlay-top-right">

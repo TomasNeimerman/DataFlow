@@ -271,7 +271,7 @@ const ChequesPForm = ({
   return (
     <div className={styles.container}>
       <div className={styles.titleContainer}>
-        <h1 className={styles.title}>{titulo}</h1>
+        <h2 className={styles.title}>Renumeración Masiva por Excel</h2>
 
         {/* Descargar planilla ChequesP con datos */}
         {template && (

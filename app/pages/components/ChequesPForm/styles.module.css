@@ -1,14 +1,4 @@
-.container {
-  background: #fff;
-  /* ancho fluido: no te rompe layouts ni “120%” raros */
-  width: clamp(320px, 62vw, 880px);
-  max-width: 100%;
 
-  padding: 32px;
-  border-radius: 10px;
-  box-shadow: 0 0 10px rgba(0,0,0,.1);
-  margin: 0 auto; /* centrado cuando haya espacio */
-}
 
 .title {
     color: black;
@@ -68,7 +58,10 @@
     border: none;
     padding: 10px 20px;
     border-radius: 5px;
+    font-size: 16px;
     cursor: pointer;
+    font-weight: 600;
+    height: 50px;
     width: 100%;
 }
 
@@ -90,7 +83,10 @@
 }
 .input[type="file"]{
     width: 100%;
+    height: 50px;
     padding: 10px;
+    font-size: 16px;
+    font-weight: 600;
     margin-bottom: 10px;
     border: 1px solid #ddd;
     border-radius: 5px;
@@ -102,7 +98,9 @@
   width: 100%;
   gap: 0;                   /* ocupan todo el ancho, sin separación */
   margin-bottom: 30px;
-  border-bottom: none;      /* sin borde extra abajo */
+  border-bottom: none;
+  margin-top: 40px;      /* sin borde extra abajo */
+  margin-bottom: 60px;
 }
 
 .toggleButton {

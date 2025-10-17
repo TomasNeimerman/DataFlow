@@ -295,8 +295,19 @@ const ListaPreciosForm = ({ nombreModulo = "Actualizador por Excel", idCliente }
     });
   }, [fVendedor, fDistrib, fCanal, clientes]); // eslint-disable-line
 
-  const selectedCount = selectedCli.size;
-  const allVisibleIds = useMemo(() => (filtrados || []).map(c => String(c.cli_cod)), [filtrados]);
+const selectedCount = selectedCli.size;
+const allVisibleIds = useMemo(
+  () => (filtrados || []).map(c => String(c.cli_cod)),
+  [filtrados]
+);
+
+const toggleAll = useCallback(() => {
+  setSelectedCli(prev =>
+    prev.size === allVisibleIds.length
+      ? new Set()
+      : new Set(allVisibleIds)
+  );
+}, [allVisibleIds]);
 
   const toggleSelectionMode = useCallback(() => {
     if ((filtrados || []).length <= 1) return;
@@ -396,7 +407,7 @@ const ListaPreciosForm = ({ nombreModulo = "Actualizador por Excel", idCliente }
     <div className={`${styles.container} ${activeSection === "resultados" ? styles.containerWide : ""}`}>
       {/* Título */}
       <div className={styles.titleContainer} style={{ marginBottom: "0.75rem" }}>
-        <h1 className={styles.title}>{tituloModuloResuelto}</h1>
+        <h1 className={styles.title}>Renumeración Masiva por Excel</h1>
         {!!errorModulos && <small className={styles.errorText}>{errorModulos}</small>}
       </div>
 
@@ -420,7 +431,7 @@ const ListaPreciosForm = ({ nombreModulo = "Actualizador por Excel", idCliente }
         {/* Descargar */}
         {activeSection === "descargar" && (
           <>
-            <div className={styles.titleContainer}><h2 className={styles.title}>Seleccionar Lista</h2></div>
+            <div className={styles.titleContainer}><h1 className={styles.title}>Seleccionar Lista</h1></div>
             <select className={styles.select} value={selectedOption} onChange={handleSelectChange} disabled={loadingCodigos}>
               <option value="">{loadingCodigos ? "Cargando listas..." : "Seleccione una opción..."}</option>
               {codigosLista.map((op) => (<option key={op.value} value={op.value}>{op.label}</option>))}
