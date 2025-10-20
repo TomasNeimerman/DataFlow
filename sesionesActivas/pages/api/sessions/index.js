@@ -53,8 +53,9 @@ export default async function handler(req, res) {
         });
       }
     }
-
-    res.json({ users: Array.from(byUser.values()) });
+    const users = Array.from(byUser.values());
+    const result = onlyActive ? users.filter(u => (u.sessions || []).length > 0) : users;
+    res.json({ users: result });
   } catch (e) {
     console.error('API /sessions error:', e);
     res.status(500).json({ error: e.message, code: e.code || null });

@@ -182,3 +182,7 @@ body::-webkit-scrollbar { width: 0; height: 0; }
   border: none; background: transparent; cursor: pointer; font-size: 16px; opacity: .7;
 }
 .inputGroup .togglePwd:hover { opacity: 1; }
+.tableContainer { width: 100%; overflow: auto; }
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { padding: .5rem; border-bottom: 1px solid #eee; }
+.headerRow { background: #f7f7f7; }

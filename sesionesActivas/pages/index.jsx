@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import UserAccordion from '../components/UserAccordion';
 import RenewModal from '../components/RenewModal'; // ← NUEVO
 import logo from '../assets/icon/app-icon.png';
 import Image from 'next/image';
+import ManageModulesModal from '../components/ManageModulesModal';
 
 export default function Home() {
   const [data, setData] = useState([]);
   const [onlyActive, setOnlyActive] = useState(true);
   const [loading, setLoading] = useState(true);
-
+  const [modsOpen, setModsOpen] = useState(false);
+const [modsTarget, setModsTarget] = useState(null); // { user, userId }
   // ─── Estado del modal Renovar ──────────────────────────────
   const [renewOpen, setRenewOpen] = useState(false);
   const [renewTarget, setRenewTarget] = useState(null); // { user, userId?, expireAt? }
@@ -90,7 +92,16 @@ export default function Home() {
       alert('No se pudo renovar: ' + (e.message || 'error'));
     }
   }
-
+  function openModules({ user, userId }) {
+  setModsTarget({ user, userId });
+  setModsOpen(true);
+}
+const viewData = useMemo(() => {
+  if (!onlyActive) return data;
+  return (data || [])
+    .map(u => ({ ...u, sessions: (u.sessions || []).filter(s => s.active) }))
+    .filter(u => u.sessions.length > 0);
+}, [data, onlyActive]);
   return (
     <main className="body">
       <Image className="brandLogo" src={logo} alt="Panel de Sesiones" width={120} height={120} priority />
@@ -116,26 +127,24 @@ export default function Home() {
 
         {loading && <div className="info">Cargando...</div>}
 
-        {!loading && data.length === 0 && (
-          <div className="errorBox">No hay sesiones para mostrar.</div>
-        )}
+       {!loading && viewData.length === 0 && (
+  <div className="errorBox">No hay sesiones activas.</div>
+)}
 
-        {!loading && data.map(u => (
+        {!loading && viewData.map(u => (
   <UserAccordion
     key={u.user}
     user={u.user}
-    userId={u.userId}                       // 👈 ahora viene del API
+    userId={u.userId}
     expireAt={u.expireAt || u.fechaExpiracionClave || null}
     sessions={u.sessions}
     onActivate={activate}
     onDeactivate={deactivate}
     onOpenRenew={() =>
-      openRenew({
-        user: u.user,
-        userId: u.userId,
-        expireAt: u.expireAt || u.fechaExpiracionClave || ''
-      })
+      openRenew({ user: u.user, userId: u.userId, expireAt: u.expireAt || u.fechaExpiracionClave })
     }
+    onOpenModules={() => openModules({ user: u.user, userId: u.userId })}
+    showModules={!onlyActive}          // 👈 oculto en “Activas”
   />
 ))}
       </div>
@@ -146,6 +155,13 @@ export default function Home() {
         onSubmit={submitRenew}
         defaultDate={renewTarget?.expireAt || ''}
       />
+      <ManageModulesModal
+  open={modsOpen}
+  onClose={() => setModsOpen(false)}
+  user={modsTarget?.user}
+  userId={modsTarget?.userId}
+  onSaved={() => fetchData()}
+/>
     </main>
   );
 }

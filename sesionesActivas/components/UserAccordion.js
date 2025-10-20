@@ -14,20 +14,20 @@ function fmt(d) {
 function isExpired(dateStr) {
   if (!dateStr) return false;
   const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
-  const expUTC = Date.UTC(y, (m || 1) - 1, d || 1);           // 00:00 UTC del día de expiración
+  const expUTC = Date.UTC(y, (m || 1) - 1, d || 1);
   const now = new Date();
   const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  return expUTC <= todayUTC;                                   // ← inclusivo
+  return expUTC <= todayUTC; // inclusivo
 }
 
 export default function UserAccordion({
   user, userId, expireAt, sessions,
-  onActivate, onDeactivate, onOpenRenew
+  onActivate, onDeactivate, onOpenRenew,
+  onOpenModules,
+  showModules = true           // 👈 NUEVO
 }) {
   const [open, setOpen] = useState(false);
-
   const expired = useMemo(() => isExpired(expireAt), [expireAt]);
-
   const headerClass = `accordionHeader ${expired ? 'expired' : ''}`;
 
   return (
@@ -48,7 +48,18 @@ export default function UserAccordion({
             Renovar Clave
           </button>
         ) : (
-          <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {showModules && (
+              <button
+                className="btn btn-sm ghost"
+                onClick={(e) => { e.stopPropagation(); onOpenModules?.({ user, userId }); }}
+                title="Gestionar módulos"
+              >
+                Módulos
+              </button>
+            )}
+            <span className={`chevron ${open ? 'open' : ''}`}>▼</span>
+          </div>
         )}
       </div>
 
