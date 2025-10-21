@@ -4,9 +4,9 @@
   background-color: #fff;
   margin-top: 5px;
   border-radius: 12px;
-  max-height: 800px; /* Altura máxima para el contenedor */
+  max-height: 1000px; /* Altura máxima para el contenedor */
   width: 90%; /* Ajustado para ser más adaptable */
-  max-width: 1200px; /* Añadido un ancho máximo para pantallas grandes */
+  max-width: 1500px; /* Añadido un ancho máximo para pantallas grandes */
   margin-left: auto; /* Centrar el contenedor */
   margin-right: auto; /* Centrar el contenedor */
   margin-bottom: 20px; /* Espacio con otros componentes si hubiera */
@@ -118,6 +118,7 @@
   border-radius: 5px;
   cursor: pointer;
   width: 100%;
+  font-weight: bolder;
 }
 .situacionCell .select {
   width: 100%;
@@ -130,9 +131,6 @@
 
 
 /* Nueva clase para aplicar negrita al texto */
-.boldText {
-  font-weight: bold;
-}
 .massActions {
     display: flex;
     justify-content: flex-end;

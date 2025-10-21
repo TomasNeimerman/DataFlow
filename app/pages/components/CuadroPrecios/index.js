@@ -23,7 +23,7 @@ const CuadroPrecios = ({ precios, onActualizar, isUpdating, progress, error, suc
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
-        <h2 className={styles.title}>Generador de Listas de Precios Avanzado</h2>
+        <h2 className={styles.title}>Ejecutar Script SQL</h2>
       </div>
 
       {/* Botón + barra de progreso */}

@@ -155,36 +155,7 @@ async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
 /*==============================================================================
 // Módulos
 ==============================================================================*/
-async function obtenerModulos(idCliente) {
-  if (!idCliente) return { success: false, message: 'Falta idCliente' };
 
-  return withAdminPool(async (pool) => {
-    const [rows] = await pool.execute(`
-      SELECT
-        m.Id AS ModuloId,
-        m.Nombre AS ModuloNombre,
-        m.Texto,
-        m.Icono,
-        m.Link,
-        m.PathExcelModelo,
-        (SELECT COUNT(*) FROM ModulosXCliente mx2 WHERE mx2.IdModulo = m.Id) AS countClientesPorModulo
-      FROM ModulosXCliente mx
-      JOIN Modulos m ON mx.IdModulo = m.Id
-      WHERE mx.IdCliente = ?
-    `, [idCliente]);
-
-    const modulos = rows.map(m => ({
-      id: m.ModuloId,
-      nombre: m.ModuloNombre,
-      texto: m.Texto,
-      icono: m.Icono,
-      link: m.Link,
-      pathExcel: m.PathExcelModelo,
-      countClientesPorModulo: m.countClientesPorModulo
-    }));
-    return { success: true, modulos };
-  });
-}
 
 /*==============================================================================
 // SesionesActivas  — Política: sesión única por usuario en un único DeviceId
@@ -301,7 +272,6 @@ function decodeStoreBlob(storeBlob) {
 
 module.exports = {
   iniciarSesion,
-  obtenerModulos,
   verificarSesionActiva,
   registrarSesionActiva,
   obtenerSesionPorDevice,

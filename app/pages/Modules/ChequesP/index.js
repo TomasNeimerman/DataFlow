@@ -6,6 +6,7 @@ import ChequesPForm from "../../components/ChequesPForm";
 import ChequesPModificar from "../../components/ChequesPModificar";
 import useChequesError from "../../../public/hooks/chequesPError";
 import * as XLSX from "xlsx";
+import EmpresaSelected from "../../components/EmpresaSelected";
 
 export default function ChequesPContainer() {
   const [activeTab, setActiveTab] = useState("modificar"); // "modificar" | "excel"
@@ -99,8 +100,10 @@ export default function ChequesPContainer() {
       <div
         className={styles.container}
       >
+        
         <div className={styles.titleContainer}>
-        <h1 className={styles.title}>Renumerador de Cheques</h1>
+        <h1 className={styles.title}>Renumerador de Cheques Propios</h1>
+        <EmpresaSelected />
         </div>
         <div className={styles.toggleContainer}>
           <button

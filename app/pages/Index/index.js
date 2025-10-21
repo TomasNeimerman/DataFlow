@@ -3,15 +3,21 @@ import styles from './styles.module.css'; // Importa tus estilos globales
 import BDSelect from '../components/BDSelect';
 import ModulosGrid from "../components/ModulosGrid";
 import Imagen from '../components/Image';
-import logotitle from '../../public/logotitle.png'
+import logo from '../../public/logo.png'
+import EmpresaSelected from "../components/EmpresaSelected";
 
 export default function Home() {
   return (
     <div className={styles.body}>
-
+      <div className="overlay-top-right">
+              
+            </div>
+      
       <div className={styles.container}>
-        <h1 className={styles.title}><Imagen logo={logotitle}/></h1>
-        <p className={styles.slogan}>Tus, datos en movimiento</p>
+        <div className={styles.space}>
+        <h1 className={styles.title}><Imagen logo={logo}/></h1>
+        <EmpresaSelected />
+        </div>
         <p className={styles.p}>Bienvenido a la aplicación.</p>
         <BDSelect />
          <ModulosGrid />

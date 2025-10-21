@@ -2,6 +2,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import styles from './styles.module.css';
+import EmpresaSelected from "../EmpresaSelected";
 
 const ChequesRechazados = ({
   chequesRechazados = [],
@@ -172,28 +173,29 @@ const ChequesRechazados = ({
   };
 
   const newValueHeader =
-    fieldMode === 'situacion' ? 'Nueva situación' :
-    fieldMode === 'fvto'      ? 'Nueva fecha vto.' :
-                                'Nuevo número';
+    fieldMode === 'situacion' ? 'Nueva Situación' :
+    fieldMode === 'fvto'      ? 'Nueva Fecha Vto.' :
+                                'Nuevo Número';
 
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
+        <EmpresaSelected />
       </div>
 
       {/* Selector de campo + editor global si hay filas seleccionadas */}
       <div className={styles.massBar}>
         <div className={styles.massLeft}>
-          <label className={styles.label}>Campo a actualizar:</label>
+          <label className={styles.label}>Campo a Actualizar:</label>
           <select
             className={styles.select}
             value={fieldMode}
             onChange={(e) => onFieldModeChange(e.target.value)}
           >
             <option value="situacion">Situación</option>
-            <option value="fvto">Fecha de vencimiento</option>
-            <option value="numero">Número de cheque</option>
+            <option value="fvto">Fecha de Vencimiento</option>
+            <option value="numero">Número de Cheque</option>
           </select>
         </div>
         {selectedCount > 0 && (
@@ -224,7 +226,7 @@ const ChequesRechazados = ({
                 Importe {renderSortArrow('importe')}
               </th>
               <th>Estado</th>
-              <th>Fecha modificación</th>
+              <th>Fecha Modificación</th>
               <th>Situación</th>
               <th>{newValueHeader}</th>
               <th>

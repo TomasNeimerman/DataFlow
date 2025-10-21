@@ -44,16 +44,23 @@ function writeToLog(message) {
   catch (e) { console.error('log error:', e.message); }
 }
 writeToLog(`SO: ${os.platform()} ${os.release()} | Node ${process.version} | Electron ${process.versions.electron}`);
-
+const RELEASE_SESSION_ON_EXIT = false;
 // --- Broadcast a todas las ventanas ---
-function broadcast(channel, payload = {}) {
-  try {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(channel, payload);
-    }
-  } catch (e) { writeToLog?.(`broadcast ${channel} error: ${e?.message}`); }
+// arriba, cerca de otros helpers
+function broadcast(channel, payload) {
+  const wins = BrowserWindow.getAllWindows();
+  for (const w of wins) {
+    try { w.webContents.send(channel, payload); } catch {}
+  }
 }
-
+function storeSet(key, value) {
+  if (!store) return;
+  try {
+    store.set(key, value);
+    // 🔔 notificar a todos los renderers
+    broadcast('store:any-change', { [key]: value });
+  } catch {}
+}
 // Sólo exponemos cambios seguros del store
 const STORE_BROADCAST_WHITELIST = new Set([
   'idCliente',
@@ -82,31 +89,14 @@ process.on('unhandledRejection', async (reason, p) => {
   writeToLog(`Rejection: ${reason}`);
   await finalizeActiveSession('unhandledRejection');
 });
-process.on('SIGINT', async () => {
-  await finalizeActiveSession('SIGINT');
-  app.quit();
-  process.exit(0);
-});
-process.on('SIGTERM', async () => {
-  await finalizeActiveSession('SIGTERM');
-  app.quit();
-  process.exit(0);
-});
-process.on('SIGHUP', async () => {
-  await finalizeActiveSession('SIGHUP');
-  app.quit();
-  process.exit(0);
-});
+process.on('SIGINT',  async () => { await finalizeActiveSession('SIGINT',  { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
+process.on('SIGTERM', async () => { await finalizeActiveSession('SIGTERM', { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
+process.on('SIGHUP',  async () => { await finalizeActiveSession('SIGHUP',  { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
 // --- Watchdog de Sesión: cierra si Activa pasa a 0 ---
 let sessionWatchdogTimer = null;
 let logoutInFlight = false;
 
-function stopSessionWatchdog() {
-  if (sessionWatchdogTimer) {
-    clearInterval(sessionWatchdogTimer);
-    sessionWatchdogTimer = null;
-  }
-}
+function stopSessionWatchdog() { if (global.sessionWatchdogTimer) { clearInterval(global.sessionWatchdogTimer); global.sessionWatchdogTimer = null; } }
 
 // fuerza logout local y vuelve a /Login
 async function forceLogout(reason = 'remote-inactive') {
@@ -147,15 +137,18 @@ async function forceLogout(reason = 'remote-inactive') {
  */
 function startSessionWatchdog({ usuario, deviceId, intervalMs = 10_000 }) {
   stopSessionWatchdog();
-  sessionWatchdogTimer = setInterval(async () => {
+  global.sessionWatchdogTimer = setInterval(async () => {
     try {
       const r = await obtenerSesionPorDeviceService({ usuario, deviceId });
       const activa = r?.success ? Number(r.row?.Activa ?? 0) : 0;
       if (activa !== 1) {
-        await forceLogout('activa=0');
+        // fuerza logout local (no intenta liberar porque ya está en 0)
+        await finalizeActiveSession('watchdog-activa-0', { releaseLock: false });
+        const base = getBaseOrigin?.();
+        clearStoreForLogin?.();
+        if (base && global.mainWindow) await global.mainWindow.loadURL(`${base}/Login`);
       }
     } catch (e) {
-      // si falla la consulta repetidamente también conviene proteger
       writeToLog(`watchdog check error: ${e.message}`);
     }
   }, intervalMs);
@@ -179,7 +172,6 @@ const {
 } = require('./modulesService/ChequesP');
 const {
   iniciarSesion: iniciarSesionService,
-  obtenerModulos: obtenerModulosService,
   verificarSesionActiva: verificarSesionActivaService,
   registrarSesionActiva: registrarSesionActivaService,
   obtenerSesionPorDevice: obtenerSesionPorDeviceService,
@@ -187,6 +179,10 @@ const {
   finalizarSesionActiva: finalizarSesionActivaService,
   decodeStoreBlob: decodeStoreBlobService
 } = require('./modulesService/Login');
+const {
+  obtenerModulos: obtenerModulosService,
+  obtenerModulosXCliente: obtenerModulosXClienteService // 👈 agregado
+} = require('./modulesService/Modules');
 const {
   registroCheq3Sit: registro,
   actualizarCheque3: actualizarCheque3Service,
@@ -219,27 +215,27 @@ let modulosCache = [];    // cache de módulos para el menú hamburguesa
 
 
 let isFinalizing = false;
-async function finalizeActiveSession(reason = 'unknown') {
+async function finalizeActiveSession(reason = 'unknown', { releaseLock = RELEASE_SESSION_ON_EXIT } = {}) {
   if (isFinalizing) return;
   isFinalizing = true;
   try {
-    const usuario  = activeSession?.usuario;
-    const deviceId = activeSession?.deviceId;
+    const usuario  = global.activeSession?.usuario;
+    const deviceId = global.activeSession?.deviceId;
+    writeToLog(`finalizeActiveSession [${reason}] releaseLock=${releaseLock} user=${usuario || '-'} device=${deviceId || '-'}`);
 
-    writeToLog(`finalizeActiveSession [${reason}] user=${usuario || '-'} device=${deviceId || '-'}`);
+    // Detener timers locales
+    try { stopSessionHeartbeat?.(); } catch {}
+    try { stopSessionWatchdog?.(); } catch {}
 
-    // Marcar Activa = 0 (best-effort)
-    if (usuario && deviceId) {
+    // Si se pide liberar lock, recién ahí marcamos Activa=0
+    if (releaseLock && usuario && deviceId) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); }
       catch (e) { writeToLog(`finalizarSesionActiva error: ${e.message}`); }
     }
   } finally {
-    // detener timers
-    try { stopSessionHeartbeat?.(); } catch {}
-    try { stopSessionWatchdog?.(); } catch {}
+    isFinalizing = false;
   }
 }
-
 // --- Utils ---
 function waitForUrl(urlToPing, timeoutMs = 30000, intervalMs = 500) {
   const http = require('http');
@@ -308,11 +304,28 @@ async function refreshModulosCache() {
       broadcast('menu:modules-updated', { modulos: [] });
       return;
     }
-    const res = await obtenerModulosService(idCliente);
-    if (res?.success) {
-      modulosCache = (res.modulos || []).map(m => ({
-        id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
-        link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
+
+    // 1) Todos los módulos (con Video)
+    const allRes = await obtenerModulosService(idCliente);
+    // 2) Referencias del cliente (ids habilitados)
+    const refRes = await obtenerModulosXClienteService(idCliente);
+
+    if (allRes?.success) {
+      const idsHabilitados =
+        (refRes && refRes.success && Array.isArray(refRes.idsHabilitados))
+          ? new Set(refRes.idsHabilitados)
+          : (refRes?.modulosXCliente ? new Set(refRes.modulosXCliente.map(r => r.IdModulo)) : new Set());
+
+      modulosCache = (allRes.modulos || []).map(m => ({
+        id: m.id,
+        nombre: m.nombre,
+        texto: m.texto,
+        icono: m.icono,
+        link: m.link,
+        pathExcel: m.pathExcel,
+        video: m.video || null,
+        habilitado: idsHabilitados.has(m.id),
+        countClientesPorModulo: m.countClientesPorModulo
       }));
       broadcast('menu:modules-updated', { modulos: modulosCache });
     } else {
@@ -404,21 +417,9 @@ async function createMainWindow() {
   });
 
   // Al cerrar la ventana, marcar sesión inactiva y parar heartbeat/watchdog
-  mainWindow.on('close', async () => {
-    try {
-      if (activeSession?.usuario && activeSession?.deviceId) {
-        await finalizarSesionActivaService({
-          usuario: activeSession.usuario,
-          deviceId: activeSession.deviceId,
-        });
-      }
-    } catch (e) {
-      writeToLog(`finalizarSesion (window.close) error: ${e?.message}`);
-    } finally {
-      stopSessionHeartbeat();
-      stopSessionWatchdog();
-    }
-  });
+ mainWindow?.on('close', async () => {
+  await finalizeActiveSession('window-close', { releaseLock: RELEASE_SESSION_ON_EXIT });  // ← NO libera
+});
 
   // ------- Carga de la app (DEV/PROD) --------
   if (isDev) {
@@ -517,17 +518,17 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', (e) => {
-  if (isFinalizing) return;        // ya estamos cerrando, sin loops
-  e.preventDefault();              // detenemos el cierre mientras limpiamos
+  if (isFinalizing) return;
+  e.preventDefault();
   (async () => {
-    await finalizeActiveSession('before-quit');
-    app.exit(0);                   // cerrar de verdad (evita re-disparar before-quit)
+    await finalizeActiveSession('before-quit', { releaseLock: RELEASE_SESSION_ON_EXIT }); // ← NO libera
+    app.exit(0);
   })();
 });
 
 // Red de seguridad adicional
 app.on('will-quit', async () => {
-  await finalizeActiveSession('will-quit');
+  await finalizeActiveSession('will-quit', { releaseLock: RELEASE_SESSION_ON_EXIT });     // ← NO libera
 });
 
 app.on('window-all-closed', () => {
@@ -540,15 +541,13 @@ app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) creat
 
 // --- IPC: electron-store helpers ---
 ipcMain.handle('electron-store-get', (_e, key) => store ? store.get(key) : undefined);
-ipcMain.handle('electron-store-set', (_e, { key, value }) => {
-  if (!store) return;
-  const prev = { ...store.store };
-  store.set(key, value);
-  if (STORE_BROADCAST_WHITELIST.has(key)) {
-    const next = { ...store.store };
-    const delta = pickWhitelistedDelta(next, prev);
-    if (Object.keys(delta).length) broadcast('store:any-change', delta);
-  }
+ipcMain.handle('electron-store-set', (_e, ...args) => {
+  let key, value;
+  if (args.length === 2) { key = args[0]; value = args[1]; }
+  else if (args[0] && typeof args[0] === 'object') { key = args[0].key; value = args[0].value; }
+  if (!key) return;
+  storeSet(key, value);
+  return true;
 });
 ipcMain.handle('whoami', () => ({
   user: store?.get('user') || null,
@@ -580,26 +579,27 @@ ipcMain.handle('menu:set-modules', async (_e, modulos) => {
 // --- IPC: logout directo ---
 ipcMain.handle('logout', async () => {
   try {
-    if (activeSession?.usuario && activeSession?.deviceId) {
-      await finalizarSesionActivaService({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
+    const usuario  = global.activeSession?.usuario || store.get('user');
+    const deviceId = global.activeSession?.deviceId || getDeviceId(store);
+    if (usuario && deviceId) {
+      await finalizarSesionActivaService({ usuario, deviceId }); // ← libera lock
     }
-    stopSessionHeartbeat();
-    stopSessionWatchdog();
-    activeSession = null;
-    if (store) {
-      const did = store.get('deviceId');
-      const prev = { ...store.store };
-      store.clear(); if (did) store.set('deviceId', did);
-      const next = { ...store.store };
-      const delta = pickWhitelistedDelta(next, prev);
-      if (Object.keys(delta).length) broadcast('store:any-change', delta);
-    }
-    broadcast('session:state', { status: 'logged-out', reason: 'manual', at: Date.now() });
-    return { success: true };
   } catch (e) {
-    return { success: false, message: e.message };
+    writeToLog(`logout error: ${e.message}`);
+  } finally {
+    // Limpieza local y volver a /Login
+    try { stopSessionHeartbeat?.(); } catch {}
+    try { stopSessionWatchdog?.(); } catch {}
+    global.activeSession = null;
+    global.modulosCache = [];
+    clearStoreForLogin?.();
+    const base = getBaseOrigin?.();
+    if (base && global.mainWindow) await global.mainWindow.loadURL(`${base}/Login`);
   }
+  broadcast('session:state', { status: 'logged-out', reason: 'manual', at: Date.now() });
+  return { success: true };
 });
+
 function toDMY(dateLike) {
   if (!dateLike) return '';
   const d = new Date(dateLike);
@@ -724,18 +724,33 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
     // **Watchdog**: si Activa deja de ser 1 → forceLogout()
     startSessionWatchdog({ usuario, deviceId, intervalMs: 10_000 });
 
-    // Módulos → cache para el popup
-    const modulesResult = await obtenerModulosService(result.user.IdCliente);
-    if (!modulesResult?.success) {
+    // Módulos → cache (COMBINADO con referencias del cliente)
+    const allModules = await obtenerModulosService(result.user.IdCliente);
+    const modsRef = await obtenerModulosXClienteService(result.user.IdCliente);
+
+    if (!allModules?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
       stopSessionHeartbeat();
       stopSessionWatchdog();
       activeSession = null;
-      return { success: false, code: 'MODULES_FAIL', message: modulesResult?.message || 'No se pudo cargar módulos.' };
+      return { success: false, code: 'MODULES_FAIL', message: allModules?.message || 'No se pudo cargar módulos.' };
     }
-    modulosCache = modulesResult.modulos.map(m => ({
-      id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
-      link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
+
+    const idsHabilitados =
+      (modsRef && modsRef.success && Array.isArray(modsRef.idsHabilitados))
+        ? new Set(modsRef.idsHabilitados)
+        : (modsRef?.modulosXCliente ? new Set(modsRef.modulosXCliente.map(r => r.IdModulo)) : new Set());
+
+    modulosCache = (allModules.modulos || []).map(m => ({
+      id: m.id,
+      nombre: m.nombre,
+      texto: m.texto,
+      icono: m.icono,
+      link: m.link,
+      pathExcel: m.pathExcel,
+      video: m.video || null,
+      habilitado: idsHabilitados.has(m.id),
+      countClientesPorModulo: m.countClientesPorModulo
     }));
 
     // Broadcast de estado de sesión y módulos iniciales
@@ -766,7 +781,41 @@ const safeIpc = (name, handler) => {
   });
 };
 
-safeIpc('get-modules', obtenerModulosService);
+// ⬇️ Reemplazo: get-modules ahora devuelve módulos con `habilitado` y `video`
+safeIpc('get-modules', async (idCliente) => {
+  try {
+    if (!idCliente) return { success: false, message: 'Falta idCliente' };
+    const allRes = await obtenerModulosService(idCliente);
+    const refRes = await obtenerModulosXClienteService(idCliente);
+
+    if (!allRes?.success) return allRes;
+
+    const idsHabilitados =
+      (refRes && refRes.success && Array.isArray(refRes.idsHabilitados))
+        ? new Set(refRes.idsHabilitados)
+        : (refRes?.modulosXCliente ? new Set(refRes.modulosXCliente.map(r => r.IdModulo)) : new Set());
+
+    const modulos = (allRes.modulos || []).map(m => ({
+      id: m.id,
+      nombre: m.nombre,
+      texto: m.texto,
+      icono: m.icono,
+      link: m.link,
+      pathExcel: m.pathExcel,
+      video: m.video || null,
+      habilitado: idsHabilitados.has(m.id),
+      countClientesPorModulo: m.countClientesPorModulo
+    }));
+
+    return { success: true, modulos };
+  } catch (e) {
+    return { success: false, message: e?.message || 'Error combinando módulos.' };
+  }
+});
+
+// (opcional) referencias crudas, por si las querés directo en el front
+safeIpc('get-modulos-x-cliente', obtenerModulosXClienteService);
+
 safeIpc('obtener-cheques', obtenerChequeService);
 safeIpc('update-cheques', async (payload) => {
   const res = await actualizarChequeService({

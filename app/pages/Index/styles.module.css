@@ -18,7 +18,7 @@
 }
 .title {
     color: black;
-    width: 160px;
+    width: 200px;
 }
 .slogan {
     color: black;
@@ -29,12 +29,24 @@
 }
 .p {
     margin-top: 0;
+    margin-left: 16px;
+    font-weight: bold;
 }
 .img {
-    width: 160px;
-    height: 80px;
+    width: 200px;
+    height: 100px;
     position: absolute;
     top: 0;
     left: 0;
     margin: 10px; 
+}
+.overlay-top-right {
+  position: absolute;
+  top: 3rem;   /* 24px desde arriba */
+  right: 2rem; /* 40px desde la derecha */
+  z-index: 10;     /* Asegura que esté por encima del contenido */
+}
+.space{
+    display: flex;
+    justify-content: space-between;
 }

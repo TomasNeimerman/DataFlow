@@ -11,6 +11,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const hardRefresh = () => {
+    try {
+      if (window?.api?.reload) window.api.reload();
+      else window.location.reload();
+    } catch {}
+  };
+
   // Suscripción compatible con window.api.on/off y CustomEvent fallback
   const subscribe = useCallback((channel, handler) => {
     if (typeof window === "undefined") return () => {};
@@ -24,7 +31,7 @@ export default function LoginPage() {
     }
   }, []);
 
-  // Si ya hay sesión iniciada (idCliente presente), mandamos a /Index
+  // Si ya hay sesión, ir a /Index
   useEffect(() => {
     (async () => {
       try {
@@ -34,11 +41,10 @@ export default function LoginPage() {
     })();
   }, [router]);
 
-  // Si el main emite "logged-in", redirigimos
+  // Redirigir/aplicar refresh cuando el main confirma login
   useEffect(() => {
     const unsub = subscribe("session:state", async (s) => {
       if (s?.status === "logged-in") {
-        // Confirmamos que main haya persistido idCliente
         const idCliente = await window.api?.getStoreValue?.("idCliente");
         if (!idCliente) {
           setError("No se pudo recuperar el idCliente luego del login.");
@@ -46,9 +52,8 @@ export default function LoginPage() {
           return;
         }
         router.replace("/Index");
-      }
-      if (s?.status === "logged-out") {
-        // En login page no hacemos nada especial
+        // 🔁 pequeño refresh para que banner/módulos se pinten ya
+        setTimeout(hardRefresh, 60);
       }
     });
     return unsub;
@@ -65,7 +70,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 1) Verificar BD local "manager"
+      // 1) Debe existir la BD local "manager"
       const chk = await window.api?.hasManager?.();
       if (!chk?.ok) {
         setError("No se encuentra sistema Bejerman ERP instalado");
@@ -73,7 +78,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 2) Login a la nube (main guarda idCliente, user, token en electron-store)
+      // 2) Login (main persiste en electron-store y emite session:state)
       const response = await window.api?.login?.(usuario, contraseña);
       if (!response?.success) {
         setError(response?.message || "Error al iniciar sesión.");
@@ -81,19 +86,11 @@ export default function LoginPage() {
         return;
       }
 
-      // (Opcional) si querés seguir usando localStorage para compat:
+      // Compat con legacy localStorage (si lo venís usando)
       localStorage.setItem("fechaInicio", new Date().toISOString());
       localStorage.setItem("jwtToken", response.token || "");
 
-      // 3) Verificamos que el main haya guardado idCliente
-      const idCliente = await window.api?.getStoreValue?.("idCliente");
-      if (!idCliente) {
-        setError("No se pudo recuperar el idCliente. Reintentá.");
-        setLoading(false);
-        return;
-      }
-
-      // 4) Redirigimos al home
+      // 3) Redirección inmediata (el refresh viene por el evento arriba)
       router.push("/Index");
     } catch (err) {
       console.error(err);
@@ -103,7 +100,6 @@ export default function LoginPage() {
     }
   };
 
-  // Enter para enviar
   const onKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
   };

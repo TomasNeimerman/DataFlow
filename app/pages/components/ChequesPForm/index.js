@@ -324,7 +324,7 @@ const ChequesPForm = ({
               onClick={handleOpenPreview}
               title="Ver vista previa de todos los cheques en la base"
             >
-              Vista previa de cheques
+              Vista Previa de Cheques
             </button>
           <div className={styles.buttonsContainer}>
             <button className={styles.btn} id="cancel" onClick={handleCancel}>

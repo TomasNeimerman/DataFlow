@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import styles from "./styles.module.css";
 import DownloadIcon from "../DownloadButton"
+import EmpresaSelected from "../EmpresaSelected";
 
 /* ────────── Cuadro de Resultados integrado ────────── */
 /*
@@ -178,7 +179,9 @@ const ArticulosForm = ({
 
   return (
     <div className={styles.container}>
+      <div className={styles.space}>
       <div className={styles.titleContainer}>
+        
         <h1 className={styles.title}>{titulo}</h1>
 
         {/* Botón plantilla (ya existente) */}
@@ -192,7 +195,8 @@ const ArticulosForm = ({
           </button>
         )}
 
-  
+        </div>
+        <EmpresaSelected />
       </div>
 
       {/* Tabs: Importar (siempre) | Resultados (solo tras intentar importar) */}

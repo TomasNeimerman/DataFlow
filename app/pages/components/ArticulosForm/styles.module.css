@@ -9,7 +9,10 @@
   box-shadow: 0 0 10px rgba(0,0,0,.1);
   margin: 0 auto; /* centrado cuando haya espacio */
 }
-
+.space{
+  display: flex;
+  justify-content: space-between;
+}
 .title {
     color: black;
 }

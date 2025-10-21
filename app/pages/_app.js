@@ -4,13 +4,21 @@ import '../public/styles/globals.css';
 import Imagen from './components/Image';
 import EmpresaSelected from './components/EmpresaSelected';
 import HamburgerButton from './components/HamburgerMenu';
-import Router from 'next/router';
+import { useRouter } from 'next/router';   // ⬅️ usamos el hook
 import logo_cone from '../public/logo_cone.png'
 import logo from '../public/logo.png'
 
+function normalize(p = "/") {
+  const noHashQuery = p.split("?")[0].split("#")[0];
+  const trimmed = noHashQuery.replace(/\/+$/, "");
+  const path = trimmed === "" ? "/" : trimmed;
+  return path.toLowerCase(); // tolera /Index vs /index
+}
+
 function MyApp({ Component, pageProps }) {
   const isDevRef = useRef(false);
-  const router = Router
+  const router = useRouter();
+
   useEffect(() => {
     // preguntamos al main si es dev
     (async () => {
@@ -48,6 +56,10 @@ function MyApp({ Component, pageProps }) {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // ✅ ocultar overlay-bottom-left en Index ("/" o "/Index")
+  const here = normalize(router.asPath || "/");
+  const isIndex = here === "/" || here === "/index";
+
   return (
     <div className="page-container">
       <Component {...pageProps} />
@@ -55,12 +67,12 @@ function MyApp({ Component, pageProps }) {
       <div className="overlay-bottom-right">
         <Imagen logo={logo_cone}/>
       </div>
-      <div className="overlay-bottom-left" onClick={() => router.push("/Login")}>
-        <Imagen logo={logo}/>
-      </div>
-      <div className="overlay-top-right">
-        <EmpresaSelected />
-      </div>
+
+      {!isIndex && (
+        <div className="overlay-bottom-left" onClick={() => router.push("/Login")}>
+          <Imagen logo={logo}/>
+        </div>
+      )}
 
       <HamburgerButton />
     </div>

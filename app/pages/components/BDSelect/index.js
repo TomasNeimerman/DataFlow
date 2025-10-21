@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import styles from "./styles.module.css";
 
 const BDSelect = () => {
-  // Empresas locales: [{ Codigo, RazonSocial, Cuit }]
   const [empresas, setEmpresas] = useState([]);
   const [selectedCodigo, setSelectedCodigo] = useState("");
   const [isConfigured, setIsConfigured] = useState(false);
@@ -13,7 +12,7 @@ const BDSelect = () => {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  // Suscripción que funciona con window.api.on/off y con CustomEvent (fallback)
+  // === helpers de eventos (on/off + fallback a CustomEvent) ===
   const subscribe = useCallback((channel, handler) => {
     if (typeof window === "undefined") return () => {};
     if (window?.api?.on) {
@@ -26,6 +25,32 @@ const BDSelect = () => {
     }
   }, []);
 
+  const emit = useCallback((channel, payload) => {
+    try {
+      if (window?.api?.emit) {
+        window.api.emit(channel, payload);
+      } else {
+        window.dispatchEvent(new CustomEvent(channel, { detail: payload }));
+      }
+    } catch {}
+  }, []);
+
+  // 🔁 “refresh fino” post-selección: avisa a toda la app sin recargar
+  const notifyLiveRefresh = useCallback(
+    ({ idCliente, empCodigo, instanciaBD, nombre }) => {
+      // Notificación semántica de selección de empresa
+      emit("empresa:selected", { idCliente, empCodigo, instanciaBD, nombre });
+
+      // Y broadcast de “cambios en store” para quien escuche del lado UI
+      emit("store:any-change", {
+        selectedEmpresaCodigo: empCodigo || "",
+        selectedEmpresaNombre: nombre || "",
+        selectedInstanciaBD: instanciaBD || "",
+      });
+    },
+    [emit]
+  );
+
   const cargarEmpresas = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -34,7 +59,7 @@ const BDSelect = () => {
     try {
       if (!window.api) throw new Error("La API de Electron (window.api) no está disponible.");
 
-      // 0) Verificar que exista la BD local "manager"
+      // 0) Verificar BD local “manager”
       const chk = await window.api.hasManager?.();
       if (!chk?.ok) {
         setError("No se encuentra sistema Bejerman ERP instalado");
@@ -42,13 +67,13 @@ const BDSelect = () => {
         return;
       }
 
-      // 1) Traer empresas locales habilitadas
+      // 1) Empresas locales habilitadas
       const res = await window.api.listEmpresasLocal?.();
       if (!res?.success) throw new Error(res?.message || "No se pudieron cargar las empresas locales.");
       const data = Array.isArray(res.data) ? res.data : [];
       setEmpresas(data);
 
-      // 2) Restaurar selección previa (si existe)
+      // 2) Restaurar selección
       const savedCode  = await window.api.getStoreValue?.("selectedEmpresaCodigo");
       const savedName  = await window.api.getStoreValue?.("selectedEmpresaNombre");
       const instDB     = await window.api.getStoreValue?.("selectedInstanciaBD");
@@ -68,10 +93,9 @@ const BDSelect = () => {
 
   useEffect(() => { cargarEmpresas(); }, [cargarEmpresas]);
 
-  // 🔔 Reaccionar a selección de empresa emitida por el main
+  // Reaccionar a selección emitida por main u otros
   useEffect(() => {
-    const unsub = subscribe("empresa:selected", async (payload) => {
-      // payload: { idCliente, empCodigo, instanciaBD, nombre }
+    const unsub = subscribe("empresa:selected", (payload) => {
       if (payload?.instanciaBD) {
         setIsConfigured(true);
         if (payload?.empCodigo) setSelectedCodigo(payload.empCodigo);
@@ -82,11 +106,10 @@ const BDSelect = () => {
     return unsub;
   }, [subscribe]);
 
-  // 🔔 Reaccionar a cambios de store (ej: limpiar selección, logout, etc.)
+  // Cambios en “store” (limpieza, logout, etc.)
   useEffect(() => {
-    const unsub = subscribe("store:any-change", async (delta) => {
+    const unsub = subscribe("store:any-change", (delta) => {
       if ("selectedInstanciaBD" in delta && !delta.selectedInstanciaBD) {
-        // Se limpió la instancia => hay que reconfigurar
         setIsConfigured(false);
         setSuccessMessage("");
       }
@@ -98,7 +121,7 @@ const BDSelect = () => {
     return unsub;
   }, [subscribe]);
 
-  // 🔔 Si la sesión se cierra remotamente, limpiar UI
+  // Cierre de sesión
   useEffect(() => {
     const unsub = subscribe("session:state", (s) => {
       if (s?.status === "logged-out") {
@@ -129,27 +152,32 @@ const BDSelect = () => {
       setError("");
       setSuccessMessage("");
 
-      // 1) Id del cliente (guardado en el login)
       const idCliente = await window.api.getStoreValue?.("idCliente");
       if (!idCliente) throw new Error("No se encontró idCliente. Inicie sesión.");
 
-      // 2) Verificar en nube si está habilitado y setear instancia en store (main lo hace)
+      // Verifica habilitación en nube y fija DB en properties + store
       const verify = await window.api.verifyEmpresaForUser?.({ idCliente, empCodigo: selectedCodigo });
       if (!verify?.success) throw new Error(verify?.message || "El usuario no está habilitado...");
 
-      // 3) Persistir también código y nombre en el store (útil para UI)
+      // Persistir datos útiles en store para UI
       const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
-      const razon    = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
+      const nombre   = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
 
       await window.api.setStoreValue?.("selectedEmpresaCodigo", selectedCodigo);
-      await window.api.setStoreValue?.("selectedEmpresaNombre", razon);
-      // Nota: selectedInstanciaBD lo setea el main en 'empresa:verify-and-save'
+      await window.api.setStoreValue?.("selectedEmpresaNombre", nombre);
+      // selectedInstanciaBD lo seteó el main
 
       setIsConfigured(true);
       setSuccessMessage("¡Configuración guardada exitosamente!");
       setError("");
 
-      // No disparamos CustomEvent manual; dejamos que el main emita 'empresa:selected'
+      // ⬅️ refresco fino (no recarga la página)
+      notifyLiveRefresh({
+        idCliente,
+        empCodigo: selectedCodigo,
+        instanciaBD: verify?.data?.instanciaBD,
+        nombre,
+      });
     } catch (err) {
       console.error("BDSelect handleGuardar:", err);
       setError(err.message || "El usuario no está habilitado para operar esa empresa.");
@@ -164,7 +192,6 @@ const BDSelect = () => {
       setError("");
       setSuccessMessage("");
 
-      // Limpiamos selección local y marcadores de instancia
       await window.api.setStoreValue?.("selectedEmpresaCodigo", "");
       await window.api.setStoreValue?.("selectedEmpresaNombre", "");
       await window.api.setStoreValue?.("selectedInstanciaBD", "");
@@ -172,6 +199,15 @@ const BDSelect = () => {
       setIsConfigured(false);
       setSelectedCodigo("");
       setSuccessMessage("Selección borrada. Elegí otra empresa y guardá.");
+
+      // Notificación de limpieza (refresco fino)
+      const idCliente = await window.api.getStoreValue?.("idCliente");
+      notifyLiveRefresh({
+        idCliente,
+        empCodigo: "",
+        instanciaBD: "",
+        nombre: "",
+      });
     } catch (err) {
       console.error("Error al limpiar selección:", err);
       setError(err.message || "No se pudo limpiar la selección.");

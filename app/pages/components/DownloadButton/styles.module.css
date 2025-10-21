@@ -1,13 +1,13 @@
 /* Removed container styles, keeping only icon wrapper */
 .downloadIcon {
-  width: 40px;
-  height: 60px;
+  width: 30px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .icon {
-  width: 100%;
-  height: 100%;
+  width: 30px;
+  height: 40px;
 }

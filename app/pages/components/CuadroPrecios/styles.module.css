@@ -5,7 +5,7 @@
   margin-top: 5px;
   border-radius: 12px;
   max-height: 800px; /* Altura máxima para el contenedor */
-  width: 90%; /* Ajustado para ser más adaptable */
+  width: 100%; /* Ajustado para ser más adaptable */
   max-width: 1200px; /* Añadido un ancho máximo para pantallas grandes */
   margin-left: auto; /* Centrar el contenedor */
   margin-right: auto; /* Centrar el contenedor */

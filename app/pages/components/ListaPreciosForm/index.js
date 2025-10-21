@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
+import EmpresaSelected from "../EmpresaSelected";
 import styles from "./styles.module.css";
 
 const ListaPreciosForm = ({ nombreModulo = "Actualizador por Excel", idCliente }) => {
@@ -407,7 +408,8 @@ const toggleAll = useCallback(() => {
     <div className={`${styles.container} ${activeSection === "resultados" ? styles.containerWide : ""}`}>
       {/* Título */}
       <div className={styles.titleContainer} style={{ marginBottom: "0.75rem" }}>
-        <h1 className={styles.title}>Renumeración Masiva por Excel</h1>
+        <h1 className={styles.title}>Actualizador de Listas de Precios por Excel</h1>
+        <EmpresaSelected />
         {!!errorModulos && <small className={styles.errorText}>{errorModulos}</small>}
       </div>
 
@@ -438,14 +440,14 @@ const toggleAll = useCallback(() => {
             </select>
             {!!errorCodigos && <small className={styles.errorText} style={{ display: "block", marginTop: 6 }}>{errorCodigos}</small>}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-              <button className={styles.btn} disabled={!selectedOption} onClick={handleConfirmarSeleccion}>Confirmar selección</button>
+              <button className={styles.btn} disabled={!selectedOption} onClick={handleConfirmarSeleccion}>Confirmar Selección</button>
               {isOptionConfirmed && (
                 <>
                   <button className={styles.btn} onClick={() => { setIsPreviewOpen(true); fetchPreview(selectedOption); }}>
-                    Ver vista previa
+                    Ver Vista Previa
                   </button>
-                  <button className={styles.btn} onClick={handleDescargarClick}>Descargar lista</button>
-                  <p className={styles.info} style={{ margin: 0, alignSelf: "center" }}>Opción seleccionada: <strong>{selectedOption}</strong></p>
+                  <button className={styles.btn} onClick={handleDescargarClick}>Descargar Lista</button>
+                  <p className={styles.info} style={{ margin: 0, alignSelf: "center" }}>Opción Seleccionada: <strong>{selectedOption}</strong></p>
                 </>
               )}
             </div>
@@ -506,7 +508,7 @@ const toggleAll = useCallback(() => {
         {/* Clientes */}
         {activeSection === "clientes" && (
           <>
-            <div className={styles.titleContainer}><h2 className={styles.title}> Actualizacion Masiva</h2></div>
+            <div className={styles.titleContainer}><h2 className={styles.title}> Actualización Masiva</h2></div>
             <p className={styles.tabNote}> Podés filtrar por <strong>Lista de Precios</strong>,
               <strong> Vendedor</strong>{ordenamientos.hasDefi1 && ", "}<strong>{ordenamientos.hasDefi1 ? ordenamientos.labelDefi1 : ""}</strong>
               {ordenamientos.hasDefi2 && " y "}<strong>{ordenamientos.hasDefi2 ? ordenamientos.labelDefi2 : ""}</strong>. Luego selecciona la <strong>Lista a Aplicar</strong> a los clientes que cumplen los <strong>Filtros Seleccionados</strong>.

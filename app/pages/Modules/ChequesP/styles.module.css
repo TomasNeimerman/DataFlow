@@ -17,7 +17,8 @@
 .titleContainer {
   display: flex;
   align-items: center;
-  gap: 16px;                /* 20px -> 16px */
+  display: flex;
+  justify-content: space-between;         /* 20px -> 16px */
   margin-bottom: 14px;      /* 20px -> 14px */
 }
 

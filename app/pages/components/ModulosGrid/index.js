@@ -3,12 +3,14 @@
 import React, { useEffect, useState, useCallback } from "react";
 import styles from "./styles.module.css";
 
-export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
-  const [modules, setModules] = useState(modulesProp || []);
-  const [loading, setLoading] = useState(!modulesProp);
+export default function ModulosGrid({ modules: _unused, onNavigate }) {
+  const [modules, setModules] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [empresaOk, setEmpresaOk] = useState(false);
+  const [demo, setDemo] = useState({ open: false, title: "", url: "" });
 
-  // Helper para suscribirse tanto a window.api.on/off como a CustomEvent (fallback)
+  // ---------------- Helpers de subscripción ----------------
   const subscribe = useCallback((channel, handler) => {
     if (typeof window === "undefined") return () => {};
     if (window?.api?.on) {
@@ -21,118 +23,185 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
     }
   }, []);
 
+  // ---------------- Helpers de video ----------------
+  const toEmbedUrl = (url) => {
+    if (!url) return null;
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, "");
+      if (host === "youtube.com" || host === "m.youtube.com") {
+        const v = u.searchParams.get("v");
+        return v ? `https://www.youtube.com/embed/${v}` : url;
+      }
+      if (host === "youtu.be") {
+        const id = u.pathname.split("/").filter(Boolean)[0];
+        return id ? `https://www.youtube.com/embed/${id}` : url;
+      }
+      return url; // http(s) no-YouTube
+    } catch {
+      return url; // ruta local
+    }
+  };
+
+  // Convierte rutas del proyecto a /public (sirve Next)
+  const resolveLocalPublicPath = (raw) => {
+    if (!raw) return null;
+    let p = String(raw).trim().replace(/\\/g, "/"); // Windows → /
+    const idx = p.toLowerCase().lastIndexOf("/public/");
+    if (idx >= 0) p = p.slice(idx + "/public".length + 1); // saca "public/"
+    if (!p.includes("/")) p = `video/${p}`; // nombre suelto → /video
+    if (!p.startsWith("/")) p = `/${p}`;
+    return p;
+  };
+
+  // URL final: embed si YouTube, si no /video/xxx.mp4 (o la ruta mapeada)
+  const resolveVideoSrc = (raw) => {
+    if (!raw) return null;
+    const embedOrRaw = toEmbedUrl(raw);
+    if (/^https?:\/\//i.test(String(raw))) return embedOrRaw;
+    return resolveLocalPublicPath(raw);
+  };
+
+  // Si por alguna razón el main no envía "habilitado", lo calculamos acá
+  const mergeHabilitadosFallback = async (list, idCliente) => {
+    try {
+      if (!list?.length) return list || [];
+      if (list.some(m => Object.prototype.hasOwnProperty.call(m, "habilitado"))) return list;
+
+      const ref = await window.api.getModulosXCliente?.(idCliente);
+      const setIds = ref?.success
+        ? new Set(
+            Array.isArray(ref.idsHabilitados)
+              ? ref.idsHabilitados
+              : (ref.modulosXCliente || []).map(r => r.IdModulo)
+          )
+        : new Set();
+      return list.map(m => ({ ...m, habilitado: setIds.has(m.id) }));
+    } catch {
+      return list;
+    }
+  };
+
+  // ---------------- Fetch principal (con gate de empresa) ----------------
   const fetchModules = useCallback(async () => {
-    if (modulesProp && modulesProp.length) return;
     try {
       setLoading(true);
       setError("");
 
       if (!window?.api) throw new Error("API no disponible (preload).");
 
-      // Gate: exigimos empresa seleccionada (aceptamos cualquiera de las 2 keys)
-      const selectedInstancia =
-        (await window.api.getStoreValue?.("selectedInstanciaBD")) ||
-        (await window.api.getStoreValue?.("selectedEmpresaCodigo"));
+      const [idCliente, instanciaBD] = await Promise.all([
+        window.api.getStoreValue?.("idCliente"),
+        window.api.getStoreValue?.("selectedInstanciaBD"),
+      ]);
 
-      if (!selectedInstancia) {
+      const ok = !!(idCliente && instanciaBD);
+      setEmpresaOk(ok);
+
+      // Gate: sin empresa seleccionada NO mostramos módulos (solo mostramos el cartel rojo)
+      if (!ok) {
         setModules([]);
-        setError("Debes seleccionar una empresa para habilitar tus módulos.");
         return;
       }
 
-      const idCliente = await window.api.getStoreValue?.("idCliente");
-      if (!idCliente) throw new Error("No se encontró idCliente en el store.");
-
-      // requiere que el preload exponga getModules (lo dejo abajo)
       const res = await window.api.getModules?.(idCliente);
       if (!res?.success) throw new Error(res?.message || "No se pudieron obtener los módulos.");
-      setModules(res.modulos || []);
+
+      let list = await mergeHabilitadosFallback(res.modulos || [], idCliente);
+      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video) }));
+      setModules(list);
     } catch (err) {
       setError(err.message || "Error al cargar módulos.");
+      setModules([]);
     } finally {
       setLoading(false);
     }
-  }, [modulesProp]);
+  }, []);
 
-  // Primera carga
+  // ---------------- Efectos / suscripciones ----------------
   useEffect(() => { fetchModules(); }, [fetchModules]);
 
-  // 🔔 Actualizar en vivo cuando main emita los nuevos módulos
+  // Actualización push desde main, con gate de empresa
   useEffect(() => {
-    const unsub = subscribe("menu:modules-updated", ({ modulos }) => {
-      const list = Array.isArray(modulos) ? modulos : [];
+    const handler = async ({ modulos }) => {
+      const [idCliente, instanciaBD] = await Promise.all([
+        window.api.getStoreValue?.("idCliente"),
+        window.api.getStoreValue?.("selectedInstanciaBD"),
+      ]);
+      const ok = !!(idCliente && instanciaBD);
+      setEmpresaOk(ok);
+      if (!ok) { setModules([]); return; }
+
+      let list = await mergeHabilitadosFallback(Array.isArray(modulos) ? modulos : [], idCliente);
+      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video) }));
       setModules(list);
       setLoading(false);
-      if (!list.length) {
-        // si el backend mandó vacío, no asumimos error; dejamos vacío con mensaje neutro
-        setError("");
-      }
-    });
-    return unsub;
+      if (!list.length) setError("");
+    };
+    return subscribe("menu:modules-updated", handler);
   }, [subscribe]);
 
-  // 🔔 Reaccionar cuando cambia la empresa (evento push desde main)
-  useEffect(() => {
-    const unsub = subscribe("empresa:selected", async (payload) => {
-      // payload: { idCliente, empCodigo, instanciaBD, nombre }
-      if (payload?.empCodigo || payload?.instanciaBD) {
-        setError("");
-        await fetchModules();
-      } else {
-        setModules([]);
-        setError("Debes seleccionar una empresa para habilitar tus módulos.");
-      }
-    });
-    return unsub;
-  }, [subscribe, fetchModules]);
-
-  // 🔔 Si cambia el store (p. ej. idCliente o selectedInstanciaBD), nos actualizamos
-  useEffect(() => {
-    const unsub = subscribe("store:any-change", async (delta) => {
-      // Si limpiaron la selección de empresa o idCliente → vaciar
-      if (
-        ("selectedInstanciaBD" in delta && !delta.selectedInstanciaBD) ||
-        ("idCliente" in delta && !delta.idCliente)
-      ) {
-        setModules([]);
-        setError("Debes seleccionar una empresa para habilitar tus módulos.");
-        setLoading(false);
-        return;
-      }
-      // Si aparece idCliente/instancia, refrescamos
-      if (delta.selectedInstanciaBD || delta.idCliente) {
-        setError("");
-        await fetchModules();
-      }
-    });
-    return unsub;
-  }, [subscribe, fetchModules]);
-
-  // 🔔 Si la sesión se cierra remotamente, limpiar
+  // Login / logout
   useEffect(() => {
     const unsub = subscribe("session:state", (s) => {
       if (s?.status === "logged-out") {
         setModules([]);
-        setError("Sesión finalizada. Iniciá sesión y seleccioná una empresa.");
+        setError("Sesión finalizada. Iniciá sesión para ver módulos.");
         setLoading(false);
+        setEmpresaOk(false);
+      } else if (s?.status === "logged-in") {
+        fetchModules();
       }
     });
     return unsub;
-  }, [subscribe]);
+  }, [subscribe, fetchModules]);
 
-  const goTo = async (mod) => {
-    const selectedInstancia =
-      (await window.api.getStoreValue?.("selectedInstanciaBD")) ||
-      (await window.api.getStoreValue?.("selectedEmpresaCodigo"));
-    if (!selectedInstancia) {
-      setError("Debes seleccionar una empresa para habilitar tus módulos.");
+  // Selección de empresa (push) → refrescar
+  useEffect(() => {
+    const unsub = subscribe("empresa:selected", () => { fetchModules(); });
+    return unsub;
+  }, [subscribe, fetchModules]);
+
+  // Cambios en store: idCliente o selectedInstanciaBD
+  useEffect(() => {
+    const unsub = subscribe("store:any-change", (delta) => {
+      if (!delta) return;
+      if (
+        Object.prototype.hasOwnProperty.call(delta, "idCliente") ||
+        Object.prototype.hasOwnProperty.call(delta, "selectedInstanciaBD")
+      ) {
+        fetchModules();
+      }
+    });
+    return unsub;
+  }, [subscribe, fetchModules]);
+
+  // ---------------- Interacciones ----------------
+  const openDemo = (m) => {
+    const src = resolveVideoSrc(m.video);
+    if (!src) {
+      alert("No hay video de demostración disponible para este módulo.");
       return;
     }
-    if (onNavigate) return onNavigate(mod);
-    const target = `${mod.link}?modulo=${encodeURIComponent(mod.nombre)}`;
-    window.location.href = target;
+    setDemo({ open: true, title: m.nombre || "Demostración", url: src });
   };
 
+  const closeDemo = () => setDemo({ open: false, title: "", url: "" });
+
+  const goTo = async (mod) => {
+    if (mod?.habilitado) {
+      if (onNavigate) return onNavigate(mod);
+      const target = `${mod.link}?modulo=${encodeURIComponent(mod.nombre)}`;
+      window.location.href = target;
+      return;
+    }
+    const ok = window.confirm(
+      "Usted no tiene habilitado el módulo. ¿Desea ver una demostración del funcionamiento del módulo?"
+    );
+    if (ok) openDemo(mod);
+  };
+
+  // ---------------- Render ----------------
   if (loading) {
     return (
       <div className={styles.wrapper}>
@@ -146,45 +215,43 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
     );
   }
 
-  if (error) {
+  // Cartel rojo cuando no hay empresa seleccionada
+  if (!empresaOk) {
     return (
-      <div className={styles.wrapper}>
-        <h3 className={styles.title}>Tus módulos</h3>
-        <div className={styles.error}>⚠ {error}</div>
+      <div>
+        
       </div>
     );
   }
 
-  if (!modules?.length) {
+  if (error) {
     return (
       <div className={styles.wrapper}>
-        <h3 className={styles.title}>Tus módulos</h3>
-        <div className={styles.empty}>No tenés módulos asignados.</div>
+        <h3 className={styles.title}>Tus Módulos</h3>
+        <div className={styles.error}>⚠ {error}</div>
       </div>
     );
   }
 
   return (
     <div className={styles.wrapper}>
-      <h3 className={styles.title}>Tus módulos</h3>
+      <h3 className={styles.title}>Tus Módulos</h3>
 
       <div
         className={styles.grid}
-        style={{ "--cols": Math.max(1, Math.min(modules.length, 8)) }}
+        style={{ "--cols": Math.max(1, Math.min(modules.length || 1, 8)) }}
       >
-        {modules.map((m) => {
+        {(modules || []).map((m) => {
           const icono = (m.icono ?? "").toString().trim();
           const isImg =
-            icono.startsWith("http") ||
-            icono.startsWith("data:") ||
-            icono.startsWith("/");
+            icono.startsWith("http") || icono.startsWith("data:") || icono.startsWith("/");
 
           const iconText = icono || (m.nombre || "?").trim().charAt(0).toUpperCase();
 
           return (
             <button
               key={m.id || m.nombre}
-              className={styles.card}
+              className={` ${!m.habilitado ? styles.cardDisabled : styles.card}`}
               onClick={() => goTo(m)}
               title={m.texto || m.nombre}
               aria-label={`Abrir módulo ${m.nombre}`}
@@ -193,9 +260,7 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
                 {isImg ? (
                   <img src={icono} alt={m.nombre} className={styles.iconImg} />
                 ) : (
-                  <span className={styles.initial} style={{ letterSpacing: 0 }}>
-                    {iconText}
-                  </span>
+                  <span className={styles.initial}>{iconText}</span>
                 )}
               </div>
               <div className={styles.name} title={m.nombre}>
@@ -205,6 +270,37 @@ export default function ModulosGrid({ modules: modulesProp, onNavigate }) {
           );
         })}
       </div>
+
+      {/* Modal de demo */}
+      {demo.open && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className={styles.modalOverlay}
+          onClick={closeDemo}
+        >
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h4 className={styles.modalTitle}>{demo.title}</h4>
+              <button className={styles.modalClose} onClick={closeDemo}>✕</button>
+            </div>
+
+            {typeof demo.url === "string" &&
+            (demo.url.includes("youtube.com/embed/") ||
+              demo.url.includes("youtu.be/")) ? (
+              <iframe
+                src={demo.url}
+                title={demo.title}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className={styles.modalFrame}
+              />
+            ) : (
+              <video src={demo.url} controls className={styles.modalVideo} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

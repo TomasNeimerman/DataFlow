@@ -11,17 +11,20 @@ export default function HamburgerMenu() {
   const [filter, setFilter] = useState("");
   const panelRef = useRef(null);
 
-  // Carga de módulos con “gate” opcional
+  // Trae SOLO los módulos asignados al usuario
   const fetchModules = useCallback(async (force = false) => {
     setLoadingMods(true);
     setErrorMods(null);
     try {
       if (!window?.api) throw new Error("API no disponible (preload).");
 
-      // Gate: exigir empresa seleccionada, salvo que venga forzado
+      // Gate: exigir empresa seleccionada (cualquiera de los dos flags)
       if (!force) {
-        const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
-        if (!selectedCode) {
+        const [selectedCode, instanciaBD] = await Promise.all([
+          window.api.getStoreValue?.("selectedEmpresaCodigo"),
+          window.api.getStoreValue?.("selectedInstanciaBD"),
+        ]);
+        if (!selectedCode && !instanciaBD) {
           setModules([]);
           setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
           return;
@@ -31,10 +34,33 @@ export default function HamburgerMenu() {
       const idCliente = await window.api.getStoreValue?.("idCliente");
       if (!idCliente) throw new Error("No se encontró idCliente en el store.");
 
+      // 1) Obtener lista general
       const res = await window.api.getModules?.(idCliente);
-      const list = Array.isArray(res) ? res : res?.modulos || [];
+      let list = Array.isArray(res) ? res : res?.modulos || [];
+
+      // 2) Filtrar SOLO habilitados
+      const hasHabilitado = list.some((m) => Object.prototype.hasOwnProperty.call(m, "habilitado"));
+      if (hasHabilitado) {
+        list = list.filter((m) => !!m.habilitado);
+      } else {
+        // Fallback: pedir ids habilitados y filtrar por IdModulo
+        const ref = await window.api.getModulosXCliente?.(idCliente);
+        const idsSet = ref?.success
+          ? new Set(
+              Array.isArray(ref.idsHabilitados)
+                ? ref.idsHabilitados
+                : (ref.modulosXCliente || []).map((r) => r.IdModulo)
+            )
+          : new Set();
+        list = list.filter((m) => {
+          const id = m.id ?? m.ModuloId ?? m.Id;
+          return idsSet.has(id);
+        });
+      }
+
+      // 3) Map a forma de menú
       const mapped = (list || []).map((m, i) => ({
-        id: m.id ?? m.Id ?? m.ID ?? i,
+        id: m.id ?? m.ModuloId ?? m.Id ?? i,
         nombre: m.nombre ?? m.texto ?? "Módulo",
         texto: m.texto ?? m.nombre ?? "",
         link: m.link ?? "/Index",
@@ -53,17 +79,17 @@ export default function HamburgerMenu() {
 
   // Prefetch al montar
   useEffect(() => {
-    fetchModules(); // si aún no hay empresa, mostrará el mensaje y listo
+    fetchModules(); // si aún no hay empresa, muestra el mensaje
   }, [fetchModules]);
 
-  // Reaccionar INSTANT al elegir/limpiar empresa desde BDSelect
+  // Reaccionar al elegir/limpiar empresa desde BDSelect (evento DOM)
   useEffect(() => {
     const onEmpresaSelected = (e) => {
       const code = e?.detail?.id || "";
       if (code) {
-        setErrorMods(null);     // limpia “debes seleccionar…” al toque
-        setModules([]);         // resetea listado
-        fetchModules(true);     // fuerza recarga sin depender del store
+        setErrorMods(null);
+        setModules([]);
+        fetchModules(true); // fuerza recarga
       } else {
         setModules([]);
         setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
@@ -75,7 +101,7 @@ export default function HamburgerMenu() {
 
   // Reintenta cada vez que se abre el panel
   useEffect(() => {
-    if (open) fetchModules(); // si ya hay empresa, carga; si no, muestra el gate
+    if (open) fetchModules();
   }, [open, fetchModules]);
 
   // Cerrar con clic afuera o ESC
@@ -94,9 +120,11 @@ export default function HamburgerMenu() {
   }, [open]);
 
   const goToModule = async (m) => {
-    // doble check por si alguien limpia la empresa desde otro lado
-    const selectedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
-    if (!selectedCode) {
+    const [selectedCode, instanciaBD] = await Promise.all([
+      window.api.getStoreValue?.("selectedEmpresaCodigo"),
+      window.api.getStoreValue?.("selectedInstanciaBD"),
+    ]);
+    if (!selectedCode && !instanciaBD) {
       setErrorMods("Debes seleccionar una empresa para habilitar tus módulos.");
       return;
     }
@@ -127,7 +155,11 @@ export default function HamburgerMenu() {
         onClick={() => setOpen((v) => !v)}
         disabled={open}
       >
-       Menú
+        <svg width="22" height="16" viewBox="0 0 22 16" aria-hidden="true">
+          <line x1="1" y1="2"  x2="21" y2="2"  stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          <line x1="1" y1="8"  x2="21" y2="8"  stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          <line x1="1" y1="14" x2="21" y2="14" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+        </svg>
       </button>
 
       {/* Overlay */}

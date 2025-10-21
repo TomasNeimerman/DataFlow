@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
   verifyEmpresaForUser: (payload) => ipcRenderer.invoke('empresa:verify-and-save', payload),
 
   getModules: (idCliente) => ipcRenderer.invoke('get-modules', idCliente),
+  getModulosXCliente: (idCliente) => ipcRenderer.invoke('get-modulos-x-cliente', idCliente),
   buildMenu: (modulos) => ipcRenderer.invoke('menu:set-modules', modulos),
 
   // ======================
