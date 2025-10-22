@@ -1,6 +1,24 @@
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../userDbConfig.js');
 
+// Helper: leer ch3_FecMod justo después del UPDATE
+async function getModifiedAt(pool, id) {
+  const r = new sql.Request(pool);
+  r.input('idCheque', sql.Int, id);
+  const q = await r.query(`
+    SELECT
+      ch3_FecMod,
+      CONVERT(varchar(19), ch3_FecMod, 120) AS ch3_FecMod_str
+    FROM Cheques3
+    WHERE ch3_ID = @idCheque
+  `);
+  const row = q.recordset?.[0] || {};
+  return {
+    modifiedAtIso: row.ch3_FecMod || null,   // Date del driver
+    modifiedAt: row.ch3_FecMod_str || null   // "YYYY-MM-DD HH:MM:SS"
+  };
+}
+
 // --- LISTADO ---
 async function obtenerCheque3Rechazado() {
   let pool;
@@ -35,7 +53,7 @@ async function obtenerCheque3Rechazado() {
   }
 }
 
-// --- UPDATE SITUACION (legacy, se mantiene) ---
+// --- UPDATE SITUACION (legacy) — ahora devuelve fecha de modificación
 async function actualizarCheque3(IDCheque, sit) {
   let pool;
   try {
@@ -56,7 +74,8 @@ async function actualizarCheque3(IDCheque, sit) {
       WHERE ch3_ID = @idCheque
     `);
 
-    return { success: true, message: 'Situación actualizada.' };
+    const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, parsedIDCheque);
+    return { success: true, message: 'Situación actualizada.', modifiedAt, modifiedAtIso };
   } catch (err) {
     console.error('❌ Error en actualizarCheque3 (Cheques3):', err);
     return { success: false, message: err.message };
@@ -65,7 +84,7 @@ async function actualizarCheque3(IDCheque, sit) {
   }
 }
 
-// --- NUEVO: UPDATE por CAMPO ---
+// --- UPDATE por CAMPO — devuelve fecha de modificación en todos los casos
 async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
   let pool;
   try {
@@ -90,7 +109,8 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      return { success: true, message: 'Situación actualizada.' };
+      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
+      return { success: true, message: 'Situación actualizada.', modifiedAt, modifiedAtIso };
     }
 
     if (campo === 'fvto') {
@@ -102,7 +122,8 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      return { success: true, message: 'Fecha de vencimiento actualizada.' };
+      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
+      return { success: true, message: 'Fecha de vencimiento actualizada.', modifiedAt, modifiedAtIso };
     }
 
     if (campo === 'numero') {
@@ -113,7 +134,8 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      return { success: true, message: 'Número de cheque actualizado.' };
+      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
+      return { success: true, message: 'Número de cheque actualizado.', modifiedAt, modifiedAtIso };
     }
 
     return { success: false, message: 'Sin cambios.' };

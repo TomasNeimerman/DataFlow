@@ -94,21 +94,16 @@
 /* fila resaltada cuando fue actualizada en esta sesión */
 
 /* fila resaltada cuando fue actualizada en esta sesión (opcional, podés quitarla si no querés fondo) */
-.rowUpdated {
-  background: #fff8f3;
-  font-weight: 600;
-}
+/* fila resaltada cuando fue actualizada en esta sesión (opcional) */
+.rowUpdated { background: #fff8f3; }
 
 /* número actualizado: verde + bien fuerte */
 .cellStrong { font-weight: 800; }
 .cellUpdatedGreen { color: #0f7a33; }
 
-/* input deshabilitado */
-.inputDisabled {
-  background: #f5f5f5;
-  color: #9aa0a6;
-  cursor: not-allowed;
-}
+/* input deshabilitado y con duplicado */
+.inputDisabled { background: #f5f5f5; color: #9aa0a6; cursor: not-allowed; }
+.inputError { border-color: #d93025 !important; box-shadow: 0 0 0 3px rgba(217,48,37,.12); }
 
 /* mensaje de éxito */
 .okMsg {
@@ -120,3 +115,13 @@
   border-radius: 8px;
   font-weight: 600;
 }
+
+.alert {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #ffecec;
+  border: 1px solid #ffc4c4;
+  color: #a40000;
+  border-radius: 8px;
+}
+.numUpdated { color: #0a8a00; font-weight: 700; }

@@ -28,6 +28,7 @@ const ChequesRechazados = ({
   const [sortDirection, setSortDirection] = useState('asc');
   const [sortedCheques, setSortedCheques] = useState([]);
   const [updatedFechasById, setUpdatedFechasById] = useState({});
+  const [localErrors, setLocalErrors] = useState([]);
 
   const getSitDesc = (code) => {
     if (code === undefined || code === null || code === '') return '';
@@ -36,6 +37,8 @@ const ChequesRechazados = ({
       : null;
     return sit ? sit.sit_Desc : String(code);
   };
+
+  const normalize = (v) => String(v ?? '').trim();
 
   useEffect(() => {
     const fetchUpdatedDates = async () => {
@@ -104,6 +107,69 @@ const ChequesRechazados = ({
 
   const handleHeaderSelectAll = (checked) => {
     onSelectAllChange?.(!!checked);
+  };
+
+  // 🔒 Validación de duplicados de NÚMERO (considera el estado final post-actualización)
+  const validateDuplicateNumbers = () => {
+    const errors = [];
+    if (fieldMode !== 'numero') return errors;
+    if (!Array.isArray(chequesRechazados) || chequesRechazados.length === 0) return errors;
+
+    // Mapa: id -> número actual normalizado
+    const currentNumById = new Map(
+      chequesRechazados.map(ch => [String(ch.idCheque), normalize(ch.nroDefinitivo)])
+    );
+
+    // Mapa: id seleccionado -> número objetivo (solo si hay newValue no vacío)
+    const targetNumById = new Map();
+    selectedIds.forEach(id => {
+      const t = normalize(selectedChequesData?.[id]?.newValue);
+      if (t) targetNumById.set(String(id), t);
+    });
+
+    // Estado final por ID (si está seleccionado y tiene newValue => usa ese, si no queda igual)
+    const finalNumById = new Map();
+    chequesRechazados.forEach(ch => {
+      const id = String(ch.idCheque);
+      const target = targetNumById.get(id);
+      const finalNum = target ? target : currentNumById.get(id);
+      finalNumById.set(id, normalize(finalNum));
+    });
+
+    // Agrupar IDs por número final
+    const idsByFinalNum = new Map();
+    for (const [id, num] of finalNumById.entries()) {
+      if (!num) continue;
+      const arr = idsByFinalNum.get(num) || [];
+      arr.push(id);
+      idsByFinalNum.set(num, arr);
+    }
+
+    // Conflicto: número con más de un ID al finalizar y al menos uno de los seleccionados cambia su número a ese valor
+    for (const [num, ids] of idsByFinalNum.entries()) {
+      if (ids.length <= 1) continue;
+
+      // ¿Hay algún seleccionado que explícitamente se esté actualizando a 'num'?
+      const selectedChangingToNum = selectedIds.filter(id => normalize(selectedChequesData?.[id]?.newValue) === num);
+
+      if (selectedChangingToNum.length > 0) {
+        // Mostrar conflicto solo una vez por número
+        errors.push(`Número de cheque duplicado: "${num}". Quedaría asignado a los IDs: ${ids.join(', ')}.`);
+      }
+    }
+
+    return errors;
+  };
+
+  // Click de Actualizar con validación previa
+  const handleValidateAndImport = () => {
+    const errs = validateDuplicateNumbers();
+    if (errs.length > 0) {
+      setLocalErrors(errs);
+      return;
+    }
+    setLocalErrors([]);
+    onImportarClick?.();
   };
 
   // Render editor para el valor global
@@ -176,6 +242,11 @@ const ChequesRechazados = ({
     fieldMode === 'situacion' ? 'Nueva Situación' :
     fieldMode === 'fvto'      ? 'Nueva Fecha Vto.' :
                                 'Nuevo Número';
+
+  const combinedErrors = [
+    ...localErrors,
+    ...(Array.isArray(runErrors) ? runErrors : [])
+  ];
 
   return (
     <div className={styles.container}>
@@ -297,6 +368,7 @@ const ChequesRechazados = ({
         </table>
       </div>
 
+      {/* Logs y Errores */}
       {Array.isArray(runLogs) && runLogs.length > 0 && (
         <div className={styles.logBox}>
           <div className={styles.logTitle}>Resultado de la operación</div>
@@ -308,11 +380,11 @@ const ChequesRechazados = ({
         </div>
       )}
 
-      {Array.isArray(runErrors) && runErrors.length > 0 && (
+      {Array.isArray(combinedErrors) && combinedErrors.length > 0 && (
         <div className={styles.errorBox}>
           <div className={styles.errorTitle}>Errores detectados</div>
           <ul className={styles.errorList}>
-            {runErrors.map((e, idx) => (
+            {combinedErrors.map((e, idx) => (
               <li key={idx} className={styles.errorItem}>{e}</li>
             ))}
           </ul>
@@ -327,7 +399,7 @@ const ChequesRechazados = ({
         )}
         <button
           className={styles.btn}
-          onClick={onImportarClick}
+          onClick={handleValidateAndImport}
           disabled={!!isImportButtonDisabled}
         >
           Actualizar Cheques Seleccionados

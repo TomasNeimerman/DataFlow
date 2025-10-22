@@ -169,6 +169,7 @@ const {
   actualizarCheque: actualizarChequeService,
   ChequesPExcel: ChequesPExcel,
   obtenerChequesPreview: obtenerChequesPreviewService, // 👈 NUEVO
+  chequeExists: chequeExistsService
 } = require('./modulesService/ChequesP');
 const {
   iniciarSesion: iniciarSesionService,
@@ -841,6 +842,7 @@ safeIpc('get-proveedor-details', getProveedorDetails);
 safeIpc('get-tasa-iva-details', getTasaIVADetails);
 safeIpc('get-updated-fecha', getupdreg);
 safeIpc('cheque3-update-field', (payload) => actualizarCheque3CampoService(payload));
+
 
 
 ipcMain.handle('clientes:listas-habilitadas', async () => ClientesSvc.getListasHabilitadas());

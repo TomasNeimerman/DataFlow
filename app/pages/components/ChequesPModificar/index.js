@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 
-/* Helpers */
 const toDMY = (val) => {
-  if (!val) return "";
-  if (typeof val === "string") return val;
+  if (!val) return "—";
+  if (typeof val === "string") return val.split("T")[0]?.split(" ")?.[0] || val;
   const d = new Date(val);
-  if (isNaN(d)) return "";
+  if (isNaN(d)) return "—";
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -17,53 +16,28 @@ const toDMY = (val) => {
 const money = (v) =>
   Number(v || 0).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const STORAGE_KEY = "chequesp_updated_ids";
-
-const loadUpdatedIds = () => {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    const arr = JSON.parse(raw || "[]");
-    return Array.isArray(arr) ? new Set(arr.map(Number)) : new Set();
-  } catch {
-    return new Set();
-  }
-};
-const persistUpdatedIds = (setOfIds) => {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(setOfIds)));
-  } catch {}
-};
-const sanitizeNumero = (v) => {
-  const n = parseInt(String(v ?? "").replace(/\D/g, ""), 10);
-  return Number.isFinite(n) ? n : null;
-};
-
 export default function ChequesPModificar() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [okMsg, setOkMsg] = useState("");
 
-  // selección, borradores y orden
   const [selected, setSelected] = useState({});
   const [selectAll, setSelectAll] = useState(false);
   const [draft, setDraft] = useState({});
-  const [sortBy, setSortBy] = useState({ key: "ID_Cheque", dir: "asc" });
 
-  // ids actualizados (persisten en la sesión → sessionStorage)
-  const [updatedIds, setUpdatedIds] = useState(() => loadUpdatedIds());
+  // ⬇️ Default: ordenar por ID ascendente (numérico)
+  const [sortBy, setSortBy] = useState({ key: "ID_Cheque", dir: "asc" });
 
   const fetchPreview = useCallback(async () => {
     try {
       setErr("");
-      setOkMsg("");
       setLoading(true);
       const res = await window.api?.chequespPreview?.();
       if (!res?.success) throw new Error(res?.message || "No se pudo obtener cheques.");
       setRows(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
-      setErr(e?.message || "Error cargando cheques.");
       setRows([]);
+      setErr(e?.message || "Error cargando cheques.");
     } finally {
       setLoading(false);
       setSelected({});
@@ -72,10 +46,18 @@ export default function ChequesPModificar() {
     }
   }, []);
 
-  useEffect(() => { fetchPreview(); }, [fetchPreview]);
+  useEffect(() => {
+    fetchPreview();
+  }, [fetchPreview]);
 
-  // Persistencia de IDs actualizados
-  useEffect(() => { persistUpdatedIds(updatedIds); }, [updatedIds]);
+  const updatedIds = useMemo(() => {
+    try {
+      const arr = JSON.parse(sessionStorage.getItem("chequespUpdatedIds") || "[]");
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch {
+      return new Set();
+    }
+  }, [rows]);
 
   const toggleSelectAll = () => {
     const checked = !selectAll;
@@ -87,61 +69,14 @@ export default function ChequesPModificar() {
       setSelected(acc);
     }
   };
-
   const toggleOne = (id) => {
     setSelected((prev) => {
-      const checked = !prev[id];
-      const next = { ...prev, [id]: checked };
-      if (!checked) {
-        delete next[id];
-        // limpiamos el draft si se desmarca
-        setDraft((d) => {
-          const nd = { ...d };
-          delete nd[id];
-          return nd;
-        });
-      }
-      return next;
+      const n = { ...prev, [id]: !prev[id] };
+      if (!n[id]) delete n[id];
+      return n;
     });
   };
-
   const onChangeNuevoNumero = (id, val) => setDraft((d) => ({ ...d, [id]: val }));
-
-  // Ordenamiento
-  const sortedRows = useMemo(() => {
-    const arr = [...rows];
-    const { key, dir } = sortBy;
-       arr.sort((a, b) => {
-      const va = a?.[key];
-      const vb = b?.[key];
-      if (va == null && vb == null) return 0;
-      if (va == null) return 1;
-      if (vb == null) return -1;
-    // 🔢 ordenar ID_Cheque como número (no string)
-     if (key === "ID_Cheque") {
-       const na = Number(va);
-       const nb = Number(vb);
-      return dir === "asc" ? na - nb : nb - na;
-     }
-      if (key === "Importe") {
-        const na = Number(va);
-        const nb = Number(vb);
-        return dir === "asc" ? na - nb : nb - na;
-      }
-      if (key === "ChequeFVto" || key === "Mov_FEmision" || key === "FechaMod") {
-        const da = new Date(va).getTime() || 0;
-        const db = new Date(vb).getTime() || 0;
-        return dir === "asc" ? da - db : db - da;
-      }
-      const sa = String(va).toLowerCase();
-      const sb = String(vb).toLowerCase();
-      if (sa < sb) return dir === "asc" ? -1 : 1;
-      if (sa > sb) return dir === "asc" ?  1 : -1;
-      return 0;
-    });
-
-    return arr;
-  }, [rows, sortBy]);
 
   const setSort = (key) => {
     setSortBy((prev) =>
@@ -149,99 +84,129 @@ export default function ChequesPModificar() {
     );
   };
 
-  const selectedIds = useMemo(() => Object.keys(selected).map(Number), [selected]);
-  const selectedCount = selectedIds.length;
+  // 🔧 ORDENAMIENTO NUMÉRICO para ID y Número; fechas y monto ya se tratan; resto alfabético
+  const sortedRows = useMemo(() => {
+    const arr = [...rows];
+    const { key, dir } = sortBy;
+    const sign = dir === "asc" ? 1 : -1;
 
-  // Sólo permitimos actualizar los que tienen un draft válido y distinto del actual
-  const readyIds = useMemo(() => {
-    const idxById = new Map(rows.map(r => [r.ID_Cheque, r]));
-    return selectedIds.filter((id) => {
-      const newN = sanitizeNumero(draft[id]);
-      const curN = sanitizeNumero(idxById.get(id)?.NumeroActual);
-      return newN !== null && newN !== curN;
+    arr.sort((a, b) => {
+      const va = a?.[key];
+      const vb = b?.[key];
+
+      // ID de cheque: SIEMPRE numérico
+      if (key === "ID_Cheque") {
+        const na = Number(va) || 0;
+        const nb = Number(vb) || 0;
+        return (na - nb) * sign;
+      }
+
+      // Número actual: intentar comparar numéricamente si ambos son dígitos
+      if (key === "NumeroActual") {
+        const sa = String(va ?? "");
+        const sb = String(vb ?? "");
+        const da = /^\d+$/.test(sa) ? Number(sa) : NaN;
+        const db = /^\d+$/.test(sb) ? Number(sb) : NaN;
+        if (!Number.isNaN(da) && !Number.isNaN(db)) return (da - db) * sign;
+        return sa.localeCompare(sb) * sign;
+      }
+
+      // Importes: numérico
+      if (key === "Importe") {
+        const na = Number(va) || 0;
+        const nb = Number(vb) || 0;
+        return (na - nb) * sign;
+      }
+
+      // Fechas: por timestamp
+      if (key === "ChequeFVto" || key === "Mov_FEmision" || key === "FecMod") {
+        const da = new Date(va).getTime() || 0;
+        const db = new Date(vb).getTime() || 0;
+        return (da - db) * sign;
+      }
+
+      // Resto: alfabético
+      const sa = String(va ?? "").toLowerCase();
+      const sb = String(vb ?? "").toLowerCase();
+      return sa.localeCompare(sb) * sign;
     });
-  }, [selectedIds, draft, rows]);
 
-  const [updating, setUpdating] = useState(false);
+    return arr;
+  }, [rows, sortBy]);
+
+  const selectedCount = Object.keys(selected).length;
+
+  const getExistingNumbers = () => {
+    const s = new Set();
+    for (const r of rows) {
+      const n = String(r?.NumeroActual ?? "").trim();
+      if (n) s.add(n);
+    }
+    return s;
+  };
 
   const handleUpdateSelected = async () => {
-    if (!readyIds.length) {
-      setOkMsg("");
-      setErr("Seleccioná cheques y cargá un número válido distinto al actual.");
+    setErr("");
+
+    const candidates = Object.keys(selected).map((idStr) => {
+      const id = Number(idStr);
+      return {
+        id,
+        newNum: String(draft[idStr] ?? "").trim(),
+        current: String(rows.find((x) => x.ID_Cheque === id)?.NumeroActual ?? "").trim(),
+      };
+    });
+
+    const toProcess = candidates.filter((c) => c.newNum && /^\d+$/.test(c.newNum));
+    if (!toProcess.length) {
+      setErr("Seleccioná cheques y cargá un nuevo número válido (solo dígitos).");
       return;
     }
-    try {
-      setUpdating(true);
-      setErr("");
-      setOkMsg("");
 
-      // Ejecuta en paralelo
-      const results = await Promise.all(
-        readyIds.map(async (idCheque) => {
-          const nro = sanitizeNumero(draft[idCheque]);
-          try {
-            const res = await window.api?.updateCheques?.({ idCheque, nroDefinitivo: nro });
-            return { idCheque, nro, ok: !!res?.success, message: res?.message || "" };
-          } catch (e) {
-            return { idCheque, nro, ok: false, message: e?.message || "Error al actualizar." };
-          }
-        })
-      );
+    const existing = getExistingNumbers();
+    const reserved = new Set();
+    const conflicts = [];
+    const payload = [];
 
-      const ok = results.filter(r => r.ok);
-      const fail = results.filter(r => !r.ok);
-
-      // 🟢 Actualización “en vivo” (optimista) en la tabla
-      if (ok.length) {
-        const nowIso = new Date().toISOString();
-        setRows(prev =>
-          prev.map(row => {
-            const hit = ok.find(k => k.idCheque === row.ID_Cheque);
-            return hit
-              ? {
-                  ...row,
-                  NumeroActual: hit.nro ?? row.NumeroActual,
-                  FechaMod: nowIso, // mostramos última actualización al instante
-                }
-              : row;
-          })
-        );
-        // Marcar en negrita y verde (persistente en la sesión)
-        setUpdatedIds(prev => {
-          const next = new Set(prev);
-          ok.forEach(k => next.add(k.idCheque));
-          return next;
-        });
+    for (const c of toProcess) {
+      if (c.newNum === c.current) continue;
+      if (existing.has(c.newNum)) {
+        conflicts.push(`ID ${c.id} → ${c.newNum} (ya existe)`);
+        continue;
       }
-
-      // Limpiar selección y drafts sólo de los que salieron OK
-      setSelected(prev => {
-        const n = { ...prev };
-        ok.forEach(k => delete n[k.idCheque]);
-        return n;
-      });
-      setDraft(prev => {
-        const n = { ...prev };
-        ok.forEach(k => delete n[k.idCheque]);
-        return n;
-      });
-
-      // Mensajes
-      if (ok.length && !fail.length) {
-        setOkMsg(`Actualizados ${ok.length} cheque(s).`);
-      } else if (ok.length && fail.length) {
-        setOkMsg(`Actualizados ${ok.length}. Fallaron ${fail.length}.`);
-        setErr(fail[0]?.message || "Algunos cheques no pudieron actualizarse.");
-      } else {
-        setErr(fail[0]?.message || "No se pudieron actualizar los cheques seleccionados.");
+      if (reserved.has(c.newNum)) {
+        conflicts.push(`ID ${c.id} → ${c.newNum} (duplicado en selección)`);
+        continue;
       }
-
-      // (Opcional) Refetch para reconfirmar con DB:
-      // await fetchPreview();
-
-    } finally {
-      setUpdating(false);
+      reserved.add(c.newNum);
+      payload.push({ idCheque: c.id, nroDefinitivo: Number(c.newNum) });
     }
+
+    if (conflicts.length) {
+      setErr("ID repetido: " + conflicts.join(", "));
+      return;
+    }
+    if (!payload.length) {
+      setErr("No hay cambios válidos para actualizar.");
+      return;
+    }
+
+    const okIds = [];
+    for (const item of payload) {
+      const res = await window.api.updateCheques(item);
+      if (res?.success) {
+        okIds.push(item.idCheque);
+        try {
+          const prev = JSON.parse(sessionStorage.getItem("chequespUpdatedIds") || "[]");
+          const next = Array.from(new Set([...prev, item.idCheque]));
+          sessionStorage.setItem("chequespUpdatedIds", JSON.stringify(next));
+        } catch {}
+      }
+    }
+
+    await fetchPreview();
+
+    if (!okIds.length) setErr("No se pudo actualizar ningún cheque.");
   };
 
   return (
@@ -250,10 +215,12 @@ export default function ChequesPModificar() {
         <h1 className={styles.title}>Modificar Cheques</h1>
       </div>
 
-      
-
-      {!!okMsg && <div className={styles.okMsg}>{okMsg}</div>}
-      {!!err && <div className={styles.error}>{err}</div>}
+      <div style={{ marginBottom: 8 }}>
+        <label style={{ fontWeight: 600, marginRight: 8 }}>Campo a actualizar:</label>
+        <select className={styles.select} disabled value="numero">
+          <option value="numero">Número de Cheque</option>
+        </select>
+      </div>
 
       <div className={styles.tableWrapper}>
         <table className={styles.resultsTable}>
@@ -272,18 +239,13 @@ export default function ChequesPModificar() {
               <th style={{ cursor: "pointer" }} onClick={() => setSort("Importe")}>
                 Importe {sortBy.key === "Importe" ? (sortBy.dir === "asc" ? "▲" : "▼") : "▲▼"}
               </th>
-              <th style={{ cursor: "pointer" }} onClick={() => setSort("FechaMod")}>
-                Últ. Mod. {sortBy.key === "FechaMod" ? (sortBy.dir === "asc" ? "▲" : "▼") : "▲▼"}
+              <th style={{ cursor: "pointer" }} onClick={() => setSort("FecMod")}>
+                Últ. Mod. {sortBy.key === "FecMod" ? (sortBy.dir === "asc" ? "▲" : "▼") : "▲▼"}
               </th>
               <th>Estado</th>
               <th>Nuevo número</th>
               <th>
-                <input
-                  type="checkbox"
-                  checked={selectAll}
-                  onChange={toggleSelectAll}
-                  title="Seleccionar todos"
-                />
+                <input type="checkbox" checked={selectAll} onChange={toggleSelectAll} title="Seleccionar todos" />
               </th>
             </tr>
           </thead>
@@ -291,80 +253,62 @@ export default function ChequesPModificar() {
           <tbody>
             {loading ? (
               <tr><td colSpan={9} style={{ padding: 16 }}>Cargando…</td></tr>
-            ) : err && rows.length === 0 ? (
-              <tr><td colSpan={9} className={styles.error}>No se pudieron cargar cheques.</td></tr>
             ) : sortedRows.length === 0 ? (
               <tr><td colSpan={9} className={styles.noResults}>No hay cheques para mostrar.</td></tr>
             ) : (
-              sortedRows.map((r) => {
-                const isUpdated = updatedIds.has(Number(r.ID_Cheque));
-                return (
-                  <tr
-                    key={r.ID_Cheque}
-                    className={`${styles.row} ${isUpdated ? styles.rowUpdated : ""}`}
-                    title={isUpdated ? "Actualizado en esta sesión" : ""}
-                  >
-                    <td>{r.CodEmpresa || r.Empresa || ""}</td>
-                    <td>{r.ID_Cheque}</td>
-                    <td className={`${isUpdated ? `${styles.cellStrong} ${styles.cellUpdatedGreen}` : ""}`}>
-                      {r.NumeroActual || ""}
-                    </td>
-                    <td>{toDMY(r.ChequeFVto)}</td>
-                    <td className={styles.num}>${money(r.Importe)}</td>
-                    <td>{toDMY(r.FechaMod)}</td>
-                    <td>{r.Estado || ""}</td>
-                    <td>
-                      <input
-                        type="text"
-                        value={draft[r.ID_Cheque] ?? ""}
-                        onChange={(e) => onChangeNuevoNumero(r.ID_Cheque, e.target.value)}
-                        placeholder={selected[r.ID_Cheque] ? "Nuevo nº…" : "Seleccioná la fila"}
-                        className={`${styles.input} ${!selected[r.ID_Cheque] ? styles.inputDisabled : ""}`}
-                        style={{ maxWidth: 120 }}
-                        disabled={!selected[r.ID_Cheque]}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={!!selected[r.ID_Cheque]}
-                        onChange={() => toggleOne(r.ID_Cheque)}
-                        title="Actualizar este cheque"
-                      />
-                    </td>
-                  </tr>
-                );
-              })
+              sortedRows.map((r) => (
+                <tr key={r.ID_Cheque} className={styles.row}>
+                  <td>{r.CodEmpresa || r.Empresa || ""}</td>
+                  <td>{r.ID_Cheque}</td>
+                  <td className={updatedIds.has(r.ID_Cheque) ? styles.numUpdated : ""}>
+                    {r.NumeroActual || ""}
+                  </td>
+                  <td>{toDMY(r.ChequeFVto)}</td>
+                  <td className={styles.num}>${money(r.Importe)}</td>
+                  <td>{toDMY(r.FecMod || r.chp_FecMod || r.UltMod)}</td>
+                  <td>{r.Estado || ""}</td>
+                  <td>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d*"
+                      value={draft[r.ID_Cheque] ?? ""}
+                      onChange={(e) => onChangeNuevoNumero(r.ID_Cheque, e.target.value)}
+                      placeholder={selected[r.ID_Cheque] ? "Nuevo nº…" : "Seleccioná la fila"}
+                      className={styles.input}
+                      style={{ maxWidth: 120 }}
+                      disabled={!selected[r.ID_Cheque]}
+                      title={!selected[r.ID_Cheque] ? "Primero seleccioná la fila" : "Nuevo número"}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={!!selected[r.ID_Cheque]}
+                      onChange={() => toggleOne(r.ID_Cheque)}
+                      title="Actualizar este cheque"
+                    />
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
       </div>
 
+      {err && <div className={styles.alert}>{err}</div>}
+
       <div style={{ marginTop: 12 }}>
         <button
           className={styles.btn}
           onClick={handleUpdateSelected}
-          disabled={updating || !readyIds.length}
+          disabled={selectedCount === 0}
           style={{ width: "100%" }}
-          title={
-            updating
-              ? "Actualizando…"
-              : readyIds.length
-              ? `Actualizar ${readyIds.length} cheque(s)`
-              : "Seleccioná cheques y cargá un número válido distinto"
-          }
+          title={selectedCount ? "Actualizar Cheques Seleccionados" : "Seleccioná al menos uno"}
         >
-          {updating ? "Actualizando…" : "Actualizar Cheques Seleccionados"}
+          Actualizar Cheques Seleccionados
         </button>
       </div>
     </div>
   );
 }
-/*
-<div style={{ marginBottom: 8 }}>
-        //  <label style={{ fontWeight: 600, marginRight: 8 }}>Campo a actualizar:</label>
-        <select className={styles.select} disabled value="numero">
-          <option value="numero">Número de Cheque</option>
-        </select>
-      </div>
-*/ 

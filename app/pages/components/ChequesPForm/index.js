@@ -67,8 +67,9 @@ const money = (v) => {
   if (!Number.isFinite(n)) return "0,00";
   return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
+const trim = (v) => (v == null ? "" : String(v)).trim();
 
-/* ────────── Cuadro de Resultados integrado ────────── */
+/* ────────── Cuadro de Resultados ────────── */
 const ChequesActualizados = ({ cheques = [], validar = false }) => {
   return (
     <div className={styles.resultsContainer}>
@@ -134,11 +135,14 @@ const ChequesPForm = ({
   const [activeSection, setActiveSection] = useState("importar"); // importar | resultados
   const [importTried, setImportTried] = useState(false); // habilita la pestaña Resultados
 
-  // 🔎 Preview modal state
+  // Preview modal state
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewRows, setPreviewRows] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+
+  // ❗ Error de “pre-chequeo” (duplicados)
+  const [preCheckError, setPreCheckError] = useState("");
 
   useEffect(() => {
     const fetchModulos = async () => {
@@ -163,6 +167,7 @@ const ChequesPForm = ({
       setFile(selectedFile);
       setFileName(selectedFile.name);
       setIsFileLoaded(true);
+      setPreCheckError("");
     } else {
       setFile(null);
       setFileName("");
@@ -174,37 +179,9 @@ const ChequesPForm = ({
     setFile(null);
     setFileName("");
     setIsFileLoaded(false);
+    setPreCheckError("");
     const input = document.getElementById("loadFile");
     if (input) input.value = "";
-  };
-
-  const handleImportarClick = async () => {
-    if (file && onImportar) {
-      try {
-        await onImportar(file); // la page procesa y setea estados
-      } finally {
-        setImportTried(true); // habilita pestaña Resultados
-      }
-    }
-  };
-
-  // Igual que en ListaPreciosForm: cuando hay estado de importación, saltamos a Resultados
-  useEffect(() => {
-    if (estadoImportar) setActiveSection("resultados");
-  }, [estadoImportar]);
-
-  const handleDownloadAndOpenTemplate = async () => {
-    if (template && window.api?.downloadAndOpenExcel) {
-      try {
-        const result = await window.api.downloadAndOpenExcel(template);
-        if (!result?.success) alert(result?.message || "No se pudo abrir la plantilla.");
-      } catch (error) {
-        console.error("Error al abrir plantilla:", error);
-        alert("Ocurrió un error al intentar abrir la plantilla.");
-      }
-    } else {
-      alert("Plantilla no disponible en este entorno.");
-    }
   };
 
   // ====== Descarga rápida de planilla ChequesP ======
@@ -217,7 +194,6 @@ const ChequesPForm = ({
     await window.api.revealPath(p);
     return false;
   };
-
   const handleDescargarPlanillaChequesP = async () => {
     try {
       if (!window.api?.chequespDescargarPlanilla) {
@@ -258,6 +234,106 @@ const ChequesPForm = ({
     }
   }, []);
 
+  // ====== PRE-CHEQUEO de duplicados (antes de llamar a onImportar) ======
+  const handleImportarClick = async () => {
+    if (!file || !onImportar) return;
+
+    try {
+      setPreCheckError(""); // limpiar errores previos
+
+      // 1) Parse rápido del Excel para extraer: "ID Cheque" y "Nro Definitivo"
+      const XLSXmod = await import("xlsx");
+      const XLSX = XLSXmod.default || XLSXmod;
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) throw new Error("No se pudo leer la hoja del Excel.");
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+      if (!rows.length) throw new Error("El Excel no contiene filas.");
+
+      const ID_COL = "ID Cheque";
+      const NRO_DEF_COL = "Nro Definitivo";
+
+      if (!Object.prototype.hasOwnProperty.call(rows[0], ID_COL) ||
+          !Object.prototype.hasOwnProperty.call(rows[0], NRO_DEF_COL)) {
+        throw new Error("Encabezado inválido para pre-chequeo.");
+      }
+
+      // Recolectar pares id/nuevo (solo con Nro Definitivo no vacío)
+      const incoming = [];
+      for (const r of rows) {
+        const id = Number(r[ID_COL]);
+        const nuevo = trim(r[NRO_DEF_COL]);
+        if (!Number.isFinite(id) || !nuevo) continue;
+        incoming.push({ id, nuevo });
+      }
+
+      if (!incoming.length) {
+        // Nada que actualizar: dejamos que el flujo normal avise "sin cambios"
+        await onImportar(file);
+        setImportTried(true);
+        return;
+      }
+
+      // 2) Duplicados dentro del propio Excel
+      const firstSeen = new Map(); // nro -> id
+      const duplicatesInFile = [];
+      for (const { id, nuevo } of incoming) {
+        if (firstSeen.has(nuevo) && firstSeen.get(nuevo) !== id) {
+          duplicatesInFile.push(`nº ${nuevo} (IDs ${firstSeen.get(nuevo)} y ${id})`);
+        } else {
+          firstSeen.set(nuevo, id);
+        }
+      }
+      if (duplicatesInFile.length) {
+        setPreCheckError(`ID repetido: ${duplicatesInFile.join(", ")}.`);
+        // ❌ no habilitamos resultados
+        return;
+      }
+
+      // 3) Duplicados contra la base
+      //    armamos índice numero -> Set(ids)
+      let dbIndex = new Map();
+      try {
+        const res = await window.api?.chequespPreview?.();
+        if (res?.success && Array.isArray(res.data)) {
+          dbIndex = res.data.reduce((map, row) => {
+            const n = trim(row?.NumeroActual);
+            const id = Number(row?.ID_Cheque);
+            if (!n || !Number.isFinite(id)) return map;
+            if (!map.has(n)) map.set(n, new Set());
+            map.get(n).add(id);
+            return map;
+          }, new Map());
+        }
+      } catch {
+        // si falla la preview, seguimos sin index (no bloquea)
+      }
+
+      const duplicatesInDb = [];
+      for (const { id, nuevo } of incoming) {
+        const setIds = dbIndex.get(nuevo);
+        if (setIds && (!setIds.has(id) || setIds.size > 1)) {
+          // ese número ya lo tiene otro ID
+          const otros = Array.from(setIds).filter((x) => x !== id);
+          duplicatesInDb.push(`nº ${nuevo} (ya existe en ID${otros.length > 1 ? "s" : ""} ${otros.join(", ")})`);
+        }
+      }
+      if (duplicatesInDb.length) {
+        setPreCheckError(`ID repetido: ${duplicatesInDb.join(", ")}.`);
+        // ❌ no habilitamos resultados
+        return;
+      }
+
+      // 4) OK, sin duplicados → procedemos con el import real
+      await onImportar(file);
+      setImportTried(true); // ahora sí habilitamos Resultados
+    } catch (e) {
+      setPreCheckError(e?.message || "Error al verificar duplicados.");
+    }
+  };
+
   const titulo = modulos.length > 0 ? modulos[0].texto : "Cargando...";
 
   const lower = (estadoImportar || "").toLowerCase();
@@ -286,7 +362,7 @@ const ChequesPForm = ({
         )}
       </div>
 
-      {/* Tabs: Importar (siempre) | Resultados (solo tras intentar importar) */}
+      {/* Tabs: Importar | Resultados */}
       <div className={styles.toggleContainer}>
         <button
           className={`${styles.toggleButton} ${activeSection === "importar" ? styles.active : ""}`}
@@ -309,9 +385,6 @@ const ChequesPForm = ({
       {/* ─────── Importar ─────── */}
       {activeSection === "importar" && (
         <>
-          {/* Botón de VISTA PREVIA — arriba de "Limpiar" */}
-          
-
           <input
             type="file"
             className={styles.input}
@@ -319,18 +392,24 @@ const ChequesPForm = ({
             accept=".xlsx, .xls"
             onChange={handleFileChange}
           />
+
+          {/* Botón de vista previa */}
           <button
-              className={styles.btn}
-              onClick={handleOpenPreview}
-              title="Ver vista previa de todos los cheques en la base"
-            >
-              Vista Previa de Cheques
-            </button>
+            className={styles.btn}
+            onClick={handleOpenPreview}
+            title="Ver vista previa de todos los cheques en la base"
+          >
+            Vista Previa de Cheques
+          </button>
+
+          {/* Feedback del pre-chequeo (duplicados) */}
+          
+
           <div className={styles.buttonsContainer}>
             <button className={styles.btn} id="cancel" onClick={handleCancel}>
               Limpiar
             </button>
-            
+
             <button
               className={styles.btn}
               id="saveButton"
@@ -341,9 +420,12 @@ const ChequesPForm = ({
             </button>
           </div>
 
-          {estadoImportar && (
+          {/* Feedback del import real (backend) */}
+          {preCheckError ? <p className={styles.error}>{preCheckError}</p> : null}
+          {estadoImportar ? (
             <p className={feedbackClass}>{mensajeImportacion || estadoImportar}</p>
-          )}
+            
+          ) : null}
 
           {fileName && (
             <p className={styles.info}>

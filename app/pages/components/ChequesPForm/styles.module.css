@@ -233,3 +233,4 @@
 .ok { color: #007700; font-weight: 600; }
 .tractualizado { background: #d8ffd8; }
 .noResults { text-align: center; color: #6c757d; font-style: italic; }
+.rowError { background: #fff3f3; }
