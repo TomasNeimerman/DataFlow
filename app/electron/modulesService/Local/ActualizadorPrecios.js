@@ -7,7 +7,7 @@ const sql = require("mssql");
 const XLSX = require("xlsx");
 let electronApp = null;
 try { electronApp = require("electron").app; } catch (_) {}
-const { getAdminDbConfig } = require("../userDbConfig.js");
+const { getAdminDbConfig } = require("../../userDbConfig.js");
 
 /**
  * Config SQL base

@@ -1,6 +1,6 @@
 // modulesService/GeneradorPrecios.js
 const sql = require('mssql');
-const { getAdminDbConfig } = require('../userDbConfig.js');
+const { getAdminDbConfig } = require('../../userDbConfig.js');
 
 // ---------- helpers ----------
 const progressFn = (onProgress) => (p, stage, msg) => {

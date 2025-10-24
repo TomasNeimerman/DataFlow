@@ -1,6 +1,6 @@
 // back/modulesService/Articulos.js
 const sql = require('mssql');
-const { getAdminDbConfig } = require('../userDbConfig.js');
+const { getAdminDbConfig } = require('../../userDbConfig.js');
 
 // --- Funciones para obtener listas de datos (ej. para poblar dropdowns en el frontend) ---
 

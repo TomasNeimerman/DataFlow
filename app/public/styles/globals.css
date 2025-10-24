@@ -23,7 +23,7 @@ html, body, #__next, .page-container {
   right: 1rem; /* 40px desde la izquierda */
   z-index: 10;    /* Asegura que esté por encima del contenido */
   width: 160px;
-
+  z-index: 1;
 }
 .overlay-bottom-left{
   position: absolute;
@@ -31,6 +31,7 @@ html, body, #__next, .page-container {
   left: 1rem; /* 40px desde la izquierda */
   z-index: 10;    /* Asegura que esté por encima del contenido */
   width: 180px;
+  z-index: 1;
 }
 
 /* Posiciona la empresa en la esquina superior derecha */

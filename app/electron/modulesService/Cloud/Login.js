@@ -1,83 +1,61 @@
 // electron/modulesService/Login.js
-const mysql = require('mysql2/promise');
 const fs = require('fs').promises;
 const path = require('path');
-const { generarToken } = require('../jwtService');
+const { withAdminPool } = require('./adminPool');
+const { generarToken } = require('../../jwtService');
 
 /*==============================================================================
-// Helpers de conexión a la DB “admin”
+=            Cache de configuración por empresa (evita I/O en cada login)     =
 ==============================================================================*/
-async function withAdminPool(fn) {
-  const dbConfigAdmin = require('../dbConfig').getDbConfig();
-  const mysqlConfigAdmin = {
-    host: dbConfigAdmin.server,
-    port: dbConfigAdmin.port || 3306,
-    user: dbConfigAdmin.user,
-    password: dbConfigAdmin.password,
-    database: dbConfigAdmin.database,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-  };
-  const pool = await mysql.createPool(mysqlConfigAdmin);
-  try { return await fn(pool); } finally { try { await pool.end(); } catch {} }
-}
+const empresaCache = new Map();
 
-/*==============================================================================
-// Config de conexión por empresa (para módulos)
-==============================================================================*/
 async function obtenerConfiguracionEmpresa(idCliente) {
-  let poolAdmin;
-  try {
-    const dbConfigAdmin = require('../dbConfig').getDbConfig();
-    const mysqlConfigAdmin = {
-      host: dbConfigAdmin.server,
-      port: dbConfigAdmin.port || 3306,
-      user: dbConfigAdmin.user,
-      password: dbConfigAdmin.password,
-      database: dbConfigAdmin.database,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
+  if (!idCliente) return null;
+  if (empresaCache.has(idCliente)) return empresaCache.get(idCliente);
+
+  return withAdminPool(async (poolAdmin) => {
+    const [rows] = await poolAdmin.execute(
+      `SELECT Server, Port, InstanciaBD, Usuario, Contraseña
+         FROM Empresa
+        WHERE IdCliente = ?
+        LIMIT 1`,
+      [idCliente]
+    );
+
+    if (!rows.length) { empresaCache.set(idCliente, null); return null; }
+
+    const r = rows[0];
+    const cfg = {
+      server: r.Server,
+      port: r.Port ? parseInt(r.Port, 10) : 3306,
+      database: r.InstanciaBD,
+      user: r.Usuario,
+      password: r.Contraseña,
     };
-    poolAdmin = await mysql.createPool(mysqlConfigAdmin);
+    empresaCache.set(idCliente, cfg);
 
-    const [rows] = await poolAdmin.execute(`
-      SELECT Server, Port, InstanciaBD, Usuario, Contraseña
-      FROM Empresa
-      WHERE IdCliente = ?
-    `, [idCliente]);
-
-    if (!rows.length) return null;
-
-    const empresaData = rows[0];
-    const configContent =
-`DB_USER=${empresaData.Usuario}
-DB_PASSWORD=${empresaData.Contraseña}
-DB_SERVER=${empresaData.Server}
-DB_PORT=${empresaData.Port || 3306}
-DB_DATABASE=${empresaData.InstanciaBD}
+    // Escribir userDbConfig.properties SOLO si cambió
+    try {
+      const configPath = path.join(__dirname, '../fileConfigUpdater/userDbConfig.properties');
+      const content = `DB_USER=${r.Usuario}
+DB_PASSWORD=${r.Contraseña}
+DB_SERVER=${r.Server}
+DB_PORT=${r.Port || 3306}
+DB_DATABASE=${r.InstanciaBD}
 `;
-    const configPath = path.join(__dirname, '../../fileConfigUpdater/userDbConfig.properties');
-    try { await fs.writeFile(configPath, configContent, 'utf-8'); } catch {}
+      let prev = null;
+      try { prev = await fs.readFile(configPath, 'utf8'); } catch {}
+      if (prev !== content) {
+        await fs.writeFile(configPath, content, 'utf-8');
+      }
+    } catch {}
 
-    return {
-      server: empresaData.Server,
-      port: empresaData.Port ? parseInt(empresaData.Port, 10) : 3306,
-      database: empresaData.InstanciaBD,
-      user: empresaData.Usuario,
-      password: empresaData.Contraseña,
-    };
-  } catch (error) {
-    console.error('Error al obtener configuración de la empresa:', error);
-    return null;
-  } finally {
-    if (poolAdmin) try { await poolAdmin.end(); } catch {}
-  }
+    return cfg;
+  });
 }
 
 /*==============================================================================
-// Login (revisa expiración/estado; no toca SesionesActivas acá)
+=            Login (admin multi-device; no auto-deshabilita por expiración)    =
 ==============================================================================*/
 function toYMD(d) {
   const y = d.getFullYear();
@@ -89,8 +67,9 @@ function toYMD(d) {
 async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
   return withAdminPool(async (poolAdmin) => {
     const [usrRows] = await poolAdmin.execute(`
-      SELECT Id, Nombre, Apellido, Email, IdCliente, Usuario, Contraseña,
-             FechaExpiracionClave, COALESCE(Estado, 1) AS Estado
+      SELECT Id, IdCliente, Nombre, Apellido, Email, Usuario, Contraseña,
+             FechaExpiracionClave, COALESCE(Estado, 1) AS Estado,
+             COALESCE(admin, 0) AS AdminFlag
       FROM Usuarios
       WHERE Usuario = ?
       LIMIT 1
@@ -102,17 +81,15 @@ async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
 
     const row = usrRows[0];
 
-    // Estado (si no es 1, bloquear)
     const estado = Number(row.Estado ?? 1);
     if (estado !== 1) {
       return { success: false, code: 'USER_DISABLED', message: 'Usuario deshabilitado.' };
     }
 
-    // ¿contraseña expirada? -> bloquear sin modificar Estado
     if (row.FechaExpiracionClave) {
-      const hoy = new Date();
+      const now = new Date();
       const exp = new Date(row.FechaExpiracionClave);
-      if (hoy.getTime() > exp.getTime()) {
+      if (now.getTime() > exp.getTime()) {
         return {
           success: false,
           code: 'PASS_EXPIRED',
@@ -121,7 +98,6 @@ async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
       }
     }
 
-    // Password (sin hash en este esquema)
     if (String(row.Contraseña) !== String(contraseña)) {
       return { success: false, code: 'BAD_CREDENTIALS', message: 'Usuario o contraseña incorrectos.' };
     }
@@ -132,19 +108,23 @@ async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
     }
 
     // Fecha último acceso (best-effort, -3h)
-    let fechaActual = new Date();
-    fechaActual.setHours(fechaActual.getHours() - 3);
-    try { await poolAdmin.execute('UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?', [fechaActual, usuario]); } catch {}
+    try {
+      const fechaActual = new Date(); fechaActual.setHours(fechaActual.getHours() - 3);
+      await poolAdmin.execute('UPDATE Usuarios SET FechaUltAcceso = ? WHERE Usuario = ?', [fechaActual, usuario]);
+    } catch {}
+
+    const isAdmin = Number(row.AdminFlag || 0) === 1;
 
     const user = {
       Id: row.Id,
+      IdCliente: row.IdCliente,
       Nombre: row.Nombre,
       Apellido: row.Apellido,
       Email: row.Email,
-      IdCliente: row.IdCliente,
       Usuario: row.Usuario,
       FechaExpiracionClave: row.FechaExpiracionClave,
-      Estado: estado
+      Estado: estado,
+      admin: isAdmin
     };
 
     const token = generarToken(user);
@@ -153,33 +133,56 @@ async function iniciarSesion({ usuario, contraseña /*, deviceId*/ }) {
 }
 
 /*==============================================================================
-// Módulos
+=            Módulos (fallback; algunos proyectos lo llaman desde aquí)        =
 ==============================================================================*/
+async function obtenerModulos(idCliente) {
+  if (!idCliente) return { success: false, message: 'Falta idCliente' };
 
+  return withAdminPool(async (pool) => {
+    const [rows] = await pool.execute(`
+      SELECT
+        m.Id     AS ModuloId,
+        m.Nombre AS ModuloNombre,
+        m.Texto,
+        m.Icono,
+        m.Link,
+        m.PathExcelModelo
+      FROM ModulosXCliente mx
+      JOIN Modulos m ON mx.IdModulo = m.Id
+      WHERE mx.IdCliente = ?
+      ORDER BY m.Nombre
+    `, [idCliente]);
+
+    const modulos = rows.map(m => ({
+      id: m.ModuloId,
+      nombre: m.ModuloNombre,
+      texto: m.Texto,
+      icono: m.Icono,
+      link: m.Link,
+      pathExcel: m.PathExcelModelo,
+    }));
+    return { success: true, modulos };
+  });
+}
 
 /*==============================================================================
-// SesionesActivas  — Política: sesión única por usuario en un único DeviceId
-// Si hay Activa=1 en OTRO device → bloquear login.
-// Si no hay activa o es el mismo device → permitir.
-// Al registrar, NO se apagan otras filas (no hacemos UPDATE ... Activa=0 <> device).
+=            SesionesActivas (lock por usuario+device, admin ignora lock)      =
 ==============================================================================*/
 async function verificarSesionActiva({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
     const [rows] = await pool.execute(
       `SELECT Usuario, DeviceId, Activa
-       FROM SesionesActivas
-       WHERE Usuario = ? AND Activa = 1
-       LIMIT 1`,
+         FROM SesionesActivas
+        WHERE Usuario = ? AND Activa = 1
+        LIMIT 1`,
       [usuario]
     );
-
     if (!rows.length) return { success: true, code: 'NO_ACTIVE' };
 
     const row = rows[0];
     if (String(row.DeviceId) === String(deviceId)) {
       return { success: true, code: 'ACTIVE_SAME_DEVICE', deviceId: row.DeviceId };
     }
-
     return {
       success: false,
       code: 'ACTIVE_OTHER_DEVICE',
@@ -191,27 +194,17 @@ async function verificarSesionActiva({ usuario, deviceId }) {
 
 async function registrarSesionActiva({ usuario, deviceId, token, storeBlob }) {
   return withAdminPool(async (pool) => {
-    // ⛔️ No desactivar otros devices aquí.
-    const [ex] = await pool.execute(
-      `SELECT 1 FROM SesionesActivas WHERE Usuario = ? AND DeviceId = ? LIMIT 1`,
-      [usuario, deviceId]
+    // Requiere UNIQUE (Usuario, DeviceId)
+    await pool.execute(
+      `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, StoreData, LastSeen, Activa)
+       VALUES (?, ?, ?, ?, NOW(), 1)
+       ON DUPLICATE KEY UPDATE
+         Token=VALUES(Token),
+         StoreData=VALUES(StoreData),
+         LastSeen=NOW(),
+         Activa=1`,
+      [usuario, deviceId, token || null, storeBlob || null]
     );
-
-    if (ex.length) {
-      await pool.execute(
-        `UPDATE SesionesActivas
-           SET Token = ?, StoreData = ?, LastSeen = NOW(), Activa = 1
-         WHERE Usuario = ? AND DeviceId = ?`,
-        [token || null, storeBlob || null, usuario, deviceId]
-      );
-    } else {
-      await pool.execute(
-        `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, StoreData, LastSeen, Activa)
-         VALUES (?, ?, ?, ?, NOW(), 1)`,
-        [usuario, deviceId, token || null, storeBlob || null]
-      );
-    }
-
     return { success: true };
   });
 }
@@ -220,9 +213,9 @@ async function obtenerSesionPorDevice({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
     const [rows] = await pool.execute(
       `SELECT Usuario, DeviceId, Token, StoreData, LastSeen, Activa
-       FROM SesionesActivas
-       WHERE Usuario = ? AND DeviceId = ?
-       LIMIT 1`,
+         FROM SesionesActivas
+        WHERE Usuario = ? AND DeviceId = ?
+        LIMIT 1`,
       [usuario, deviceId]
     );
     if (!rows.length) return { success: false, code: 'NOT_FOUND' };
@@ -234,8 +227,8 @@ async function heartbeatSesionActiva({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
     await pool.execute(
       `UPDATE SesionesActivas
-         SET LastSeen = NOW()
-       WHERE Usuario = ? AND DeviceId = ? AND Activa = 1`,
+          SET LastSeen = NOW()
+        WHERE Usuario = ? AND DeviceId = ? AND Activa = 1`,
       [usuario, deviceId]
     );
     return { success: true };
@@ -245,8 +238,9 @@ async function heartbeatSesionActiva({ usuario, deviceId }) {
 async function finalizarSesionActiva({ usuario, deviceId }) {
   return withAdminPool(async (pool) => {
     await pool.execute(
-      `UPDATE SesionesActivas SET Activa = 0, LastSeen = NOW()
-       WHERE Usuario = ? AND DeviceId = ?`,
+      `UPDATE SesionesActivas
+          SET Activa = 0, LastSeen = NOW()
+        WHERE Usuario = ? AND DeviceId = ?`,
       [usuario, deviceId]
     );
     return { success: true };
@@ -272,11 +266,13 @@ function decodeStoreBlob(storeBlob) {
 
 module.exports = {
   iniciarSesion,
+  obtenerModulos,
   verificarSesionActiva,
   registrarSesionActiva,
   obtenerSesionPorDevice,
   heartbeatSesionActiva,
   finalizarSesionActiva,
   deshabilitarUsuario,
-  decodeStoreBlob
+  decodeStoreBlob,
+  obtenerConfiguracionEmpresa,
 };

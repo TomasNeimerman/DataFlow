@@ -239,7 +239,6 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
 
       <div
         className={styles.grid}
-        style={{ "--cols": Math.max(1, Math.min(modules.length || 1, 8)) }}
       >
         {(modules || []).map((m) => {
           const icono = (m.icono ?? "").toString().trim();

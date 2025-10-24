@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { getAdminDbConfig } = require('../userDbConfig.js');
+const { getAdminDbConfig } = require('../../userDbConfig.js');
 
 // Helper: leer ch3_FecMod justo después del UPDATE
 async function getModifiedAt(pool, id) {

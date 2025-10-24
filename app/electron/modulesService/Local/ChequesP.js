@@ -1,5 +1,5 @@
 // back/modulesService/Chequesp.js
-const { getAdminDbConfig } = require('../userDbConfig.js');
+const { getAdminDbConfig } = require('../../userDbConfig.js');
 const sql = require('mssql');
 const path = require('path');
 const os = require('os');

@@ -1,6 +1,6 @@
 // modulesService/Clientes.js
 const sql = require('mssql');
-const { getAdminDbConfig } = require('../userDbConfig.js');
+const { getAdminDbConfig } = require('../../userDbConfig.js');
 
 /** Listas habilitadas (para combo destino) */
 async function getListasHabilitadas() {

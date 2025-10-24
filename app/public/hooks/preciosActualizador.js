@@ -135,8 +135,8 @@ export default function usePreciosActualizador() {
       setPuedeVerResultados(false);
       setResultados([]);
 
-      if (!file) throw new Error("Debe seleccionar un archivo Excel.");
-      if (!expectedListaCod) throw new Error("Seleccione una lista antes de importar.");
+      if (!file) throw new Error("Debe seleccionar un Archivo Excel.");
+      if (!expectedListaCod) throw new Error("Seleccione una Lista antes de importar.");
 
       const XLSXmod = await import("xlsx");
       const XLSX = XLSXmod.default || XLSXmod;

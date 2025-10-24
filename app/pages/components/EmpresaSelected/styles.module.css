@@ -1,13 +1,14 @@
 .container {
   font-family: 'Public Sans', sans-serif;
   background-color: white;
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
   padding-right: 2px;
   padding-left: 2px;
   border-radius: 5px;
   text-align: center;
-  width: 200px
+  font-size: 0.86rem;
+  width: 160px
 }
 
 .empresa {

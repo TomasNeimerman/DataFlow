@@ -1,11 +1,11 @@
-// electron/modulesService/Empresa.js
+// electron/modulesService/Cloud/Empresa.js
 // ✅ Usa userDbConfig como única fuente (server/user/pass/port fijos), y solo cambia DB_DATABASE.
 // ✅ No duplica plantillas ni rutas: escribe siempre en userData via writeAdminDbConfig({ database }).
 
 const sql = require('mssql');
 const mysql = require('mysql2/promise');
-const { getDbConfig } = require('../dbConfig.js');            // MySQL (nube)
-const { getAdminDbConfig, writeAdminDbConfig } = require('../userDbConfig.js'); // MSSQL local (solo DB cambia)
+const { withAdminPool } = require('./adminPool');
+const { getAdminDbConfig, writeAdminDbConfig } = require('../../userDbConfig.js'); // MSSQL local (solo DB cambia)
 
 function norm(s) {
   return String(s ?? '').trim().toLowerCase();
@@ -66,27 +66,21 @@ async function getEmpresasHabilitadas() {
  * SELECT Nombre, InstanciaBD, RazonSocial FROM Empresas WHERE IdCliente = ?
  */
 async function getEmpresasNubeByCliente(idCliente) {
-  const cfg = getDbConfig();
-  const pool = await mysql.createPool({
-    host: cfg.server,
-    port: cfg.port,
-    user: cfg.user,
-    password: cfg.password,
-    database: cfg.database,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-  });
-  try {
+  if (!idCliente) return [];
+  return withAdminPool(async (pool) => {
     const [rows] = await pool.execute(
-      `SELECT Nombre, InstanciaBD, RazonSocial FROM Empresa WHERE IdCliente = ?`,
+      `SELECT
+         Nombre,
+         InstanciaBD,
+         RazonSocial
+       FROM Empresa
+       WHERE IdCliente = ?`,
       [idCliente]
     );
     return rows || [];
-  } finally {
-    await pool.end();
-  }
+  });
 }
+
 
 /**
  * Verifica que el usuario tenga habilitada la empresa (Nombre == emp_codigo).

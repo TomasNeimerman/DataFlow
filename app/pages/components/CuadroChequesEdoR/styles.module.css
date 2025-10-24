@@ -13,6 +13,7 @@
   font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
   overflow-y: auto; /* Para el scroll vertical cuando el contenido excede la altura */
   overflow-x: auto; /* Para el scroll horizontal cuando el contenido excede el ancho */
+  z-index: 2;
 }
 .container::-webkit-scrollbar{
   display: none;

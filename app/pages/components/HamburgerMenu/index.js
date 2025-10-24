@@ -9,7 +9,55 @@ export default function HamburgerMenu() {
   const [loadingMods, setLoadingMods] = useState(false);
   const [errorMods, setErrorMods] = useState(null);
   const [filter, setFilter] = useState("");
+  const [showBtn, setShowBtn] = useState(false); // 👈 visibilidad del botón según idCliente
   const panelRef = useRef(null);
+
+  // Helper de subscripción (api.on / CustomEvent fallback)
+  const subscribe = useCallback((channel, handler) => {
+    if (typeof window === "undefined") return () => {};
+    if (window?.api?.on) {
+      window.api.on(channel, handler);
+      return () => window.api.off?.(channel, handler);
+    } else {
+      const h = (e) => handler(e.detail);
+      window.addEventListener(channel, h);
+      return () => window.removeEventListener(channel, h);
+    }
+  }, []);
+
+  // Chequea idCliente y muestra/oculta el botón
+  const refreshShowBtn = useCallback(async () => {
+    try {
+      const idCliente = await window?.api?.getStoreValue?.("idCliente");
+      const ok = !!idCliente;
+      setShowBtn(ok);
+      if (!ok) setOpen(false); // si desaparece, cerramos el panel
+    } catch {
+      setShowBtn(false);
+      setOpen(false);
+    }
+  }, []);
+
+  // Montaje: estado inicial del botón
+  useEffect(() => { refreshShowBtn(); }, [refreshShowBtn]);
+
+  // Reaccionar a cambios del store y de la sesión
+  useEffect(() => {
+    const unsubStore = subscribe("store:any-change", (delta) => {
+      if (delta && Object.prototype.hasOwnProperty.call(delta, "idCliente")) {
+        refreshShowBtn();
+      }
+    });
+    const unsubSession = subscribe("session:state", (s) => {
+      if (s?.status === "logged-out") {
+        setShowBtn(false);
+        setOpen(false);
+      } else if (s?.status === "logged-in") {
+        refreshShowBtn();
+      }
+    });
+    return () => { unsubStore?.(); unsubSession?.(); };
+  }, [subscribe, refreshShowBtn]);
 
   // Trae SOLO los módulos asignados al usuario
   const fetchModules = useCallback(async (force = false) => {
@@ -78,9 +126,7 @@ export default function HamburgerMenu() {
   }, []);
 
   // Prefetch al montar
-  useEffect(() => {
-    fetchModules(); // si aún no hay empresa, muestra el mensaje
-  }, [fetchModules]);
+  useEffect(() => { fetchModules(); }, [fetchModules]);
 
   // Reaccionar al elegir/limpiar empresa desde BDSelect (evento DOM)
   useEffect(() => {
@@ -100,17 +146,13 @@ export default function HamburgerMenu() {
   }, [fetchModules]);
 
   // Reintenta cada vez que se abre el panel
-  useEffect(() => {
-    if (open) fetchModules();
-  }, [open, fetchModules]);
+  useEffect(() => { if (open) fetchModules(); }, [open, fetchModules]);
 
   // Cerrar con clic afuera o ESC
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => e.key === "Escape" && setOpen(false);
-    const onClick = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false);
-    };
+    const onClick = (e) => { if (panelRef.current && !panelRef.current.contains(e.target)) setOpen(false); };
     document.addEventListener("keydown", onDown);
     document.addEventListener("mousedown", onClick);
     return () => {
@@ -143,9 +185,12 @@ export default function HamburgerMenu() {
     return s.includes(q);
   });
 
+  // 👇 Si no hay idCliente, no mostramos botón ni panel
+  if (!showBtn) return null;
+
   return (
     <>
-      {/* Botón flotante */}
+      {/* Botón flotante (se muestra solo si showBtn === true) */}
       <button
         className={`${styles.hamburgerBtn} ${open ? styles.btnDisabled : ""}`}
         aria-label="Abrir menú"
@@ -162,7 +207,7 @@ export default function HamburgerMenu() {
         </svg>
       </button>
 
-      {/* Overlay */}
+      {/* Overlay / Panel */}
       <div className={`${styles.overlay} ${open ? styles.show : ""}`}>
         <aside
           id="hm-panel"

@@ -1,0 +1,29 @@
+.title { color: #000; }
+.titleWrap { margin-bottom: .25rem; }
+
+.info { color: #337ab7; font-weight: bold; }
+.tabNote { color: #444; }
+
+.tableWrapper { width: 100%; max-width: 100%; overflow: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.table th, .table td { text-align: left; padding: .5rem; border-bottom: 1px solid #ddd; white-space: nowrap; }
+.headerRow { background-color: #f0f0f0; }
+.num { text-align: right !important; white-space: nowrap; }
+.priceNew { font-weight: 600; }
+.row {color: black;}
+.noResults { text-align: center; padding: 12px; }
+.btn {
+  margin-bottom: 5px;
+  background-color: #e82c02;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  font-weight: bolder;
+  cursor: pointer;
+  width: 100%;
+}
+.btn:hover {
+  background-color: #d42602;
+  border-color: #fff;
+}
