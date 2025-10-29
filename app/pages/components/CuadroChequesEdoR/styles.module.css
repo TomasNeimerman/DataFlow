@@ -4,9 +4,10 @@
   background-color: #fff;
   margin-top: 5px;
   border-radius: 12px;
-  max-height: 1000px; /* Altura máxima para el contenedor */
-  width: 90%; /* Ajustado para ser más adaptable */
-  max-width: 1500px; /* Añadido un ancho máximo para pantallas grandes */
+  width: clamp(320px, 92vw, 1080px);
+  min-height: clamp(520px, 80vh, 720px);
+  max-height: 720px;
+  padding: 24px;
   margin-left: auto; /* Centrar el contenedor */
   margin-right: auto; /* Centrar el contenedor */
   margin-bottom: 20px; /* Espacio con otros componentes si hubiera */
@@ -88,7 +89,7 @@
 .tableContainer {
   overflow-x: auto; /* Permitir scroll horizontal si la tabla es muy ancha */
   margin-bottom: 1rem; /* Espacio entre la tabla y otros elementos */
-  max-height: 300px;
+  max-height: 440px;
   -ms-overflow-style: none;
   scrollbar-width: none;
 }

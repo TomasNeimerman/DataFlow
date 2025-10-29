@@ -1,8 +1,10 @@
 .container {
   background: #fff;
   /* ancho fluido: no te rompe layouts ni “120%” raros */
-  width: clamp(320px, 62vw, 880px);
-  max-width: 100%;
+    width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;
 
   padding: 32px;
   border-radius: 10px;

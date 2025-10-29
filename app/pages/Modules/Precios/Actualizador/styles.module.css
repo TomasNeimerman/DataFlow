@@ -26,12 +26,13 @@
 .container {
   background-color: #fff;
   width: 100%;                 /* más ancho */
-  padding: 40px;
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0,0,0,.1);
   margin: 20px auto;
-  max-width: 1080px;
-  max-height: 720px;
+    width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;
   z-index: 2;
   display: flex;
   flex-direction: column;
@@ -128,6 +129,9 @@
   max-height: 68vh;
   min-height: 0;
   padding-right: 2px;
+  display: flex;
+  flex-direction: column;
+  
 }
 .sectionContent::-webkit-scrollbar{ width: 10px; height: 10px; }
 .sectionContent::-webkit-scrollbar-track{ background: #f1f1f1; }

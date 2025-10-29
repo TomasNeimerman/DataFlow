@@ -1,49 +1,74 @@
 /* Contenedor principal de la tarjeta/formulario */
 .formCardContainer {
   background: #fff;
-  padding: 16px;
+  padding: 18px;              /* +respiro (antes 16px/14px) */
   border-radius: 10px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+
+  /* ⬇️ más grande pero sin romper el layout del padre */
+  width: 100%;                /* respeta el ancho del card padre */
+  min-height: 320px;          /* antes ~260px */
+
+  overflow: auto;
+
+  /* Scrollbars con el estilo de ClientesTab */
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f1f1f1;
 }
+/* Chrome/Edge/Safari */
+.formCardContainer::-webkit-scrollbar { width: 10px; height: 10px; }
+.formCardContainer::-webkit-scrollbar-track { background: #f1f1f1; }
+.formCardContainer::-webkit-scrollbar-thumb {
+  background-color: #888;
+  border-radius: 8px;
+  border: 2px solid #f1f1f1;
+}
+.formCardContainer::-webkit-scrollbar-thumb:hover { background-color: #555; }
 
 /* Campo y etiqueta */
-.field {
-  margin-bottom: 15px;
-}
+.field { margin-bottom: 12px; }  /* levemente más compacto */
 
 .label {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   font-weight: 500;
+  font-size: 0.95rem;          /* tamaño unificado */
+  line-height: 1.2;
 }
 
-/* Select (tu estilo original) */
+/* Select (solo tamaño) */
 .select {
-    width: 100%;
-    padding: 10px;
-    margin-bottom: 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 0.95rem;
+  height: 42px;                /* alto unificado de inputs */
+  line-height: 42px;
 }
 
-/* Botón (tu estilo original) */
+/* Botón (solo tamaño) */
 .btn {
-    margin-bottom: 5px;
-    background-color: #e82c02;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 5px;
-    cursor: pointer;
-    width: 100%;
+  margin-bottom: 5px;
+  background-color: #e82c02;
+  color: white;
+  border: none;
+  padding: 0 16px;
+  border-radius: 5px;
+  cursor: pointer;
+  width: 100%;
+  height: 44px;                /* alto unificado de botones */
+  font-size: 0.95rem;
+  font-weight: 600;
 }
-
 .btn:hover{
-    background-color: #d42602;
-    border-color: white;
+  background-color: #d42602;
+  border-color: white;
 }
 
-/* Mensajes de estado */
+/* Mensajes de estado (solo tipografía) */
 .statusError {
   color: #d1242f;
   background: #fde8e8;
@@ -51,7 +76,7 @@
   padding: 8px 10px;
   border-radius: 6px;
   margin-top: 10px;
-  font-size: 14px;
+  font-size: 13px;             /* antes 14px */
 }
 
 .statusSuccess {
@@ -61,26 +86,25 @@
   padding: 8px 10px;
   border-radius: 6px;
   margin-top: 10px;
-  font-size: 14px;
+  font-size: 13px;             /* antes 14px */
 }
 
-/* Texto auxiliar pequeño */
+/* Texto auxiliar */
 .infoSmall {
   margin-top: 8px;
   font-size: 12px;
   opacity: 0.8;
 }
 
-/* Caja de comparación (sin inline styles) */
+/* Caja de comparación (solo tipografía) */
 .box {
   margin-top: 12px;
   padding: 10px;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 0.9rem;
   line-height: 1.35;
   border: 1px solid transparent;
 }
-
 .boxNeutral { border-color: #d0d7de; background: #f6f8fa; }
 .boxWarn    { border-color: #ffb900; background: #fff8e1; }
 .boxOk      { border-color: #2da44e; background: #e9fbe9; }
@@ -89,4 +113,12 @@
 .cmpTitle {
   font-weight: 600;
   margin-bottom: 6px;
+  font-size: 0.95rem;
+}
+
+/* Responsive fino */
+@media (max-width: 768px) {
+  .formCardContainer { min-height: 280px; }
+  .label { font-size: 0.92rem; }
+  .btn { height: 42px; font-size: 0.92rem; }
 }

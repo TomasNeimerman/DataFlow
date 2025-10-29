@@ -25,11 +25,10 @@
 /* 🔽 achicar un poco la “card” */
 .container {
   background: #fff;
-  max-width: 1024px;        /* 1200px -> 1024px */
-  max-height: 720px;        /* 720px -> 680px */
-  width: 1024px;        /* 1200px -> 1024px */
-  height: 720px;
-  padding: 24px;            /* 32px -> 24px */
+      width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;          /* 32px -> 24px */
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0,0,0,.1);
   margin: 0 auto;

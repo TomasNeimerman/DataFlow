@@ -4,19 +4,39 @@
     padding: 0;
     display: flex;
     justify-content: center;
+    font-size: 0.86rem;
     align-items: center;
     height: 100vh;
     background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
 }
+
 .container {
     
     background-color: white;
-    width: 40%;
-    
-    padding: 40px;
+
+    /* ⬇️ SOLO TAMAÑOS (responsive + altura visible + padding) */
+    width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;
+
     border-radius: 10px;
     box-shadow: 0 0 10px rgba(0,0,0,0.1);
+
+    /* ⬇️ habilito scroll si hace falta (+ estilo abajo) */
+    overflow: auto;
 }
+
+/* ⬇️ Tamaños de texto generales dentro del contenedor */
+.container h1 { font-size: 1.4rem; }
+.container h2 { font-size: 1.15rem; }
+.container p,
+.container label,
+.container input,
+.container button,
+.container select,
+.container textarea { font-size: 0.95rem; }
+
 .title {
     color: black;
     width: 200px;
@@ -32,6 +52,9 @@
     margin-top: 0;
     margin-left: 16px;
     font-weight: bold;
+
+    /* ⬇️ solo tamaño de texto */
+    font-size: 0.95rem;
 }
 .img {
     width: 200px;
@@ -51,3 +74,16 @@
     display: flex;
     justify-content: space-between;
 }
+
+/* ⬇️ Scrollbar igual al de ClientesTab (solo si hay overflow) */
+.container::-webkit-scrollbar{ width: 10px; height: 10px; }
+.container::-webkit-scrollbar-track{ background: #f1f1f1; }
+.container::-webkit-scrollbar-thumb{
+  background-color: #888; border-radius: 8px; border: 2px solid #f1f1f1;
+}
+.container::-webkit-scrollbar-thumb:hover{ background-color: #555; }
+.container::-webkit-scrollbar-corner{ background: transparent; }
+
+/* ⬇️ Responsive (SOLO tamaños, no posiciones) */
+@media (max-width: 1024px) { .container { width: 80%; } }
+@media (max-width: 768px)  { .container { width: 95%; padding: 20px; min-height: 76vh; } }

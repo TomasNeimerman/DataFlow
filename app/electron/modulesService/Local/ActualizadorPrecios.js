@@ -97,7 +97,7 @@ async function descargarListaXlsx(listaCod) {
     const lista = String(listaCod ?? "").trim();
     if (!lista) return { success: false, message: "Debe seleccionar un código de lista." };
 
-    pool = await sql.connect(require("../userDbConfig").getAdminDbConfig());
+    pool = await sql.connect(require("../../userDbConfig").getAdminDbConfig());
     const req = pool.request();
     req.input("lista", sql.VarChar(10), lista);
 
