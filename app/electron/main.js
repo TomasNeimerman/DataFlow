@@ -363,8 +363,9 @@ const {
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
 } = require('./modulesService/Local/GeneradorPrecios.js');
 const ActualizadorPrecios = require('./modulesService/Local/ActualizadorPrecios.js');
-const ClientesSvc = require('./modulesService/Local/Clientes');
+const ClientesSvc = require('./modulesService/Local/ListaPrecClientes');
 
+const ClientesForm = require('./modulesService/Local/Clientes');
 /* ────────────────────────────────────────────────────────────────────────────
  *  MAIN WINDOW
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -957,25 +958,49 @@ ipcMain.handle('precios:excel-ultimos', async () => {
   catch (e) { return { success: false, message: e?.message || 'Error obteniendo últimos actualizados' }; }
 });
 
-ipcMain.handle('paramgen:get-ordenamientos', async () => {
-  return ClientesSvc.getOrdenamientos();
+ipcMain.handle('clientes:listas-habilitadas', async () => {
+  if (typeof ClientesSvc.getListasHabilitadas === 'function') {
+    return ClientesSvc.getListasHabilitadas();
+  }
+  // Si lo resolvés desde otro service centralizado, redireccioná acá.
+  return { success: false, message: 'getListasHabilitadas no disponible en ClientesSvc.' };
 });
 
-/* ────────────────────────────────────────────────────────────────────────────
- *  IPC: CLIENTES (listas habilitadas, listar, actualizar por filtros)
- * ──────────────────────────────────────────────────────────────────────────── */
-ipcMain.handle('clientes:listas-habilitadas', async () => ClientesSvc.getListasHabilitadas());
-
+// Traer clientes habilitados (opcionalmente filtrado por lista ORIGEN)
 ipcMain.handle('clientes:listar', async (_e, payload) => {
-  // payload: { listaCod }
+  // payload: { listaCod?: string }
   return ClientesSvc.listarClientesHabilitados(payload || {});
 });
 
+// Reemplazar lista ORIGEN por DESTINO
 ipcMain.handle('clientes:actualizar-filtrado', async (_e, payload) => {
-  // payload: { toCod, fromCod?, filtros?, cliCods? }
+  // payload: { fromCod: string, toCod: string }
   return ClientesSvc.actualizarListaPorFiltros(payload || {});
 });
 
+// (Opcional) nombres de definiciones desde ParamGen, si tu front lo usa
+ipcMain.handle('paramgen:get-ordenamientos', async () => {
+  if (typeof ClientesSvc.getOrdenamientos === 'function') {
+    return ClientesSvc.getOrdenamientos();
+  }
+  return { success: true, data: { pge_NomDefi1Cli: '', pge_NomDefi2Cli: '' } };
+});
+
+// IPC: ClientesForm
+ipcMain.handle('clientesForm:traerTodos', async () => {
+  try { return await ClientesForm.traerTodos(); }
+  catch (e) { return { success: false, message: e?.message || 'Error en traerTodos.' }; }
+});
+
+ipcMain.handle('clientesForm:traerCodigosLista', async () => {
+  try { return await ClientesForm.traerCodigosLista(); }
+  catch (e) { return { success: false, message: e?.message || 'Error en traerCodigosLista.' }; }
+});
+
+ipcMain.handle('clientesForm:actualizarLista', async (_evt, payload) => {
+  try { return await ClientesForm.actualizarLista(payload || {}); }
+  catch (e) { return { success: false, message: e?.message || 'Error en actualizarLista.' }; }
+});
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS
  * ──────────────────────────────────────────────────────────────────────────── */

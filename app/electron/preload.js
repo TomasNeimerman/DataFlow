@@ -108,6 +108,12 @@ getListasClientes: () => ipcRenderer.invoke('clientes:listas-habilitadas'),
 clientesListar: (payload) => ipcRenderer.invoke('clientes:listar', payload),              
 clientesActualizarFiltrado: (payload) => ipcRenderer.invoke('clientes:actualizar-filtrado', payload), 
 getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
+
+clientesForm: {
+  traerTodos:        () => ipcRenderer.invoke('clientesForm:traerTodos'),
+  traerCodigosLista: () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
+  actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload), // { fromCod, toCod }
+},
   // ======================
   // Store
   // ======================

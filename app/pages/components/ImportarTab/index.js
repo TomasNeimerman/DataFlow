@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ui from "../../Modules/Precios/Actualizador/styles.module.css";
+import ui from "../../Modules/ActualizadordePrecios/styles.module.css";
 import styles from "./styles.module.css";
 
 export default function Importar({

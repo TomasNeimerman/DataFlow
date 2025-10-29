@@ -4,7 +4,7 @@ import CuadroPrecios from "../../../components/CuadroPrecios";
 import PreciosActualizados from "../../../components/PreciosActualizados";
 import pageStyles from "./styles.module.css";
 
-export default function Generador() {
+export default function ScriptSQL() {
   const [precios, setPrecios] = useState([]);
   const [preciosActualizados, setPreciosActualizados] = useState([]);
   const [showActualizados, setShowActualizados] = useState(false);

@@ -55,7 +55,20 @@
 .card:active { box-shadow: none; }
 
 /* Deshabilitados: mismo tamaño, borde dashed y menos énfasis */
-.cardDisabled { border-style: dashed; opacity: .55; }
+.cardDisabled {
+  box-sizing: border-box;
+  height: 150px;
+  padding: 8px 8px 22px;   /* reserva badge */
+  border-radius: 12px;
+  border-style: dashed;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+}
 
 /* ===== Círculo/ícono ===== */
 .circle {

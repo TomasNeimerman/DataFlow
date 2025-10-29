@@ -2,16 +2,16 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import styles from "./styles.module.css";
-import EmpresaSelected from "../../../components/EmpresaSelected";
-import usePreciosActualizador from "../../../../public/hooks/preciosActualizador";
+import EmpresaSelected from "../../components/EmpresaSelected";
+import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
 
 // Tabs
-import DescargarTab from "../../../components/DescargarTab";
-import ImportarTab from "../../../components/ImportarTab";
-import ResultadosTab from "../../../components/ResultadosTab";
-import ClientesTab from "../../../components/ClientesTab";
+import DescargarTab from "../../components/DescargarTab";
+import ImportarTab from "../../components/ImportarTab";
+import ResultadosTab from "../../components/ResultadosTab";
+import ClientesTab from "../../components/ClientesTab";
 
-export default function Actualizador() {
+export default function ActualizadordePrecios() {
   // Hook base: importar/descargar/resultados (como antes)
   const {
     estadoImportar,
