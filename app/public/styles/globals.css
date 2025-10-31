@@ -19,19 +19,24 @@ html, body, #__next, .page-container {
 /* Posiciona el logo en la esquina superior izquierda */
 .overlay-bottom-right {
   position: absolute;
-  bottom: 1rem;  /* 24px desde arriba */
-  right: 1rem; /* 40px desde la izquierda */
+
+  right: clamp(0.25rem, 0.5vw, 1rem); /* 40px desde la izquierda */
+  bottom: clamp(1rem, 0.5vh, 3rem);
   z-index: 10;    /* Asegura que esté por encima del contenido */
-  width: 160px;
-  z-index: 1;
+        width: clamp(25px, 9vw, 125px);
+    min-height: clamp(25px, 9vh, 125px);
+    max-height: 125px;
+  z-index: 3;
 }
 .overlay-bottom-left{
   position: absolute;
-  bottom: 0.5rem;  /* 24px desde arriba */
-  left: 1rem; /* 40px desde la izquierda */
+  bottom: clamp(0.25rem, 0.5vw, 1rem);  /* 24px desde arriba */
+  left: clamp(0.25rem, 0.5vw, 1rem); /* 40px desde la izquierda */
   z-index: 10;    /* Asegura que esté por encima del contenido */
-  width: 180px;
-  z-index: 1;
+  width: clamp(50px, 9vw, 300px);
+  min-height: clamp(50px, 9vh, 300px);
+
+  z-index: 3;
 }
 
 /* Posiciona la empresa en la esquina superior derecha */

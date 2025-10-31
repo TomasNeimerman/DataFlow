@@ -365,7 +365,7 @@ const {
 const ActualizadorPrecios = require('./modulesService/Local/ActualizadorPrecios.js');
 const ClientesSvc = require('./modulesService/Local/ListaPrecClientes');
 
-const ClientesForm = require('./modulesService/Local/Clientes');
+const ClientesService = require('./modulesService/Local/Clientes');
 /* ────────────────────────────────────────────────────────────────────────────
  *  MAIN WINDOW
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -986,20 +986,21 @@ ipcMain.handle('paramgen:get-ordenamientos', async () => {
   return { success: true, data: { pge_NomDefi1Cli: '', pge_NomDefi2Cli: '' } };
 });
 
-// IPC: ClientesForm
 ipcMain.handle('clientesForm:traerTodos', async () => {
-  try { return await ClientesForm.traerTodos(); }
-  catch (e) { return { success: false, message: e?.message || 'Error en traerTodos.' }; }
+  try { return await ClientesService.traerTodos(); }
+  catch (e) { return { success:false, message: e?.message || 'Error' }; }
 });
 
+// Listas habilitadas
 ipcMain.handle('clientesForm:traerCodigosLista', async () => {
-  try { return await ClientesForm.traerCodigosLista(); }
-  catch (e) { return { success: false, message: e?.message || 'Error en traerCodigosLista.' }; }
+  try { return await ClientesService.traerCodigosLista(); }
+  catch (e) { return { success:false, message: e?.message || 'Error' }; }
 });
 
-ipcMain.handle('clientesForm:actualizarLista', async (_evt, payload) => {
-  try { return await ClientesForm.actualizarLista(payload || {}); }
-  catch (e) { return { success: false, message: e?.message || 'Error en actualizarLista.' }; }
+// Actualizar SOLO seleccionados
+ipcMain.handle('clientesForm:actualizarLista', async (_e, payload) => {
+  try { return await ClientesService.actualizarLista(payload); }
+  catch (e) { return { success:false, message: e?.message || 'Error' }; }
 });
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS

@@ -110,10 +110,11 @@ clientesActualizarFiltrado: (payload) => ipcRenderer.invoke('clientes:actualizar
 getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
 
 clientesForm: {
-  traerTodos:        () => ipcRenderer.invoke('clientesForm:traerTodos'),
-  traerCodigosLista: () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
-  actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload), // { fromCod, toCod }
-},
+    traerTodos:        () => ipcRenderer.invoke('clientesForm:traerTodos'),
+    traerCodigosLista: () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
+    // payload: { fromCod, toCod, cliCods: string[] }
+    actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload),
+  },
   // ======================
   // Store
   // ======================

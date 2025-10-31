@@ -1,14 +1,14 @@
 "use client";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import styles from "./styles.module.css";
-import EmpresaSelected from "../EmpresaSelected"; // quitá si no lo usás
+import EmpresaSelected from "../EmpresaSelected";
 
 export default function Clientes() {
   // Data
   const [clientes, setClientes] = useState([]);
-  const [listas, setListas] = useState([]); // códigos (strings)
+  const [listas, setListas] = useState([]);
 
-  // Selección / edición
+  // Selección
   const [selectedClientesData, setSelectedClientesData] = useState({});
   const selectedIds = useMemo(
     () => Object.keys(selectedClientesData).filter(id => selectedClientesData[id]?.isSelected),
@@ -17,21 +17,19 @@ export default function Clientes() {
   const selectedCount = selectedIds.length;
   const allSelected = clientes.length > 0 && selectedCount === clientes.length;
 
-  // Campo a actualizar (por ahora solo "lista")
-  const [fieldMode, setFieldMode] = useState("lista");
-  const newValueHeader = "Nueva Lista";
-  const [globalNewValue, setGlobalNewValue] = useState(""); // <- único origen de verdad
+  // Valor global de “Nueva Lista”
+  const [globalNewValue, setGlobalNewValue] = useState("");
 
   // Ordenamiento
   const [sortColumn, setSortColumn] = useState(null);
   const [sortDirection, setSortDirection] = useState("asc");
 
-  // UI / estado
+  // UI
   const [loading, setLoading] = useState(false);
   const [runLogs, setRunLogs] = useState([]);
   const [runErrors, setRunErrors] = useState([]);
   const [importMessage, setImportMessage] = useState("");
-  const [importStatus, setImportStatus] = useState(null); // "ok" | "error" | null
+  const [importStatus, setImportStatus] = useState(null);
   const [isImportButtonDisabled, setIsImportButtonDisabled] = useState(false);
 
   const normalize = (v) => (v == null ? "" : String(v).trim());
@@ -62,7 +60,7 @@ export default function Clientes() {
 
   // Ordenamiento
   const handleSort = (columnName) => {
-    if (sortColumn === columnName) setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    if (sortColumn === columnName) setSortDirection(d => (d === "asc" ? "desc" : "asc"));
     else { setSortColumn(columnName); setSortDirection("asc"); }
   };
   const renderSortArrow = (columnName) => (
@@ -92,25 +90,22 @@ export default function Clientes() {
       const next = { ...prev };
       const cur = next[id] || { isSelected: false, newValue: "" };
       const willSelect = !cur.isSelected;
-
       next[id] = { ...cur, isSelected: willSelect };
 
-      // Si ya hay valor global elegido, aplicar automáticamente al marcar
-      if (willSelect && fieldMode === "lista" && globalNewValue) {
-        next[id].newValue = globalNewValue;
-      }
+      // si hay valor global ya elegido, aplicarlo al marcar
+      if (willSelect && globalNewValue) next[id].newValue = globalNewValue;
       return next;
     });
   };
 
   const onSelectAllChange = (checked) => {
-    setSelectedClientesData((prev) => {
+    setSelectedClientesData(() => {
       const map = {};
       if (checked) {
         for (const c of clientes) {
           map[c.CodCliente] = {
             isSelected: true,
-            newValue: (fieldMode === "lista" ? globalNewValue : "") || "",
+            newValue: globalNewValue || "",
           };
         }
       }
@@ -118,7 +113,7 @@ export default function Clientes() {
     });
   };
 
-  // ÚNICO editor de valor nuevo (global)
+  // Editor global (aplica SOLO a seleccionados)
   const onGlobalValueChange = (value) => {
     setGlobalNewValue(value);
     if (!selectedIds.length) return;
@@ -131,7 +126,7 @@ export default function Clientes() {
     });
   };
 
-  // Helpers
+  // Helpers para update
   const getCommonFromCodOrError = () => {
     const currentListas = new Set(
       selectedIds.map((id) => {
@@ -140,9 +135,7 @@ export default function Clientes() {
       })
     );
     if (currentListas.size === 0) return { error: "No hay clientes seleccionados." };
-    if (currentListas.size > 1) {
-      return { error: "Los seleccionados tienen distintas listas de origen. Filtrá/seleccioná una sola lista de origen." };
-    }
+    if (currentListas.size > 1) return { error: "Los seleccionados tienen distintas listas de origen." };
     return { fromCod: Array.from(currentListas)[0] };
   };
 
@@ -150,21 +143,24 @@ export default function Clientes() {
     setRunErrors([]); setRunLogs([]); setImportMessage(""); setImportStatus(null);
 
     if (selectedCount === 0) { setRunErrors(["Seleccioná al menos un cliente."]); return; }
-    if (fieldMode !== "lista") { setRunErrors(["Por ahora solo se puede actualizar Lista de Precios."]); return; }
-    if (!globalNewValue) { setRunErrors(["Elegí la lista destino en el selector de arriba."]); return; }
+    if (!globalNewValue)   { setRunErrors(["Elegí la lista destino en el selector superior."]); return; }
 
     const { fromCod, error: fromErr } = getCommonFromCodOrError();
     if (fromErr) { setRunErrors([fromErr]); return; }
     if (normalize(fromCod) === normalize(globalNewValue)) {
-      setRunErrors(["La lista destino es igual a la de origen."]);
-      return;
+      setRunErrors(["La lista destino es igual a la de origen."]); return;
     }
 
     try {
       setIsImportButtonDisabled(true);
-      const r = await window.api?.clientesForm?.actualizarLista({ fromCod, toCod: globalNewValue });
+      const r = await window.api?.clientesForm?.actualizarLista({
+        fromCod,
+        toCod: globalNewValue,
+        cliCods: selectedIds,   // SOLO los tildados
+      });
       if (!r?.success) throw new Error(r?.message || "No se pudo actualizar.");
-      setImportStatus("ok"); setImportMessage(`Actualizados: ${r.updatedRows ?? 0}`);
+      setImportStatus("ok");
+      setImportMessage(`Actualizados: ${r.updatedRows ?? 0}`);
       setRunLogs([`Origen ${fromCod} → Destino ${globalNewValue}`]);
       await fetchClientes();
       setSelectedClientesData({});
@@ -174,38 +170,39 @@ export default function Clientes() {
     } finally { setIsImportButtonDisabled(false); }
   };
 
+  // Etiqueta dinámica del select global
+  const selectLabel =
+    allSelected ? "Nueva Lista (para todos)" :
+    selectedCount > 0 ? "Nueva Lista (seleccionados)" : "Nueva Lista";
+
   return (
     <div className={styles.container}>
-      {/* Header */}
+      {/* Encabezado */}
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Clientes</h2>
         <EmpresaSelected />
       </div>
 
-      {/* Barra superior */}
-      <div className={styles.massBar}>
-        <div className={styles.massLeft}>
-          <label className={styles.label}>Campo a Actualizar:</label>
-          <select className={styles.input} value={fieldMode} onChange={(e) => setFieldMode(e.target.value)}>
-            <option value="lista">Lista de Precios</option>
-          </select>
-        </div>
-
-        {/* Editor global: ÚNICO lugar donde se elige el valor */}
-        <div className={styles.massRight}>
-          <label className={styles.label}>{newValueHeader}:</label>
-          <select
-            className={`${styles.input} ${styles.updateAccentInput}`}
-            value={globalNewValue}
-            onChange={(e) => onGlobalValueChange(e.target.value)}
-          >
-            <option value="">(seleccionar)</option>
-            {listas.map((cod) => <option key={cod} value={cod}>{cod}</option>)}
-          </select>
+      {/* Barra superior: SOLO selector global (aparece con selección) */}
+      <div className={styles.actionBarTop}>
+        <div className={styles.actionRight}>
+          {selectedCount > 0 && (
+            <>
+              <label className={styles.label}>{selectLabel}:</label>
+              <select
+                className={`${styles.input} ${styles.updateAccentInput}`}
+                value={globalNewValue}
+                onChange={(e) => onGlobalValueChange(e.target.value)}
+              >
+                <option value="">(seleccionar)</option>
+                {listas.map((cod) => <option key={cod} value={cod}>{cod}</option>)}
+              </select>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Tabla */}
+      {/* Tabla con scroll */}
       <div className={styles.tableContainer}>
         <table className={styles.table}>
           <thead>
@@ -227,22 +224,34 @@ export default function Clientes() {
               <th onClick={() => handleSort("ListaPrecio")}>ListaPrecio {renderSortArrow("ListaPrecio")}</th>
               <th onClick={() => handleSort("CodDescuentoCom")}>CodDescCom {renderSortArrow("CodDescuentoCom")}</th>
               <th onClick={() => handleSort("DescuentoCom")}>DescCom {renderSortArrow("DescuentoCom")}</th>
-              <th>{newValueHeader}</th>
-              <th>
-                Actualizar&nbsp;
-                <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAllChange(e.target.checked)} title="Seleccionar todos" />
+              <th className={styles.centerCell}>Nueva Lista</th>
+
+              {/* Checkbox GENERAL en el header */}
+              <th className={styles.updateTh}>
+                <div className={styles.updateHeader}>
+                  <span>Actualizar</span>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => onSelectAllChange(e.target.checked)}
+                    title="Seleccionar todos"
+                  />
+                </div>
               </th>
             </tr>
           </thead>
+
           <tbody>
             {!sortedClientes?.length ? (
               <tr><td colSpan={19} className={styles.noResults}>{loading ? "Cargando…" : "Sin resultados"}</td></tr>
             ) : (
               sortedClientes.map((cli) => {
-                const isSelected = !!selectedClientesData?.[cli.CodCliente]?.isSelected;
-                // Mostrar SOLO el valor global (no editable por fila)
+                const id = String(cli.CodCliente);
+                const isSelected = !!selectedClientesData?.[id]?.isSelected;
+                const rowNewValue = isSelected ? (selectedClientesData?.[id]?.newValue || "") : "";
+
                 return (
-                  <tr key={cli.CodCliente}>
+                  <tr key={id}>
                     <td>{cli.CodCliente}</td>
                     <td>{cli.RazonSocial}</td>
                     <td>{cli.Direccion}</td>
@@ -260,13 +269,14 @@ export default function Clientes() {
                     <td>{cli.ListaPrecio}</td>
                     <td>{cli.CodDescuentoCom}</td>
                     <td>{cli.DescuentoCom}</td>
-                    <td className={styles.editCell}>
-                      <span className={globalNewValue ? "" : styles.muted}>
-                        {globalNewValue || "—"}
+
+                    <td className={`${styles.editCell} ${styles.centerCell}`}>
+                      <span className={rowNewValue ? "" : styles.muted}>
+                        {rowNewValue || "—"}
                       </span>
                     </td>
                     <td style={{ width: 80, textAlign: "center" }}>
-                      <input type="checkbox" checked={isSelected} onChange={() => onClienteToggle(cli.CodCliente)} />
+                      <input type="checkbox" checked={isSelected} onChange={() => onClienteToggle(id)} />
                     </td>
                   </tr>
                 );
@@ -276,7 +286,7 @@ export default function Clientes() {
         </table>
       </div>
 
-      {/* Logs / Errores */}
+      {/* Mensajes */}
       {runLogs.length > 0 && (
         <div className={styles.logBox}>
           <div className={styles.logTitle}>Resultado de la operación</div>
@@ -290,7 +300,7 @@ export default function Clientes() {
         </div>
       )}
 
-      {/* Footer en armonía con el contenedor (no sticky) */}
+      {/* Botón inferior */}
       <div className={styles.footerBar}>
         {importMessage ? (
           <p className={`${styles.footerMsg} ${importStatus === "ok" ? styles.ok : importStatus === "error" ? styles.error : ""}`}>

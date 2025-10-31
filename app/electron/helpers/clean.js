@@ -17,6 +17,7 @@ function rm(target) {
 const outputTemplate = pkg.build?.directories?.output || 'dist';
 const outputDir = outputTemplate.replace(/\$\{version\}/g, pkg.version);
 
+
 // Borra .next y la salida del build (por ejemplo "DataFlow 0.3.0")
 rm('.next');
 rm(outputDir);
