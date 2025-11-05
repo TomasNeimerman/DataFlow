@@ -1,85 +1,205 @@
-/* Contenedor */
-.container {
-  background-color: #fff;
- 
-   width: clamp(320px, 92vw, 1080px);
-    min-height: clamp(520px, 80vh, 720px);
-    max-height: 720px;
-    padding: 24px;
+/* ───────────────── Contenedor ───────────────── */
+.container{
+  background:#fff;
+  width: clamp(320px, 92vw, 1080px);
+  min-height: clamp(520px, 80vh, 720px);
+  max-height: 720px;
   padding: 24px;
   border-radius: 10px;
   box-shadow: 0 0 10px rgba(0,0,0,.1);
+  overflow: auto;
   margin: 20px auto;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
+  display:flex;
+  flex-direction:column;
+  z-index:2;
 }
-.tableContainer::-webkit-scrollbar{ width: 10px; height: 10px; }
-.tableContainer::-webkit-scrollbar-track{ background: #f1f1f1; }
-.tableContainer::-webkit-scrollbar-thumb{ background-color: #888; border-radius: 8px; border: 2px solid #f1f1f1; }
-.tableContainer::-webkit-scrollbar-thumb:hover{ background-color: #555; }
-.tableContainer::-webkit-scrollbar-corner{ background: transparent; }
+@media (max-width:1024px){ .container{ width:80%; } }
+@media (max-width:768px){ .container{ width:95%; padding:24px; } }
 
-@media (max-width: 1024px) { .container { width: 80%; } }
-@media (max-width: 768px)  { .container { width: 95%; padding: 24px; } }
+.headerContainer{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.title{ font-size:2rem; font-weight:700; color:#111; }
 
-.title { font-size: 2.0rem; font-weight: bold; margin-bottom: 1rem; color: #111; }
-.headerContainer { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+/* ───────────────── Card/Acordeón ───────────────── */
 
-/* Barra superior (solo el select global cuando hay seleccionados) */
-.actionBarTop{
-  display: flex; justify-content: flex-end; align-items: center;
-  gap: 12px; padding: 4px 0 8px;
-}
-.actionRight{ display: flex; align-items: center; gap: 10px; }
-.label{ font-weight:600; }
-.input{ width:100%; padding:6px; border:1px solid #ddd; border-radius:5px; }
-.updateAccentInput { border-color: #ef1414 !important; box-shadow: 0 0 0 3px rgba(239,20,20,0.12); }
-
-/* Tabla */
-.table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-.table th, .table td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; font-size: 16px; }
-.headerRow { background-color: #f0f0f0; }
-.tableContainer{ flex: 1; overflow: auto; max-height: 440px; -ms-overflow-style: none; scrollbar-width: none; }
-
-/* Celdas */
-.editCell{ min-width: 160px; }
-.centerCell { text-align: center !important; }
-.muted { color: #999; }
-
-/* Header “Actualizar” con checkbox general centrado */
-.updateTh { width: 110px; }
-.updateHeader{
+.card{ border:1px solid #e7e7e7; border-radius:12px; background:#fff; margin:10px 0; overflow:hidden; flex: 0 0 auto; overflow: hidden; min-height: 0; min-width: 0; }
+.cardHeader{
+  /* fija, no se achica */
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  width: 100%;
+  flex: 0 0 56px;
+  /* layout */
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 0 16px;          /* sin padding vertical para que no varíe */
+  box-sizing: border-box;   /* asegura la altura exacta */
+  background: #f8f8f8;
+  position: relative;
+  border: none;
+  cursor: pointer;
+}
+.cardTitle{
+  color: black;
+  font-weight: bold;
+}
+.cardBody{ padding:14px 16px;
+    max-height: none;
+  overflow: visible;
+ }
+
+.cardHeaderRight{
+
   gap: 8px;
-  white-space: nowrap;
+}
+.chev{ transition:transform .18s ease; }
+.chevOpen{ transform:rotate(180deg); }
+
+.smallBtn{
+  border:1px solid #ddd; background:#e82c02; color:#fff; font-weight:bold;
+  border-radius:8px; padding:6px 10px; cursor:pointer;
+}
+.smallBtn:hover{ opacity:.9; }
+
+/* ───────────────── Alturas + scroll por sección ───────────────── */
+/* FILTROS → scroll en el contenedor interno (.filtersBar) */
+.card:has(.filtersBar) .cardBody{
+  max-height: 28vh;
+  overflow: hidden;           /* el scroll lo hace el hijo */
+  padding: 10px 12px;
+}
+.filtersBar{
+max-height: 200px; overflow: auto;
 }
 
-/* Mensajes */
-.ok { color: #007700; }
-.error { color: #d00; font-weight: bold; }
-.noResults{ font-style: italic; color: #999; text-align: center; padding: 1rem; }
+/* CONTENEDOR (tabla) → scroll en .tableContainer */
+.card:has(.tableContainer) .cardBody{
+  max-height: 48vh;
+  overflow: hidden;           /* el scroll lo hace el hijo */
+  padding: 0;                 /* la tabla ya tiene padding en celdas */
+}
+.tableContainer{
+   max-height: clamp(360px, 52vh, 560px);
+    overflow: auto;
 
-/* Logs / errores */
-.logBox { border: 1px solid #bcd; background: #cdffcd; color: #007a14; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; }
-.logTitle { font-weight: 600; margin-bottom: 6px; }
-.logList { margin: 0; padding-left: 20px; }
-.logItem { margin: 2px 0; }
-.errorBox { border: 1px solid #ffb3b3; background: #ffe6e6; color: #990000; border-radius: 8px; padding: 10px 12px; margin: 8px 0 10px; }
-.errorTitle { font-weight: 600; margin-bottom: 6px; }
-.errorList { margin: 0; padding-left: 20px; }
-.errorItem { margin: 2px 0; }
+}
+.resizableY{
+  flex: 0 1 auto;
+  overflow: auto;
+  min-height: 220px;
+  max-height: 65vh;
+  height: 440px;
+  resize: vertical;
+  border-radius: 8px;
+}
 
-/* Botón inferior */
-.footerBar{ display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.footerMsg{ margin: 0; font-weight: 600; }
+/* CAMPOS A ACTUALIZAR → scroll en el body del card (contenido vertical) */
+.card:has(.fieldCard) .cardBody{
+  max-height: 34vh;
+  overflow:auto;
+  padding: 8px 12px;
+}
+
+/* Scrollbars consistentes para contenedores scrolleables */
+.cardBody::-webkit-scrollbar,
+.filtersBar::-webkit-scrollbar,
+.tableContainer::-webkit-scrollbar,
+.container::-webkit-scrollbar{ width:10px; height:10px; }
+.cardBody::-webkit-scrollbar-track,
+.filtersBar::-webkit-scrollbar-track,
+.tableContainer::-webkit-scrollbar-track,
+.container::-webkit-scrollbar{ background:#f1f1f1; }
+.cardBody::-webkit-scrollbar-thumb,
+.filtersBar::-webkit-scrollbar-thumb,
+.tableContainer::-webkit-scrollbar-thumb,
+.container::-webkit-scrollbar{
+  background:#888; border-radius:8px; border:2px solid #f1f1f1;
+}
+.cardBody::-webkit-scrollbar-thumb:hover,
+.filtersBar::-webkit-scrollbar-thumb:hover,
+.tableContainer::-webkit-scrollbar-thumb:hover,
+.container::-webkit-scrollbar{ background:#555; }
+
+/* ───────────────── Filtros (horizontal) ───────────────── */
+.filtersBar{
+  display:grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap:12px;
+}
+.filterItem{ grid-column: span 3; display:flex; flex-direction:column; gap:6px; }
+.filterFull{ grid-column: 1 / -1; }
+.label{ font-weight:600; }
+.select{ padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+
+.summaryLine{ margin-top:10px; color:#444; }
+.errorText{ color:#c00; }
+
+/* ───────────────── Tabla ───────────────── */
+.table{ width:100%; border-collapse:collapse; font-size:.95rem; min-width: 1200px; }
+.table th, .table td{ text-align:left; padding:10px; border-bottom:1px solid #eee; white-space: normal; word-wrap: break-word; overflow: hidden; }
+.headerRow{ background:#fff; }
+.noResults{ text-align:center; color:#999; padding:16px; }
+.row:hover{ background:#fafafa; }
+
+/* ── Campo inline en header (sin dropdown) ─────────────── */
+.fieldHeaderInline{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  background:#f9f9f9;
+  border:none;
+}
+
+.fieldCheckWrap{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.fieldSelectInline{
+  min-width: 260px;
+  flex: 0 0 320px;           /* ancho estable en desktop */
+  padding:8px 10px;
+  border:1px solid #ddd;
+  border-radius:6px;
+  background:#fff;
+}
+
+/* Borde lateral/realce cuando el campo está habilitado */
+.fieldEnabled{
+  box-shadow: inset 3px 0 0 0 #00ff44;   /* mismo color del borde de tus cards */
+}
+
+/* Fila de hint debajo del header */
+.fieldHintRow{
+  padding:10px 14px;
+  color:#666;
+  font-size:.9rem;
+  background:#fff;
+  border-top:1px solid #eee;
+}
+
+/* Responsive: el select baja a la siguiente línea */
+@media (max-width: 720px){
+  .fieldHeaderInline{ flex-wrap: wrap; }
+  .fieldSelectInline{ flex:1 1 100%; min-width: 0; }
+}
+
+
+/* ───────────────── Footer / Botón ───────────────── */
+.footerBar{ display:flex; align-items:center; gap:12px; margin-top:12px; }
+.footerMsg{ margin:0; font-weight:600; }
+.ok{ color:#007700; }
+.error{ color:#d00; font-weight:700; }
+
 .btnAccentFull{
-  width: 100%; border: none; border-radius: 6px; padding: 12px 18px; font-weight: 800; cursor: pointer;
-  background: #e82c02; color: #fff; box-shadow: 0 6px 14px rgba(232,44,2,.28);
-  transition: transform .06s ease, box-shadow .12s ease, opacity .12s ease;
+  width:100%; border:none; border-radius:6px; padding:12px 18px; font-weight:800; cursor:pointer;
+  background:#e82c02; color:#fff; box-shadow:0 6px 14px rgba(232,44,2,.28);
+  transition:transform .06s ease, box-shadow .12s ease, opacity .12s ease;
 }
-.btnAccentFull:hover{ transform: translateY(-1px); box-shadow: 0 8px 18px rgba(232,44,2,.34); }
-.btnAccentFull:active{ transform: translateY(0); box-shadow: 0 5px 12px rgba(232,44,2,.24); }
-.btnAccentFull:disabled{ opacity: .6; cursor: not-allowed; }
+.btnAccentFull:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(232,44,2,.34); }
+.btnAccentFull:active{ transform:translateY(0); box-shadow:0 5px 12px rgba(232,44,2,.24); }
+.btnAccentFull:disabled{ opacity:.6; cursor:not-allowed; }
