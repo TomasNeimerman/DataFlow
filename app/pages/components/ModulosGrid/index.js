@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import styles from "./styles.module.css";
+import Video from "../Video";
 
 export default function ModulosGrid({ modules: _unused, onNavigate }) {
   const [modules, setModules] = useState([]);
@@ -24,45 +25,34 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
   }, []);
 
   // ---------------- Helpers de video ----------------
-  const toEmbedUrl = (url) => {
-    if (!url) return null;
-    try {
-      const u = new URL(url);
-      const host = u.hostname.replace(/^www\./, "");
-      if (host === "youtube.com" || host === "m.youtube.com") {
-        const v = u.searchParams.get("v");
-        return v ? `https://www.youtube.com/embed/${v}` : url;
-      }
-      if (host === "youtu.be") {
-        const id = u.pathname.split("/").filter(Boolean)[0];
-        return id ? `https://www.youtube.com/embed/${id}` : url;
-      }
-      return url; // http(s) no-YouTube
-    } catch {
-      return url; // ruta local
-    }
-  };
+  // Convierte rutas locales del proyecto a /public (sirve Next)
+const resolveLocalPublicPath = (raw) => {
+  if (!raw) return null;
+  let p = String(raw).trim().replace(/\\/g, "/"); // Windows -> /
 
-  // Convierte rutas del proyecto a /public (sirve Next)
-  const resolveLocalPublicPath = (raw) => {
-    if (!raw) return null;
-    let p = String(raw).trim().replace(/\\/g, "/"); // Windows → /
-    const idx = p.toLowerCase().lastIndexOf("/public/");
-    if (idx >= 0) p = p.slice(idx + "/public".length + 1); // saca "public/"
-    if (!p.includes("/")) p = `video/${p}`; // nombre suelto → /video
+  // Recortar TODO lo que esté antes de "public/"
+  // matches: "public/foo", "/public/foo", "C:/app/public/foo", etc.
+  const m = p.match(/(?:^|\/)public\/(.*)$/i);
+  if (m && m[1]) p = m[1]; // nos quedamos con "foo"
+
+  // Si quedó sólo el filename -> mandarlo a /video/<file>
+  if (!/^https?:\/\//i.test(p)) {
+    if (!p.includes("/")) p = `video/${p}`;
     if (!p.startsWith("/")) p = `/${p}`;
-    return p;
-  };
+  }
+  return p;
+};
 
-  // URL final: embed si YouTube, si no /video/xxx.mp4 (o la ruta mapeada)
-  const resolveVideoSrc = (raw) => {
-    if (!raw) return null;
-    const embedOrRaw = toEmbedUrl(raw);
-    if (/^https?:\/\//i.test(String(raw))) return embedOrRaw;
-    return resolveLocalPublicPath(raw);
-  };
+  // URL final: si es http(s) la dejo tal cual (YouTube u otro),
+  // si es local la normalizo a /public. (NO convertimos a /embed aquí)
+const resolveVideoSrc = (raw) => {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^https?:\/\//i.test(s)) return s;   // YouTube/MP4 remoto
+  return resolveLocalPublicPath(s);        // local -> /video/...
+};
 
-  // Si por alguna razón el main no envía "habilitado", lo calculamos acá
+  // Si el main no envía "habilitado", lo calculamos acá
   const mergeHabilitadosFallback = async (list, idCliente) => {
     try {
       if (!list?.length) return list || [];
@@ -76,7 +66,10 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
               : (ref.modulosXCliente || []).map(r => r.IdModulo)
           )
         : new Set();
-      return list.map(m => ({ ...m, habilitado: setIds.has(m.id) }));
+      return list.map(m => ({
+        ...m,
+        habilitado: setIds.has(m.id ?? m.ModuloId ?? m.Id)
+      }));
     } catch {
       return list;
     }
@@ -98,7 +91,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
       const ok = !!(idCliente && instanciaBD);
       setEmpresaOk(ok);
 
-      // Gate: sin empresa seleccionada NO mostramos módulos (solo mostramos el cartel rojo)
+      // Gate: sin empresa seleccionada NO mostramos módulos (solo el cartel rojo)
       if (!ok) {
         setModules([]);
         return;
@@ -108,7 +101,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
       if (!res?.success) throw new Error(res?.message || "No se pudieron obtener los módulos.");
 
       let list = await mergeHabilitadosFallback(res.modulos || [], idCliente);
-      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video) }));
+      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video ?? m.Video) }));
       setModules(list);
     } catch (err) {
       setError(err.message || "Error al cargar módulos.");
@@ -133,7 +126,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
       if (!ok) { setModules([]); return; }
 
       let list = await mergeHabilitadosFallback(Array.isArray(modulos) ? modulos : [], idCliente);
-      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video) }));
+      list = list.map(m => ({ ...m, video: resolveVideoSrc(m.video ?? m.Video) }));
       setModules(list);
       setLoading(false);
       if (!list.length) setError("");
@@ -177,14 +170,12 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
   }, [subscribe, fetchModules]);
 
   // ---------------- Interacciones ----------------
-  const openDemo = (m) => {
-    const src = resolveVideoSrc(m.video);
-    if (!src) {
-      alert("No hay video de demostración disponible para este módulo.");
-      return;
-    }
-    setDemo({ open: true, title: m.nombre || "Demostración", url: src });
-  };
+const openDemo = (m) => {
+  const src = m.video || m.Video || m.demoUrl || "";
+  if (!src) { alert("No hay video de demostración disponible para este módulo."); return; }
+  console.log("[Demo video src]", src);
+  setDemo({ open: true, title: m.nombre || "Demostración", url: src });
+};
 
   const closeDemo = () => setDemo({ open: false, title: "", url: "" });
 
@@ -207,7 +198,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
       <div className={styles.wrapper}>
         <h3 className={styles.title}>Tus módulos</h3>
         <div className={styles.grid}>
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 10 }).map((_, i) => (
             <div key={i} className={`${styles.card} ${styles.skeleton}`} />
           ))}
         </div>
@@ -218,8 +209,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
   // Cartel rojo cuando no hay empresa seleccionada
   if (!empresaOk) {
     return (
-      <div>
-        
+      <div className={styles.wrapper}>
       </div>
     );
   }
@@ -237,9 +227,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
     <div className={styles.wrapper}>
       <h3 className={styles.title}>Tus Módulos</h3>
 
-      <div
-        className={styles.grid}
-      >
+      <div className={styles.grid}>
         {(modules || []).map((m) => {
           const icono = (m.icono ?? "").toString().trim();
           const isImg =
@@ -250,7 +238,7 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
           return (
             <button
               key={m.id || m.nombre}
-              className={` ${!m.habilitado ? styles.cardDisabled : styles.card}`}
+              className={`${styles.card} ${!m.habilitado ? styles.cardDisabled : ""}`}
               onClick={() => goTo(m)}
               title={m.texto || m.nombre}
               aria-label={`Abrir módulo ${m.nombre}`}
@@ -271,35 +259,12 @@ export default function ModulosGrid({ modules: _unused, onNavigate }) {
       </div>
 
       {/* Modal de demo */}
-      {demo.open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className={styles.modalOverlay}
-          onClick={closeDemo}
-        >
-          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h4 className={styles.modalTitle}>{demo.title}</h4>
-              <button className={styles.modalClose} onClick={closeDemo}>✕</button>
-            </div>
-
-            {typeof demo.url === "string" &&
-            (demo.url.includes("youtube.com/embed/") ||
-              demo.url.includes("youtu.be/")) ? (
-              <iframe
-                src={demo.url}
-                title={demo.title}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className={styles.modalFrame}
-              />
-            ) : (
-              <video src={demo.url} controls className={styles.modalVideo} />
-            )}
-          </div>
-        </div>
-      )}
+      <Video
+        open={demo.open}
+        title={demo.title}
+        src={demo.url}
+        onClose={closeDemo}
+      />
     </div>
   );
 }

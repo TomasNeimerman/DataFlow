@@ -114,6 +114,8 @@ clientesForm: {
     traerCodigosLista: () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
     // payload: { fromCod, toCod, cliCods: string[] }
     actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload),
+    getCatalogos:      () => ipcRenderer.invoke('clientesForm:getCatalogos'),
+  actualizarCampos:  (payload) => ipcRenderer.invoke('clientesForm:actualizarCampos', payload),
   },
   // ======================
   // Store

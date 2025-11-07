@@ -922,6 +922,13 @@ ipcMain.handle('get-precios', async () => {
   return obtenerPreciosService();
 });
 
+ipcMain.handle('precios:actualizar', async ( payload) => {
+  try {
+    return await actualizarPreciosService(payload);
+  } catch (error) {
+    return { success: false, message: error?.message || 'Error en actualización de precios.' };
+  }
+});
 ipcMain.handle('precios:preview-lista', async (_e, { listaCod, limit }) => {
   try {
     const res = await ActualizadorPrecios.obtenerPreviewLista(listaCod, limit || 15);
@@ -1001,6 +1008,13 @@ ipcMain.handle('clientesForm:traerCodigosLista', async () => {
 ipcMain.handle('clientesForm:actualizarLista', async (_e, payload) => {
   try { return await ClientesService.actualizarLista(payload); }
   catch (e) { return { success:false, message: e?.message || 'Error' }; }
+});
+ipcMain.handle('clientesForm:getCatalogos', async () => {
+  return await ClientesService.getCatalogos();
+});
+
+ipcMain.handle('clientesForm:actualizarCampos', async (_e, payload) => {
+  return await ClientesService.actualizarCampos(payload);
 });
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS

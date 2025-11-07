@@ -1,6 +1,6 @@
 {
   "name": "DataFlow",
-  "version": "0.7.0",
+  "version": "0.7.5",
   "description": "DataFlow",
   "private": true,
   "author": "Consultora de Negocios Empresrios S.R.L.",
@@ -28,6 +28,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "electron-store": "^7.0.3",
+    "hls.js": "^1.6.14",
     "jsonwebtoken": "^8.5.1",
     "mssql": "^7.3.0",
     "mysql2": "^2.3.3",

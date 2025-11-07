@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
 
-/** Acordeón simple reutilizable */
+/** Acordeón simple */
 function Accordion({ title, defaultOpen = true, rightAdornment = null, children }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
@@ -21,215 +21,285 @@ function Accordion({ title, defaultOpen = true, rightAdornment = null, children 
   );
 }
 
+/** Mini-tabs (solapas) reusables: General / Impositivos / Otros */
+function SubTabs({ active, onChange, tabs }) {
+  return (
+    <div className={styles.subTabs}>
+      {tabs.map(t => (
+        <button
+          key={t.key}
+          className={`${styles.subTab} ${active === t.key ? styles.subTabActive : ""}`}
+          onClick={() => onChange(t.key)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Clientes() {
-  // ===================== dataset base =====================
+  // ===== dataset =====
   const [clientes, setClientes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorCli, setErrorCli] = useState("");
 
-  // Ordenamientos (ParamGen) para rótulos opcionales — si no existen, no afectan
-  const [ordenamientos, setOrdenamientos] = useState({
-    hasDefi1: true,
-    hasDefi2: true,
-    labelDefi1: "Distribución",
-    labelDefi2: "Canal",
+  // ===== catálogos (tablas relacionadas) =====
+  const [catalogos, setCatalogos] = useState({
+    CondVta: [], TipCli: [], DefListP: [], Vendedor: [], Zona: [],
+    PRV: [], Paises: [], Defi1Cli: [], Defi2Cli: [], Transporte: [], Proveed: [],
+    SitIVA: [], TipoDocum: [], SituGan: [], SitIB: [], Apertura: [],
   });
 
-  // Listas habilitadas (para filtro y para “Lista de Precios” a aplicar)
-  const [listasH, setListasH] = useState([]);
+  // ===== filtros (por solapas) =====
+  const [fTab, setFTab] = useState("general"); // general | impo | otros
 
-  // ===================== filtros (memoria) =====================
-  const [fLista, setFLista]       = useState(""); // Lista actual (ORIGEN) obligatorio para actualizar
+  // General
+  const [fCondVta, setFCondVta] = useState("");
+  const [fProvincia, setFProvincia] = useState(""); // (si hay código disponible)
   const [fVendedor, setFVendedor] = useState("");
-  const [fDistrib,  setFDistrib]  = useState("");
-  const [fCanal,    setFCanal]    = useState("");
+  const [fTipoCli, setFTipoCli] = useState("");
+  const [fLista, setFLista] = useState("");
+  const [fZona, setFZona] = useState("");
 
-  // ===================== selección de filas =====================
+  // Impositivos
+  const [fIVA, setFIVA] = useState("");
+  const [fTipoDoc, setFTipoDoc] = useState("");
+  const [fGan, setFGan] = useState("");
+  const [fIB, setFIB] = useState("");
+  const [fApe, setFApe] = useState("");
+
+  // Otros
+  const [fTrn, setFTrn] = useState("");
+  const [fProv, setFProv] = useState(""); // proveedor
+  const [fDef1, setFDef1] = useState("");
+  const [fDef2, setFDef2] = useState("");
+
+  // ===== selección manual de clientes =====
+  const [selectionMode, setSelectionMode] = useState(true);
   const [selectedCli, setSelectedCli] = useState(() => new Set());
   const selectedCount = selectedCli.size;
 
-  // ===================== “Campos a actualizar” =====================
-  const [fieldLpEnable, setFieldLpEnable] = useState(false);
-  const [fieldLpValue,  setFieldLpValue]  = useState("");
-
-  // Mensajes / estado aplicar
-  const [applyMsg,  setApplyMsg]  = useState("");
-  const [applyBusy, setApplyBusy] = useState(false);
-
-  const normalize = (v) => (v == null ? "" : String(v).trim());
-
-  // ====== bootstrap: ParamGen (opcional) + listas habilitadas ======
-  useEffect(() => {
-    (async () => {
-      // ParamGen: si existe, usamos los rótulos de Defi1/Defi2
-      try {
-        if (window?.api?.getOrdenamientos) {
-          const r = await window.api.getOrdenamientos();
-          const data = r?.data ?? {};
-          const raw1 = normalize(data.pge_NomDefi1Cli);
-          const raw2 = normalize(data.pge_NomDefi2Cli);
-          setOrdenamientos({
-            hasDefi1: !!raw1,
-            hasDefi2: !!raw2,
-            labelDefi1: raw1 || "Distribución",
-            labelDefi2: raw2 || "Canal",
-          });
-        }
-      } catch {}
-
-      // Listas de precios habilitadas (usa las nuevas funciones)
-      try {
-        const r =
-          (await window?.api?.clientesForm?.traerCodigosLista?.()) ||
-          (await window?.api?.traerCodigosLista?.()) ||
-          null;
-
-        if (r?.success) {
-          // El back Local devuelve array de strings: ["100","200",...]
-          const arr = Array.isArray(r.data)
-            ? r.data.map(cod => ({ cod: String(cod), desc: "" }))
-            : [];
-          setListasH(arr);
-        }
-      } catch {}
-    })();
+  const toggleOne = useCallback((id) => {
+    setSelectedCli(prev => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }, []);
+  const toggleAll = useCallback((ids) => {
+    setSelectedCli(prev => (prev.size === ids.length ? new Set() : new Set(ids)));
   }, []);
 
-  // ====== cargar clientes (usa traerTodos) ======
+  // ===== campos a actualizar (UI) =====
+  const [uTab, setUTab] = useState("general"); // general | impo | otros
+  const [updLP, setUpdLP] = useState({ enabled: false, value: "" });
+  const [updCondVta, setUpdCondVta] = useState({ enabled: false, value: "" });
+  const [updProvincia, setUpdProvincia] = useState({ enabled: false, value: "" });
+  const [updVendedor, setUpdVendedor] = useState({ enabled: false, value: "" });
+  const [updTipoCli, setUpdTipoCli] = useState({ enabled: false, value: "" });
+  const [updZona, setUpdZona] = useState({ enabled: false, value: "" });
+
+  const [updIVA, setUpdIVA] = useState({ enabled: false, value: "" });
+  const [updTipoDoc, setUpdTipoDoc] = useState({ enabled: false, value: "" });
+  const [updGan, setUpdGan] = useState({ enabled: false, value: "" });
+  const [updIB, setUpdIB] = useState({ enabled: false, value: "" });
+  const [updApe, setUpdApe] = useState({ enabled: false, value: "" });
+
+  const [updTrn, setUpdTrn] = useState({ enabled: false, value: "" });
+  const [updProv, setUpdProv] = useState({ enabled: false, value: "" });
+  const [updDef1, setUpdDef1] = useState({ enabled: false, value: "" });
+  const [updDef2, setUpdDef2] = useState({ enabled: false, value: "" });
+
+  // mensajes / aplicar
+  const [applyMsg, setApplyMsg] = useState("");
+  const [applyBusy, setApplyBusy] = useState(false);
+
+  // ===== cargar clientes =====
   const loadClientes = useCallback(async () => {
-    setLoading(true);
-    setErrorCli("");
-    setApplyMsg("");
-    setSelectedCli(new Set()); // al recargar, limpio selección
-
+    setLoading(true); setErrorCli(""); setClientes([]);
     try {
-      const r =
-        (await window?.api?.clientesForm?.traerTodos?.()) ||
-        (await window?.api?.traerTodos?.()) ||
-        null;
-
+      // firma acordada: clientesForm.traerTodos()
+      let r = await window?.api?.clientesForm?.traerTodos?.();
       if (!r?.success) throw new Error(r?.message || "No se pudo cargar Clientes.");
       setClientes(r.data || []);
     } catch (e) {
-      setClientes([]);
       setErrorCli(e?.message || "Error cargando Clientes.");
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // ===== cargar catálogos =====
   useEffect(() => { loadClientes(); }, [loadClientes]);
 
-  // ====== opciones para filtros (derivadas del dataset) ======
-  const vendedores = useMemo(() => {
-    const s = new Set();
-    (clientes || []).forEach(c => {
-      const cod = c.CodVendedor;
-      const desc = c.Vendedor || "";
-      if (cod != null) s.add(`${cod}||${desc}`);
-    });
-    return Array.from(s).map(x => {
-      const [cod, desc] = x.split("||");
-      return { cod, desc };
-    }).sort((a,b) => (a.cod > b.cod ? 1 : -1));
+  useEffect(() => {
+    (async () => {
+      try {
+        // Si existe getCatalogos del preload (ideal)
+        const res = await window?.api?.clientesForm?.getCatalogos?.();
+        if (res?.success) { setCatalogos({ ...catalogos, ...(res.data || {}) }); return; }
+      } catch {}
+
+      // Fallback: derivar de los clientes cargados
+      const toOpt = (codeKey, descKey) => {
+        const S = new Map();
+        (clientes || []).forEach(c => {
+          const cod = String(c[codeKey] ?? "").trim();
+          const des = String(c[descKey] ?? "").trim();
+          if (cod) S.set(cod, des ? `${cod} - ${des}` : cod);
+        });
+        return Array.from(S, ([value, label]) => ({ value, label }));
+      };
+
+      setCatalogos(prev => ({
+        ...prev,
+        CondVta: toOpt("CodCodicionVenta", "CondicionVenta"),
+        TipCli: toOpt("CodTipoCliente", "TipoCliente"),
+        DefListP: toOpt("CodListaPrecio", "ListaPrecio"),
+        Vendedor: toOpt("CodVendedor", "Vendedor"),
+        Zona: toOpt("CodZona", "Zona"),
+        // el resto puede venir vacío si no existe en dataset
+      }));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientes]);
 
-  const distribuciones = useMemo(() => {
-    const s = new Set();
-    (clientes || []).forEach(c => {
-      // Si el Local no trae estos campos, no se agregarán (undefined == null -> true)
-      if (c.CodDistribucion != null) s.add(`${c.CodDistribucion}||${c.Distribucion || ""}`);
-    });
-    return Array.from(s).map(x => {
-      const [cod, desc] = x.split("||");
-      return { cod, desc };
-    }).sort((a,b) => (a.cod > b.cod ? 1 : -1));
-  }, [clientes]);
+  // ===== opciones helper =====
+  const opts = useMemo(() => ({
+    listas: catalogos.DefListP,
+    vendedores: catalogos.Vendedor,
+    tiposCli: catalogos.TipCli,
+    zonas: catalogos.Zona,
+    condVta: catalogos.CondVta,
+    provincias: (catalogos.PRV?.length ? catalogos.PRV : catalogos.Paises) || [],
+    defi1: catalogos.Defi1Cli,
+    defi2: catalogos.Defi2Cli,
+    transporte: catalogos.Transporte,
+    proveedores: catalogos.Proveed,
+    iva: catalogos.SitIVA,
+    tdoc: catalogos.TipoDocum,
+    gan: catalogos.SituGan,
+    ib: catalogos.SitIB,
+    ape: catalogos.Apertura,
+  }), [catalogos]);
 
-  const canales = useMemo(() => {
-    const s = new Set();
-    (clientes || []).forEach(c => {
-      if (c.CodCanal != null) s.add(`${c.CodCanal}||${c.Canal || ""}`);
-    });
-    return Array.from(s).map(x => {
-      const [cod, desc] = x.split("||");
-      return { cod, desc };
-    }).sort((a,b) => (a.cod > b.cod ? 1 : -1));
-  }, [clientes]);
-
-  // ====== aplicar filtros en memoria ======
+  // ===== aplicar filtros =====
   const filtrados = useMemo(() => {
-    return (clientes || []).filter(c => {
-      const okLista = !fLista || String(c.CodListaPrecio) === String(fLista);
-      const okVend  = !fVendedor || String(c.CodVendedor)     === String(fVendedor);
-      const okD     = !ordenamientos.hasDefi1 || !fDistrib  || String(c.CodDistribucion) === String(fDistrib);
-      const okC     = !ordenamientos.hasDefi2 || !fCanal    || String(c.CodCanal)        === String(fCanal);
-      return okLista && okVend && okD && okC;
-    });
-  }, [clientes, fLista, fVendedor, fDistrib, fCanal, ordenamientos]);
+    const f = (c) => {
+      const eq = (v, x) => !v || String(x ?? "") === String(v);
+      return (
+        // General
+        eq(fCondVta, c.CodCodicionVenta) &&
+        eq(fProvincia, c.CodProvincia ?? c.cliprv_Codigo ?? c.clipai_Cod) &&
+        eq(fVendedor, c.CodVendedor) &&
+        eq(fTipoCli, c.CodTipoCliente ?? c.clitic_Cod) &&
+        eq(fLista, c.CodListaPrecio ?? c.clidlp_Cod) &&
+        eq(fZona, c.CodZona ?? c.clizon_Cod) &&
 
-  const cantFiltrosActivos = useMemo(() => {
-    let n = 0;
-    if (fLista) n++;
-    if (fVendedor) n++;
-    if (ordenamientos.hasDefi1 && fDistrib) n++;
-    if (ordenamientos.hasDefi2 && fCanal) n++;
-    return n;
-  }, [fLista, fVendedor, fDistrib, fCanal, ordenamientos]);
+        // Impositivos
+        eq(fIVA, c.clisiv_Cod) &&
+        eq(fTipoDoc, c.clitdc_Cod) &&
+        eq(fGan, c.clisig_Cod) &&
+        eq(fIB, c.clisib_Cod) &&
+        eq(fApe, c.cliape_Cod) &&
 
-  const limpiarFiltros = useCallback(() => {
-    setFLista(""); setFVendedor(""); setFDistrib(""); setFCanal("");
-  }, []);
+        // Otros
+        eq(fTrn, c.clitrn_Cod) &&
+        eq(fProv, c.clipro_Cod ?? c.clipro_cod) &&
+        eq(fDef1, c.clidc1_Cod) &&
+        eq(fDef2, c.clidc2_Cod)
+      );
+    };
+    return (clientes || []).filter(f);
+  }, [
+    clientes,
+    fCondVta, fProvincia, fVendedor, fTipoCli, fLista, fZona,
+    fIVA, fTipoDoc, fGan, fIB, fApe, fTrn, fProv, fDef1, fDef2
+  ]);
 
-  // ====== selección (checkbox por fila + seleccionar todos) ======
-  const allVisibleIds = useMemo(
+  // ids visibles (para seleccionar todos)
+  const visibleIds = useMemo(
     () => (filtrados || []).map(c => String(c.CodCliente ?? c.cli_cod)),
     [filtrados]
   );
 
-  const toggleAll = useCallback(() => {
-    setSelectedCli(prev =>
-      prev.size === allVisibleIds.length && allVisibleIds.length > 0
-        ? new Set()
-        : new Set(allVisibleIds)
-    );
-  }, [allVisibleIds]);
-
-  const toggleOne = useCallback((id) => {
-    const key = String(id);
-    setSelectedCli(prev => {
-      const n = new Set(prev);
-      n.has(key) ? n.delete(key) : n.add(key);
-      return n;
-    });
+  // ===== limpiar filtros =====
+  const limpiarFiltros = useCallback(() => {
+    setFCondVta(""); setFProvincia(""); setFVendedor(""); setFTipoCli(""); setFLista(""); setFZona("");
+    setFIVA(""); setFTipoDoc(""); setFGan(""); setFIB(""); setFApe("");
+    setFTrn(""); setFProv(""); setFDef1(""); setFDef2("");
   }, []);
 
-  // ====== aplicar cambios (usa actualizarLista) ======
+  // ===== aplicar cambios =====
   const aplicarCambios = useCallback(async () => {
     setApplyMsg("");
 
-    if (!fieldLpEnable) { setApplyMsg("Activá un campo en 'Campos a Actualizar'."); return; }
-    if (!fieldLpValue)  { setApplyMsg("Seleccioná un valor para 'Lista de Precios'."); return; }
-    if (!fLista)        { setApplyMsg("Seleccioná la 'Lista actual' (origen)."); return; }
-    if (selectedCli.size === 0) { setApplyMsg("Seleccioná al menos un cliente en la grilla."); return; }
-
-    const payload = {
-      fromCod: String(fLista),
-      toCod:   String(fieldLpValue),
-      cliCods: Array.from(selectedCli), // ids de clientes seleccionados
+    // construir payload general (por si agregás endpoint más adelante)
+    const toUpdate = {
+      general: {
+        condVta: updCondVta.enabled ? updCondVta.value : null,
+        provincia: updProvincia.enabled ? updProvincia.value : null,
+        vendedor: updVendedor.enabled ? updVendedor.value : null,
+        tipoCli: updTipoCli.enabled ? updTipoCli.value : null,
+        lista: updLP.enabled ? updLP.value : null,
+        zona: updZona.enabled ? updZona.value : null,
+      },
+      impo: {
+        iva: updIVA.enabled ? updIVA.value : null,
+        tdoc: updTipoDoc.enabled ? updTipoDoc.value : null,
+        gan: updGan.enabled ? updGan.value : null,
+        ib: updIB.enabled ? updIB.value : null,
+        ape: updApe.enabled ? updApe.value : null,
+      },
+      otros: {
+        trn: updTrn.enabled ? updTrn.value : null,
+        prov: updProv.enabled ? updProv.value : null,
+        def1: updDef1.enabled ? updDef1.value : null,
+        def2: updDef2.enabled ? updDef2.value : null,
+      }
     };
+
+    const cliCods = Array.from(selectedCli);
+    if (cliCods.length === 0) {
+      setApplyMsg("Seleccioná al menos un cliente de la grilla.");
+      return;
+    }
+
+    // Caso soportado hoy: Lista de Precios (usa clientesForm.actualizarLista)
+    const wantsLP = !!toUpdate.general.lista;
+    const wantsSomethingElse =
+      Object.values(toUpdate.general).some((v, k) => v && k !== "lista") ||
+      Object.values(toUpdate.impo).some(Boolean) ||
+      Object.values(toUpdate.otros).some(Boolean);
+
+    if (wantsSomethingElse) {
+      setApplyMsg("Por ahora sólo está implementado el cambio de 'Lista de Precios'. El resto quedará habilitado cuando exista el endpoint de back.");
+      return;
+    }
+
+    if (!wantsLP) {
+      setApplyMsg("Activá y elegí un valor en 'Lista de Precios' para aplicar.");
+      return;
+    }
+
+    // actualizarLista requiere fromCod (lista origen). Usamos el filtro fLista.
+    if (!fLista) {
+      setApplyMsg("Seleccioná la Lista actual (origen) en Filtros → General → 'Lista Precios'.");
+      return;
+    }
 
     try {
       setApplyBusy(true);
-      const r =
-        (await window?.api?.clientesForm?.actualizarLista?.(payload)) ||
-        (await window?.api?.actualizarLista?.(payload)) ||
-        null;
-
+      const r = await window?.api?.clientesForm?.actualizarLista?.({
+        fromCod: fLista,
+        toCod: updLP.value,
+        cliCods,
+      });
       if (r?.success) {
-        setApplyMsg(`✔ Se actualizaron ${r.updatedRows ?? selectedCli.size} cliente(s).`);
-        await loadClientes();       // refresco real
-        setSelectedCli(new Set());  // limpio selección
+        setApplyMsg(`✔ Se actualizaron ${r.updatedRows ?? 0} cliente(s).`);
+        setSelectedCli(new Set());
+        await loadClientes();
       } else {
         setApplyMsg(r?.message || "No se pudo aplicar el cambio.");
       }
@@ -238,9 +308,13 @@ export default function Clientes() {
     } finally {
       setApplyBusy(false);
     }
-  }, [fieldLpEnable, fieldLpValue, fLista, selectedCli, loadClientes]);
+  }, [
+    selectedCli, updLP, updCondVta, updProvincia, updVendedor, updTipoCli, updZona,
+    updIVA, updTipoDoc, updGan, updIB, updApe, updTrn, updProv, updDef1, updDef2,
+    fLista, loadClientes
+  ]);
 
-  // ===================== render =====================
+  // ======= render =======
   return (
     <div className={styles.container}>
       <div className={styles.headerContainer}>
@@ -248,174 +322,350 @@ export default function Clientes() {
         <EmpresaSelected />
       </div>
 
-      {/* 1) FILTROS */}
+      {/* FILTROS */}
       <Accordion
-        title={`FILTROS${cantFiltrosActivos ? ` · ${cantFiltrosActivos} activo(s)` : ""}`}
-        defaultOpen={true}
+        title="FILTROS"
         rightAdornment={
           <button className={styles.smallBtn} onClick={(e)=>{ e.stopPropagation(); limpiarFiltros(); }}>
             Limpiar
           </button>
         }
       >
-        <div className={styles.filtersBar}>
-          <div className={`${styles.filterItem} ${styles.filterFull}`}>
-            <label className={styles.label}>Lista actual (origen)</label>
-            <select value={fLista} onChange={e=>setFLista(e.target.value)} className={styles.select}>
-              <option value="">(Todas)</option>
-              {listasH.map(l => <option key={l.cod} value={l.cod}>{l.cod}</option>)}
-            </select>
-          </div>
+        <SubTabs
+          active={fTab}
+          onChange={setFTab}
+          tabs={[
+            { key: "general", label: "General" },
+            { key: "impo", label: "Datos impositivos" },
+            { key: "otros", label: "Otros datos" },
+          ]}
+        />
 
-          <div className={styles.filterItem}>
-            <label className={styles.label}>Vendedor</label>
-            <select value={fVendedor} onChange={e=>setFVendedor(e.target.value)} className={styles.select}>
-              <option value="">(Todos)</option>
-              {vendedores.map(v => <option key={v.cod} value={v.cod}>{v.cod} - {v.desc}</option>)}
-            </select>
-          </div>
-
-          {ordenamientos.hasDefi1 && (
+        {fTab === "general" && (
+          <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
-              <label className={styles.label}>{ordenamientos.labelDefi1}</label>
-              <select value={fDistrib} onChange={e=>setFDistrib(e.target.value)} className={styles.select}>
+              <label className={styles.label}>Condición Venta</label>
+              <select className={styles.select} value={fCondVta} onChange={e=>setFCondVta(e.target.value)}>
                 <option value="">(Todas)</option>
-                {distribuciones.map(d => <option key={d.cod} value={d.cod}>{d.cod} - {d.desc}</option>)}
+                {opts.condVta.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
-          )}
 
-          {ordenamientos.hasDefi2 && (
             <div className={styles.filterItem}>
-              <label className={styles.label}>{ordenamientos.labelDefi2}</label>
-              <select value={fCanal} onChange={e=>setFCanal(e.target.value)} className={styles.select}>
-                <option value="">(Todos)</option>
-                {canales.map(c => <option key={c.cod} value={c.cod}>{c.cod} - {c.desc}</option>)}
+              <label className={styles.label}>Provincia</label>
+              <select className={styles.select} value={fProvincia} onChange={e=>setFProvincia(e.target.value)}>
+                <option value="">(Todas)</option>
+                {(opts.provincias || []).map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
               </select>
             </div>
-          )}
-        </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Vendedor</label>
+              <select className={styles.select} value={fVendedor} onChange={e=>setFVendedor(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.vendedores.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Tipo Cliente</label>
+              <select className={styles.select} value={fTipoCli} onChange={e=>setFTipoCli(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.tiposCli.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Lista Precios (origen)</label>
+              <select className={styles.select} value={fLista} onChange={e=>setFLista(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.listas.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Zona</label>
+              <select className={styles.select} value={fZona} onChange={e=>setFZona(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.zonas.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {fTab === "impo" && (
+          <div className={styles.filtersGrid}>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Situación IVA</label>
+              <select className={styles.select} value={fIVA} onChange={e=>setFIVA(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.iva.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Tipo Documento</label>
+              <select className={styles.select} value={fTipoDoc} onChange={e=>setFTipoDoc(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.tdoc.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Ganancias</label>
+              <select className={styles.select} value={fGan} onChange={e=>setFGan(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.gan.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Ingresos Brutos</label>
+              <select className={styles.select} value={fIB} onChange={e=>setFIB(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.ib.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Apertura Contable</label>
+              <select className={styles.select} value={fApe} onChange={e=>setFApe(e.target.value)}>
+                <option value="">(Todas)</option>
+                {opts.ape.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {fTab === "otros" && (
+          <div className={styles.filtersGrid}>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Transporte</label>
+              <select className={styles.select} value={fTrn} onChange={e=>setFTrn(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.transporte.map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Proveedor</label>
+              <select className={styles.select} value={fProv} onChange={e=>setFProv(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.proveedores.map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Ordenamiento 1</label>
+              <select className={styles.select} value={fDef1} onChange={e=>setFDef1(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.defi1.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Ordenamiento 2</label>
+              <select className={styles.select} value={fDef2} onChange={e=>setFDef2(e.target.value)}>
+                <option value="">(Todos)</option>
+                {opts.defi2.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
 
         <div className={styles.summaryLine}>
           {loading ? "Cargando clientes…" : (
-            <>
-              Total: {clientes.length} | Filtrados: <strong>{filtrados.length}</strong>
-              {selectedCount > 0 && <> | Seleccionados: <strong>{selectedCount}</strong></>}
-              {fLista && <> | Lista actual: {fLista}</>}
-            </>
+            <>Total: {clientes.length} | Filtrados: <strong>{filtrados.length}</strong>{fLista && <> | Lista actual: {fLista}</>}</>
           )}
           {!!errorCli && <span className={styles.errorText}> · {errorCli}</span>}
         </div>
       </Accordion>
 
-      {/* 2) CONTENEDOR (grilla con selección) */}
-      <Accordion title="CLIENTES" defaultOpen={true}>
-  <div className={`${styles.tableContainer} ${styles.resizableY}`}>
-    <table className={styles.table}>
-      <thead>
-        <tr className={styles.headerRow}>
-          <th style={{ width: 44, textAlign: "center" }}>
-            <input
-              type="checkbox"
-              aria-label="Seleccionar todos"
-              checked={
-                selectedCli.size > 0 &&
-                selectedCli.size === allVisibleIds.length &&
-                allVisibleIds.length > 0
-              }
-              onChange={toggleAll}
-            />
-          </th>
-          <th>Cliente</th>
-          <th>Razón Social</th>
-          <th>Dirección</th>
-          <th>Zona</th>
-          <th>Localidad</th>
-          <th>Código Postal</th>
-          <th>Cond. Venta</th>
-          <th>Vendedor</th>
-          <th>Tipo Cliente</th>
-          <th>Lista de Precios</th>
-          <th>Desc. Comercial</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        {!filtrados.length ? (
-          <tr>
-            <td colSpan={13} className={styles.noResults}>
-              {loading ? "Cargando…" : "Sin resultados"}
-            </td>
-          </tr>
-        ) : (
-          filtrados.slice(0, 2000).map((c, i) => {
-            const id = String(c.CodCliente ?? c.cli_cod);
-            const checked = selectedCli.has(id);
-            return (
-              <tr key={`${id}-${i}`} className={styles.row}>
-                <td style={{ textAlign: "center", width: 44 }}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleOne(id)}
-                    aria-label={`Seleccionar Cliente ${id}`}
-                  />
-                </td>
-
-                <td>{c.CodCliente}</td>
-                <td>{c.RazonSocial || ""}</td>
-                <td>{c.Direccion || ""}</td>
-                <td>{c.CodZona} {c.Zona ? `- ${c.Zona}` : ""}</td>
-                <td>{c.Localidad || ""}</td>
-                <td>{c.CodigoPostal || ""}</td>
-                <td>{c.CodCodicionVenta} {c.CondicionVenta ? `- ${c.CondicionVenta}` : ""}</td>
-                <td>{c.CodVendedor} {c.Vendedor ? `- ${c.Vendedor}` : ""}</td>
-                <td>{c.CodTipoCliente} {c.TipoCliente ? `- ${c.TipoCliente}` : ""}</td>
-                <td>{c.CodListaPrecio} {c.ListaPrecio ? `- ${c.ListaPrecio}` : ""}</td>
-                <td>{c.CodDescuentoCom || ""} {c.DescuentoCom ? `- ${c.DescuentoCom}` : ""}</td>
-              </tr>
-            );
-          })
-        )}
-      </tbody>
-    </table>
-  </div>
-</Accordion>
-
-      {/* 3) CAMPOS A ACTUALIZAR */}
-      <Accordion title="CAMPOS A ACTUALIZAR" defaultOpen={true}>
-        <div className={styles.fieldCard}>
-  <div
-    className={`${styles.fieldHeaderInline} ${fieldLpEnable ? styles.fieldEnabled : ""}`}
-  >
-    <label className={styles.fieldCheckWrap}>
-      <input
-        type="checkbox"
-        checked={fieldLpEnable}
-        onChange={(e) => setFieldLpEnable(e.target.checked)}
-      />
-      <span className={styles.fieldTitle}>Lista de Precios</span>
-    </label>
-
-    <select
-      className={styles.fieldSelectInline}
-      value={fieldLpValue}
-      onChange={(e) => setFieldLpValue(e.target.value)}
-      disabled={!fieldLpEnable}
-    >
-      <option value="">(seleccionar)</option>
-      {listasH.map((l) => (
-        <option key={l.cod} value={l.cod}>
-          {l.cod} {l.desc ? `- ${l.desc}` : ""}
-        </option>
-      ))}
-    </select>
-  </div>
-
-</div>
+      {/* CONTENEDOR (grilla) */}
+      <Accordion title="CONTENEDOR" defaultOpen={true}>
+        <div className={styles.resizableArea}>
+          <div className={styles.tableContainer}>
+            <table className={styles.table}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th className={styles.checkCell}>
+                    <input
+                      type="checkbox"
+                      aria-label="Seleccionar todos"
+                      checked={selectedCount === visibleIds.length && visibleIds.length > 0}
+                      onChange={() => toggleAll(visibleIds)}
+                    />
+                  </th>
+                  <th>Cliente</th>
+                  <th>Zona</th>
+                  <th>Vendedor</th>
+                  <th>Tipo</th>
+                  <th>Lista</th>
+                  <th>Cond.Vta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!filtrados.length ? (
+                  <tr><td colSpan={7} className={styles.noResults}>{loading ? "Cargando…" : "Sin resultados"}</td></tr>
+                ) : (
+                  filtrados.slice(0, 2000).map((c, i) => {
+                    const id = String(c.CodCliente ?? c.cli_cod);
+                    const checked = selectedCli.has(id);
+                    return (
+                      <tr key={`${id}-${i}`} className={styles.row}>
+                        <td className={styles.checkCell}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleOne(id)} />
+                        </td>
+                        <td>{c.CodCliente ?? c.cli_cod}</td>
+                        <td>{(c.CodZona ?? "")} - {(c.Zona ?? "")}</td>
+                        <td>{(c.CodVendedor ?? "")} - {(c.Vendedor ?? "")}</td>
+                        <td>{(c.CodTipoCliente ?? c.clitic_Cod ?? "")} - {(c.TipoCliente ?? "")}</td>
+                        <td>{(c.CodListaPrecio ?? c.clidlp_Cod ?? "")} - {(c.ListaPrecio ?? "")}</td>
+                        <td>{(c.CodCodicionVenta ?? c.clicvt_Cod ?? "")} - {(c.CondicionVenta ?? "")}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className={styles.resizeHandle} />
+        </div>
       </Accordion>
 
-      {/* Botón de aplicar */}
+      {/* CAMPOS A ACTUALIZAR */}
+      <Accordion title="CAMPOS A ACTUALIZAR" defaultOpen={true}>
+        <SubTabs
+          active={uTab}
+          onChange={setUTab}
+          tabs={[
+            { key: "general", label: "General" },
+            { key: "impo", label: "Datos impositivos" },
+            { key: "otros", label: "Otros datos" },
+          ]}
+        />
+
+        {/* General */}
+        {uTab === "general" && (
+          <div className={styles.updateGrid}>
+            {/* Lista de Precios (con input en el header) */}
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updLP.enabled} onChange={(e)=>setUpdLP(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Lista de Precios</span>
+              </label>
+              <select className={styles.select} disabled={!updLP.enabled} value={updLP.value} onChange={(e)=>setUpdLP(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {opts.listas.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updCondVta.enabled} onChange={(e)=>setUpdCondVta(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Condición Venta</span>
+              </label>
+              <select className={styles.select} disabled={!updCondVta.enabled} value={updCondVta.value} onChange={(e)=>setUpdCondVta(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {opts.condVta.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updProvincia.enabled} onChange={(e)=>setUpdProvincia(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Provincia</span>
+              </label>
+              <select className={styles.select} disabled={!updProvincia.enabled} value={updProvincia.value} onChange={(e)=>setUpdProvincia(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {(opts.provincias || []).map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updVendedor.enabled} onChange={(e)=>setUpdVendedor(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Vendedor</span>
+              </label>
+              <select className={styles.select} disabled={!updVendedor.enabled} value={updVendedor.value} onChange={(e)=>setUpdVendedor(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {opts.vendedores.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updTipoCli.enabled} onChange={(e)=>setUpdTipoCli(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Tipo Cliente</span>
+              </label>
+              <select className={styles.select} disabled={!updTipoCli.enabled} value={updTipoCli.value} onChange={(e)=>setUpdTipoCli(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {opts.tiposCli.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={styles.fieldLabel}>
+                <input type="checkbox" checked={updZona.enabled} onChange={(e)=>setUpdZona(s=>({ ...s, enabled: e.target.checked }))} />
+                <span>Zona</span>
+              </label>
+              <select className={styles.select} disabled={!updZona.enabled} value={updZona.value} onChange={(e)=>setUpdZona(s=>({ ...s, value: e.target.value }))}>
+                <option value="">(seleccionar)</option>
+                {opts.zonas.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Impositivos */}
+        {uTab === "impo" && (
+          <div className={styles.updateGrid}>
+            {[
+              { state: updIVA, set: setUpdIVA, label: "Situación IVA", list: opts.iva },
+              { state: updTipoDoc, set: setUpdTipoDoc, label: "Tipo Documento", list: opts.tdoc },
+              { state: updGan, set: setUpdGan, label: "Ganancias", list: opts.gan },
+              { state: updIB, set: setUpdIB, label: "Ingresos Brutos", list: opts.ib },
+              { state: updApe, set: setUpdApe, label: "Apertura Contable", list: opts.ape },
+            ].map(({ state, set, label, list }) => (
+              <div className={styles.fieldRow} key={label}>
+                <label className={styles.fieldLabel}>
+                  <input type="checkbox" checked={state.enabled} onChange={(e)=>set(s=>({ ...s, enabled: e.target.checked }))} />
+                  <span>{label}</span>
+                </label>
+                <select className={styles.select} disabled={!state.enabled} value={state.value} onChange={(e)=>set(s=>({ ...s, value: e.target.value }))}>
+                  <option value="">(seleccionar)</option>
+                  {(list || []).map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Otros */}
+        {uTab === "otros" && (
+          <div className={styles.updateGrid}>
+            {[
+              { state: updTrn, set: setUpdTrn, label: "Transporte", list: opts.transporte },
+              { state: updProv, set: setUpdProv, label: "Proveedor", list: opts.proveedores },
+              { state: updDef1, set: setUpdDef1, label: "Ordenamiento 1", list: opts.defi1 },
+              { state: updDef2, set: setUpdDef2, label: "Ordenamiento 2", list: opts.defi2 },
+            ].map(({ state, set, label, list }) => (
+              <div className={styles.fieldRow} key={label}>
+                <label className={styles.fieldLabel}>
+                  <input type="checkbox" checked={state.enabled} onChange={(e)=>set(s=>({ ...s, enabled: e.target.checked }))} />
+                  <span>{label}</span>
+                </label>
+                <select className={styles.select} disabled={!state.enabled} value={state.value} onChange={(e)=>set(s=>({ ...s, value: e.target.value }))}>
+                  <option value="">(seleccionar)</option>
+                  {(list || []).map(o => <option key={o.value || o.label} value={o.value || o.label}>{o.label || o.value}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+      </Accordion>
+
+      {/* APLICAR */}
       <div className={styles.footerBar}>
         {applyMsg && (
           <p className={`${styles.footerMsg} ${applyMsg.startsWith("✔") ? styles.ok : styles.error}`}>
@@ -424,13 +674,7 @@ export default function Clientes() {
         )}
         <button
           className={styles.btnAccentFull}
-          disabled={
-            applyBusy ||
-            !fieldLpEnable ||
-            !fieldLpValue ||
-            !fLista ||
-            selectedCount === 0
-          }
+          disabled={applyBusy || selectedCount === 0}
           onClick={aplicarCambios}
         >
           {applyBusy ? "Aplicando…" : `Aplicar a ${selectedCount} cliente(s)`}
