@@ -1,3 +1,4 @@
+// pages/Login/index.js
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -69,7 +70,34 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-
+          // 0) Paso ODBC-style (sólo en PROD; en DEV se saltea en el main)
+      try {
+        const pre = await window.api?.odbcConnectAndSave?.();
+        if (pre?.debug) {
+     const d = pre.debug;
+     const states = Array.isArray(d.odbcErrors)
+     ? d.odbcErrors.map(x => `${x.sqlstate || x.SQLSTATE} (${x.code || x.nativeError || ''})`).join(', ')
+     : '';
+     alert(
+       `ODBC falló\n` +
+       `Paso: ${d.step || 'desconocido'}\n` +
+       (d.error ? `Error: ${d.error}\n` : '') +
+       (states ? `SQLSTATE(s): ${states}\n` : '') +
+       (d.detected ? `Detectado: ${JSON.stringify(d.detected)}\n` : '') +
+       (d.used ? `Modo: ${d.used}\n` : '') +
+       (d.connStrPreview ? `Conn: ${d.connStrPreview}\n` : '')
+     );
+   }
+        if (!pre?.success) {
+          setError(pre?.message || "No se pudo conectar con la configuracion del ODBC");
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setError("No se pudo conectar al servidor");
+        setLoading(false);
+        return;
+      }
       // 1) Debe existir la BD local "manager"
       const chk = await window.api?.hasManager?.();
       if (!chk?.ok) {

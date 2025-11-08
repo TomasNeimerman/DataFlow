@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('api', {
   // ======================
   login: (usuario, contraseña) => ipcRenderer.invoke('login', { usuario, contraseña }),
   whoami: () => ipcRenderer.invoke('whoami'),
-
+  odbcConnectAndSave: (payload) => ipcRenderer.invoke('odbc:connect-and-save', payload),
   // Navegación (si lo usás)
   onNavigate: (callback) => ipcRenderer.on('navigate-to', (_event, path) => callback(path)),
 

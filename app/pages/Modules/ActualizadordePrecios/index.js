@@ -6,10 +6,10 @@ import EmpresaSelected from "../../components/EmpresaSelected";
 import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
 
 // Tabs
-import DescargarTab from "../../components/DescargarTab";
-import ImportarTab from "../../components/ImportarTab";
-import ResultadosTab from "../../components/ResultadosTab";
-import ClientesTab from "../../components/ClientesTab";
+import DescargarTab from "../../components/ListaPreciosTabs/DescargarTab";
+import ImportarTab from "../../components/ListaPreciosTabs/ImportarTab";
+import ResultadosTab from "../../components/ListaPreciosTabs/ResultadosTab";
+import ClientesTab from "../../components/ListaPreciosTabs/ClientesTab";
 
 export default function ActualizadordePrecios() {
   // Hook base: importar/descargar/resultados (como antes)

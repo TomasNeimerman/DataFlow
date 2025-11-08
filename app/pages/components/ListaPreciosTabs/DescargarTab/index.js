@@ -1,6 +1,6 @@
 "use client";
 
-import ui from "../../Modules/ActualizadordePrecios/styles.module.css";
+import ui from "../../../Modules/ActualizadordePrecios/styles.module.css";
 import styles from "./styles.module.css";
 
 export default function Descargar({

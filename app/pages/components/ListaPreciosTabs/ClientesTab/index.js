@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import ui from "../../Modules/ActualizadordePrecios/styles.module.css";
+import ui from "../../../Modules/ActualizadordePrecios/styles.module.css";
 import styles from "./styles.module.css";
 
 /**

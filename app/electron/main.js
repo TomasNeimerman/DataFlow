@@ -11,9 +11,23 @@ const os   = require('os');
 const url  = require('url');           // (keep: may be used by other parts)
 const XLSX = require('xlsx');
 const Store = require('electron-store');
+const mssql = require('mssql')
 const mysql = require('mysql2/promise');
+const { execFile } = require('child_process');
+const ZongJi = require('zongji');
 const { getDbConfig, onDbConfigChange } = require('./dbConfig');         // (keep: referenced by modules/services)
-const { initializeConfig } = require('./userDbConfig.js');
+const { initializeConfig,getAdminDbConfig, writeAdminDbConfig } = require('./userDbConfig.js');
+let odbc;
+
+function getOdbc() {
+  if (!odbc) {
+    try { odbc = require('odbc'); }
+    catch (e) {
+      throw new Error('ODBC module not available (rebuild/arch/driver).');
+    }
+  }
+  return odbc;
+}
 
 // Helpers
 const { tryAutoResume } = require('./helpers/autoResume');     // (keep: external flow)
@@ -73,6 +87,7 @@ let activeSession = null; // { usuario, deviceId, token }
 let modulosCache  = [];   // cache para menú hamburguesa
 let isFinalizing  = false;
 let sessionWatchdogTimer = null; // 🔭 watchdog polling timer
+let sessionRealtimeWatcher = null;
 let logoutInFlight = false;
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -128,9 +143,109 @@ process.on('SIGHUP',  async () => { await finalizeActiveSession('SIGHUP',  { rel
  *  SESSION WATCHDOG / HEARTBEAT
  * ──────────────────────────────────────────────────────────────────────────── */
 function stopSessionWatchdog() {
-  if (sessionWatchdogTimer) {
-    clearInterval(sessionWatchdogTimer);
-    sessionWatchdogTimer = null;
+  if (sessionWatchdogTimer) { clearInterval(sessionWatchdogTimer); sessionWatchdogTimer = null; }
+}
+function startSessionWatchdog({ usuario, deviceId, intervalMs = 500 }) { // 500ms = veloz
+  stopSessionWatchdog();
+  sessionWatchdogTimer = setInterval(() => {
+    checkSelfSessionAndLogoutIfInactive({ usuario, deviceId, reason: 'polling' }).catch(() => {});
+  }, intervalMs);
+}
+function stopSessionRealtimeWatcher() {
+  try {
+    if (sessionRealtimeWatcher) {
+      sessionRealtimeWatcher.stop();
+      sessionRealtimeWatcher = null;
+      writeToLog('Realtime watcher detenido.');
+    }
+  } catch (e) {
+    writeToLog(`Error deteniendo realtime watcher: ${e.message}`);
+  }
+}
+function startSessionRealtimeWatcher({ usuario, deviceId }) {
+  stopSessionRealtimeWatcher(); // evita duplicados
+
+  try {
+    const cfg = getDbConfig(); // admin DB (la que tiene SesionesActivas)
+    sessionRealtimeWatcher = new ZongJi({
+      host: cfg.server,
+      port: cfg.port || 3306,
+      user: cfg.user,
+      password: cfg.password,
+    });
+
+    const database = cfg.database;
+
+    sessionRealtimeWatcher.on('binlog', (evt) => {
+      const eventName = evt.getEventName();
+      if (!['writerows', 'updaterows', 'deleterows'].includes(eventName)) return;
+
+      const tmap = evt.tableMap?.[evt.tableId];
+      if (!tmap) return;
+      if (tmap.parentSchema !== database) return;
+      if (tmap.tableName !== 'SesionesActivas') return;
+
+      try {
+        if (eventName === 'updaterows') {
+          for (const { before, after } of evt.rows || []) {
+            const match = String(after.Usuario) === String(usuario) &&
+                          String(after.DeviceId) === String(deviceId);
+            if (!match) continue;
+            const activa = Number(after.Activa ?? 0);
+            if (activa !== 1) {
+              writeToLog('Realtime: Activa cambió != 1 → logout inmediato');
+              forceLogout('realtime-activa-0-or-changed').catch(() => {});
+            }
+          }
+        } else if (eventName === 'deleterows') {
+          for (const row of evt.rows || []) {
+            const match = String(row.Usuario) === String(usuario) &&
+                          String(row.DeviceId) === String(deviceId);
+            if (!match) continue;
+            writeToLog('Realtime: Fila SesionesActivas eliminada → logout inmediato');
+            forceLogout('realtime-row-deleted').catch(() => {});
+          }
+        }
+        // writerows (INSERT) no requiere acción para logout.
+      } catch (err) {
+        writeToLog(`Realtime handler error: ${err.message}`);
+      }
+    });
+
+    // Empezar desde el final (solo cambios nuevos)
+    sessionRealtimeWatcher.start({
+      includeEvents: ['tablemap', 'writerows', 'updaterows', 'deleterows'],
+      startAtEnd: true,
+      serverId: 1337, // cualquier número único para este cliente
+    });
+
+    sessionRealtimeWatcher.on('error', (err) => {
+      writeToLog(`Realtime watcher error: ${err && err.message ? err.message : err}`);
+      // Fallback automático: si el watcher falla, aseguramos el watchdog por polling
+      if (!activeSession?.isAdmin) {
+        stopSessionWatchdog?.();
+        startSessionWatchdog({
+          usuario,
+          deviceId,
+          intervalMs: 10_000,
+          isAdmin: !!activeSession?.isAdmin,
+        });
+      }
+    });
+
+    writeToLog('Realtime watcher iniciado (binlog).');
+  } catch (e) {
+    writeToLog(`No se pudo iniciar realtime watcher (binlog no disponible o sin permisos): ${e.message}`);
+    // Fallback polling si no hay binlog
+    if (!activeSession?.isAdmin) {
+      stopSessionWatchdog?.();
+      startSessionWatchdog({
+        usuario,
+        deviceId,
+        intervalMs: 10_000,
+        isAdmin: !!activeSession?.isAdmin,
+      });
+    }
   }
 }
 
@@ -161,16 +276,10 @@ async function forceLogout(reason = 'remote-inactive') {
     const usuario  = activeSession?.usuario;
     const deviceId = activeSession?.deviceId;
 
-    // best-effort: marcar inactiva (si ya está en 0, no pasa nada)
-    if (usuario && deviceId) {
-      try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
-    }
-
+    try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
     stopSessionHeartbeat();
     stopSessionWatchdog();
-
-    // avisar al front ANTES de navegar
-    broadcast('session:state', { status: 'logged-out', reason, at: Date.now() });
+    stopSessionRealtimeWatcher(); // << NUEVO
 
     activeSession = null;
     modulosCache = [];
@@ -178,7 +287,7 @@ async function forceLogout(reason = 'remote-inactive') {
 
     const base = getBaseOrigin();
     await mainWindow?.loadURL(`${base}/Login`);
-    writeToLog(`Sesión finalizada por watchdog (${reason}).`);
+    writeToLog(`Sesión finalizada por ${reason}.`);
   } catch (e) {
     writeToLog(`forceLogout error: ${e.message}`);
   } finally {
@@ -211,14 +320,12 @@ async function finalizeActiveSession(reason = 'unknown', { releaseLock = RELEASE
     const deviceId = activeSession?.deviceId;
     writeToLog(`finalizeActiveSession [${reason}] releaseLock=${releaseLock} user=${usuario || '-'} device=${deviceId || '-'}`);
 
-    // Detener timers locales
     try { stopSessionHeartbeat?.(); } catch {}
     try { stopSessionWatchdog?.(); } catch {}
+    try { stopSessionRealtimeWatcher?.(); } catch {}   // << NUEVO
 
-    // Si se pide liberar lock, recién ahí marcamos Activa=0
     if (releaseLock && usuario && deviceId) {
-      try { await finalizarSesionActivaService({ usuario, deviceId }); }
-      catch (e) { writeToLog(`finalizarSesionActiva error: ${e.message}`); }
+      try { await finalizarSesionActivaService({ usuario, deviceId }); } catch (e) { writeToLog(`finalizarSesionActiva error: ${e.message}`); }
     }
   } finally {
     isFinalizing = false;
@@ -652,6 +759,238 @@ const safeIpc = (name, handler) => {
   });
 };
 
+function diagLog(line) {
+  try {
+    const p = path.join(process.cwd(), 'odbc-diag.log');
+    const ts = new Date().toISOString();
+    fs.appendFileSync(p, `[${ts}] ${line}\n`);
+  } catch {}
+}
+
+// Ejecuta "reg QUERY ..." y devuelve stdout o null
+function queryReg(pathKey, arch = '64') {
+  return new Promise((resolve) => {
+    const args = ['QUERY', pathKey, '/s', arch === '32' ? '/reg:32' : '/reg:64'];
+    execFile('reg', args, { windowsHide: true }, (err, stdout) => {
+      if (err || !stdout) return resolve(null);
+      resolve(stdout.toString());
+    });
+  });
+}
+
+// Parsea salida de REG: "Server" y "Database"
+function parseRegODBC(txt) {
+  if (!txt) return null;
+  const pick = (k) => {
+    const m = txt.match(new RegExp(`\\s${k}\\s+REG_[A-Z_]+\\s+(.+)`));
+    return m ? (m[1] || '').trim() : null;
+  };
+  return { server: pick('Server'), database: pick('Database'), driverPath: pick('Driver') };
+}
+
+// Lista drivers disponibles del módulo odbc
+function listDrivers(odbc) {
+  try {
+    const arr = odbc.drivers?.() || [];
+    return arr.map(d => (typeof d === 'string' ? d : d?.name)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Elige driver x64 preferente (18, luego 17, luego SQL Server genérico)
+function pickSqlOdbcDriver(odbc) {
+  const list = listDrivers(odbc).join(' | ');
+  if (/ODBC Driver 18 for SQL Server/i.test(list)) return '{ODBC Driver 18 for SQL Server}';
+  if (/ODBC Driver 17 for SQL Server/i.test(list)) return '{ODBC Driver 17 for SQL Server}';
+  // fallback: el genérico suele no soportar TLS moderno, pero sirve para detectar errores
+  return '{SQL Server}';
+}
+
+// Crea connstring DSN-less desde datos del DSN 32-bit
+function makeConnStrFrom32bit(server, user, pass, driverName = '{ODBC Driver 18 for SQL Server}') {
+  const base =
+    `Driver=${driverName};` +
+    `Server=${server};` +                   // si trae "host,puerto" lo respetamos
+    `Uid=${user};Pwd=${pass};` +
+    `Database=master;Encrypt=Yes;TrustServerCertificate=Yes;` +
+    `Connection Timeout=8;`;               // un toque más largo para redes lentas
+  return base;
+}
+
+// Sanitiza connstring para log/alert
+function maskConnStr(cs, pass) {
+  if (!cs) return '';
+  return cs.replace(pass || '', '***');
+}
+
+// Normaliza error para debug
+function errInfo(e) {
+  return {
+    message: e?.message || String(e),
+    stack: e?.stack?.split('\n').slice(0, 6).join('\n'),
+    odbcErrors: e?.odbcErrors || []
+  };
+}
+
+ipcMain.handle('odbc:connect-and-save', async () => {
+  const t0 = Date.now();
+  const debug = {
+    step: 'start',
+    pid: process.pid,
+    arch: process.arch,
+    platform: process.platform,
+    electron: process.versions.electron,
+    node: process.versions.node,
+    napi: process.versions.napi,
+    timings: []
+  };
+
+  const tick = (label) => debug.timings.push({ step: label, ms: Date.now() - t0 });
+
+  try {
+    tick('entered');
+    if (isDev) {
+      debug.step = 'dev-skip';
+      tick('dev-skip');
+      return { success: true, skipped: true, debug };
+    }
+
+    const { getAdminDbConfig, writeAdminDbConfig } = require('./userDbConfig.js');
+    const base = getAdminDbConfig?.() || {};
+    const user = base.user || 'bejerman';
+    const pass = base.password || '';
+
+    debug.config = { userPreview: user ? 'bejerman' : '(vacío)' };
+
+    tick('require-odbc');
+    let odbc;
+    try { odbc = require('odbc'); }
+    catch (e) {
+      debug.step = 'require-odbc-failed';
+      debug.error = errInfo(e);
+      diagLog(`ODBC require error: ${e?.message}`);
+      tick('require-odbc-failed');
+      return { success: false, message: 'No se pudo conectar al servidor', code: 'ODBC_MOD_FAIL', debug };
+    }
+
+    debug.drivers = listDrivers(odbc);
+    tick('drivers-listed');
+
+    // 1) Intento DSN 64 bits directo
+    const dsn64Key = 'HKLM\\SOFTWARE\\ODBC\\ODBC.INI\\SQL SERVER';
+    const dsn64Txt = await queryReg(dsn64Key, '64');
+    const dsn64 = parseRegODBC(dsn64Txt);
+    debug.dsn64 = { exists: !!dsn64Txt, server: dsn64?.server, driverPath: dsn64?.driverPath?.split('\\').slice(-1)[0] };
+    tick('reg64-read');
+
+    let connStr = null;
+    let connMode = null;
+
+    try {
+      if (dsn64Txt) {
+        debug.step = 'connect-dsn64';
+        const cs =
+          `DSN=SQL SERVER;UID=${user};PWD=${pass};DATABASE=master;` +
+          `Trusted_Connection=No;Encrypt=Yes;TrustServerCertificate=Yes;Connection Timeout=8;`;
+        debug.connStrPreview = maskConnStr(cs, pass);
+        const cn = await odbc.connect(cs);
+        connStr = cs;
+        connMode = 'dsn64';
+
+        // query props
+        debug.step = 'query-connprops';
+        const rs = await cn.query(`
+          SELECT
+            CONVERT(varchar(128), CONNECTIONPROPERTY('local_net_address')) AS addr,
+            CONVERT(varchar(32),  CONNECTIONPROPERTY('local_tcp_port'))    AS port
+        `);
+        await cn.close();
+
+        const server = String(rs?.[0]?.addr || '').trim();
+        const port   = Number(rs?.[0]?.port || 1433);
+        debug.detected = { server, port, mode: connMode };
+        tick('dsn64-ok');
+
+        if (!server || !port) {
+          debug.step = 'no-addr-port';
+          diagLog(`No addr/port after dsn64`);
+          return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_ADDR_PORT', debug };
+        }
+
+        try { writeAdminDbConfig?.({ server, port }); } catch (e) { debug.persistError = e?.message; }
+        return { success: true, server, port, debug };
+      }
+    } catch (eDsn64) {
+      debug.step = 'connect-dsn64-failed';
+      debug.error_dsn64 = errInfo(eDsn64);
+      diagLog(`DSN64 connect error: ${eDsn64?.message}`);
+      // seguimos al fallback
+      tick('dsn64-failed');
+    }
+
+    // 2) Fallback: leer DSN 32 bits y armar DSN-less x64
+    debug.step = 'read-dsn32';
+    const dsn32Key = 'HKLM\\SOFTWARE\\WOW6432Node\\ODBC\\ODBC.INI\\SQL SERVER';
+    const dsn32Txt = await queryReg(dsn32Key, '32');
+    const dsn32 = parseRegODBC(dsn32Txt);
+    debug.dsn32 = { exists: !!dsn32Txt, server: dsn32?.server, driverPath: dsn32?.driverPath?.split('\\').slice(-1)[0] };
+    tick('reg32-read');
+
+    if (!dsn32?.server) {
+      debug.step = 'no-dsn32-server';
+      diagLog(`No DSN32 or missing Server`);
+      return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_DSN32', debug };
+    }
+
+    const driverName = pickSqlOdbcDriver(odbc);
+    connStr = makeConnStrFrom32bit(dsn32.server, user, pass, driverName);
+    connMode = 'dsnless32';
+    debug.connStrPreview = maskConnStr(connStr, pass);
+    debug.driverChosen = driverName;
+
+    try {
+      debug.step = 'connect-dsnless32';
+      const cn = await odbc.connect(connStr);
+
+      debug.step = 'query-connprops';
+      const rs = await cn.query(`
+        SELECT
+          CONVERT(varchar(128), CONNECTIONPROPERTY('local_net_address')) AS addr,
+          CONVERT(varchar(32),  CONNECTIONPROPERTY('local_tcp_port'))    AS port
+      `);
+      await cn.close();
+
+      const server = String(rs?.[0]?.addr || '').trim();
+      const port   = Number(rs?.[0]?.port || 1433);
+      debug.detected = { server, port, mode: connMode };
+      tick('dsnless32-ok');
+
+      if (!server || !port) {
+        debug.step = 'no-addr-port';
+        diagLog(`No addr/port after dsnless32`);
+        return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_ADDR_PORT', debug };
+      }
+
+      try { writeAdminDbConfig?.({ server, port }); } catch (e) { debug.persistError = e?.message; }
+      return { success: true, server, port, debug };
+
+    } catch (eDsnless) {
+      debug.step = 'connect-dsnless32-failed';
+      debug.error_dsnless32 = errInfo(eDsnless);
+      diagLog(`DSN-less(32) connect error: ${eDsnless?.message}`);
+      tick('dsnless32-failed');
+      return { success: false, message: 'No se pudo conectar al servidor', code: 'ODBC_CONNECT_FAIL', debug };
+    }
+
+  } catch (e) {
+    debug.step = 'exception';
+    debug.exception = errInfo(e);
+    diagLog(`ODBC exception: ${e?.message}`);
+    tick('exception');
+    return { success: false, message: 'No se pudo conectar al servidor', code: 'EXCEPTION', debug };
+  }
+});
 // get-modules → módulos con `habilitado` y `video`
 safeIpc('get-modules', async (idCliente) => {
   try {
@@ -711,66 +1050,102 @@ ipcMain.handle('logout', async () => {
   broadcast('session:state', { status: 'logged-out', reason: 'manual', at: Date.now() });
   return { success: true };
 });
+function buildSessionStoreBlob({ userObj, deviceId }) {
+  const payload = {
+    // datos del usuario
+    usuario: userObj?.Usuario || store.get('user') || null,
+    idCliente: userObj?.IdCliente ?? store.get('idCliente') ?? null,
 
+    // equipo / app
+    deviceId,
+    platform: process.platform,
+    arch: process.arch,
+    appVersion: (typeof app?.getVersion === 'function') ? app.getVersion() : null,
+
+    // store útil (agregá lo que quieras persistir)
+    jwtToken: store.get('jwtToken') || null,
+    fechaInicio: store.get('fechaInicio') || new Date().toISOString(),
+
+    // marca de tiempo
+    snapshotAt: new Date().toISOString(),
+  };
+
+  try {
+    const json = JSON.stringify(payload);
+    return Buffer.from(json, 'utf8').toString('base64');
+  } catch {
+    return null;
+  }
+}
 ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
   writeToLog(`Login intento: ${usuario}`);
   try {
     const deviceId = getDeviceId(store);
 
-    // 1) Credenciales + estado/expiración + admin
-    const result = await iniciarSesionService({ usuario, contraseña, deviceId });
-    if (!(result?.success && result.user && result.token && result.user.IdCliente)) {
+    // 1) Autenticación (trae user.admin, IdCliente y token)
+    const auth = await iniciarSesionService({ usuario, contraseña, deviceId });
+    if (!(auth?.success && auth.user && auth.token && auth.user.IdCliente)) {
       return {
         success: false,
-        code: result?.code || 'BAD_CREDENTIALS',
-        message: result?.message || 'Credenciales inválidas'
+        code: auth?.code || 'BAD_CREDENTIALS',
+        message: auth?.message || 'Credenciales inválidas'
+      };
+    }
+    const isAdmin = !!auth.user.admin;
+
+    // 2) Lock por device: solo aplica a NO-admin
+    const check = await verificarSesionActivaService({ usuario, deviceId, isAdmin });
+if (!check?.success) {
+  const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
+  return {
+    success: false,
+    code: check?.code || 'ACTIVE_OTHER_DEVICE',
+    message: check?.message || `Usuario activo en otra máquina${dev}.`
+  };
+}
+
+    // 3) Persistencia local mínima (antes del snapshot para incluir estos valores)
+    store.set('idCliente', auth.user.IdCliente);
+    store.set('user', usuario);
+    store.set('jwtToken', auth.token);
+    store.set('fechaInicio', new Date().toISOString());
+    store.set('deviceId', deviceId);
+    store.set('isAdmin', isAdmin ? 1 : 0);
+
+    // 4) Snapshot base64 para SesionesActivas.StoreData
+    const storeBlob = buildSessionStoreBlob({ userObj: auth.user, deviceId });
+
+    // 5) Registrar/activar ESTA máquina (políticas por rol dentro del servicio)
+const lock = await registrarSesionActivaService({
+  usuario,
+  deviceId,
+  token: auth.token,
+  storeBlob,
+  isAdmin,                 // << MUY IMPORTANTE
+});
+    if (!lock?.success) {
+      return {
+        success: false,
+        code: lock?.code || 'SESSION_LOCK_FAILED',
+        message: lock?.message || 'No se pudo registrar la sesión.'
       };
     }
 
-    const isAdmin = !!result.user.admin;                    // << NUEVO
-
-    // 2) Sesión única: si NO es admin, aplicar lock por device
-    if (!isAdmin) {                                        // << NUEVO
-      const check = await verificarSesionActivaService({ usuario, deviceId });
-      if (!check?.success || check.code === 'ACTIVE_OTHER_DEVICE') {
-        const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
-        return {
-          success: false,
-          code: 'ACTIVE_OTHER_DEVICE',
-          message: check?.message || `Usuario activo en otra máquina${dev}.`
-        };
-      }
-    }
-
-    // 3) Registrar esta máquina (para admin también registramos, pero NO desactivamos otras)
-    const lock = await registrarSesionActivaService({ usuario, deviceId, token: result.token });
-    if (!lock?.success) {
-      return { success: false, code: 'SESSION_LOCK_FAILED', message: lock?.message || 'No se pudo registrar la sesión.' };
-    }
-
-    // 4) Persistencia local mínima
-    store.set('idCliente', result.user.IdCliente);
-    store.set('user', usuario);
-    store.set('jwtToken', result.token);
-    store.set('fechaInicio', new Date().toISOString());
-    store.set('deviceId', deviceId);
-    store.set('isAdmin', isAdmin ? 1 : 0);                 // << NUEVO
-
-    // 5) Decodificar StoreData si existe (no bloqueante)
+    // 6) (opcional) aplicar StoreData previo si existía algo guardado para este device
     try {
       const ses = await obtenerSesionPorDeviceService({ usuario, deviceId });
       if (ses?.success && ses.row?.StoreData) {
         const decoded = decodeStoreBlobService(ses.row.StoreData);
         if (decoded && typeof decoded === 'object') {
-          Object.entries(decoded).forEach(([k,v]) => { try { store.set(k, v); } catch {} });
+          Object.entries(decoded).forEach(([k, v]) => { try { store.set(k, v); } catch {} });
           writeToLog('StoreData decodificado y aplicado.');
         }
       }
     } catch (e) { writeToLog(`decode StoreData error (no bloqueante): ${e.message}`); }
 
-    // 6) Heartbeat (igual para todos)
-    activeSession = { usuario, deviceId, token: result.token, isAdmin };   // << NUEVO
-    stopSessionHeartbeat();
+    // 7) Heartbeat
+    activeSession = { usuario, deviceId, token: auth.token, isAdmin };
+    stopSessionHeartbeat?.();
     startSessionHeartbeat({
       usuario,
       deviceId,
@@ -779,28 +1154,32 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       }
     });
 
-    // 7) Watchdog: solo para NO admin
-    stopSessionWatchdog?.();                                               // aseguro limpio
-    if (!isAdmin) {                                                        // << NUEVO
-      startSessionWatchdog({ usuario, deviceId, intervalMs: 10_000, isAdmin });
-      await runSessionWatchdogOnce?.({ usuario, deviceId, isAdmin });      // chequeo inmediato
-    }
+    // 8) Watchers de sesión: realtime (ZongJi) + polling de respaldo
+    stopSessionWatchdog?.();
+    stopSessionRealtimeWatcher?.();
+    startSessionRealtimeWatcher({ usuario, deviceId });                // logout instantáneo ante UPDATE/DELETE
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 500 });      // fallback veloz (0.5s)
 
-    // 8) Módulos → cache
-    const modulesResult = await obtenerModulosService(result.user.IdCliente);
+    // 9) Módulos → cache
+    const modulesResult = await obtenerModulosService(auth.user.IdCliente);
     if (!modulesResult?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
-      stopSessionHeartbeat();
+      stopSessionHeartbeat?.();
       stopSessionWatchdog?.();
+      stopSessionRealtimeWatcher?.();
       activeSession = null;
-      return { success: false, code: 'MODULES_FAIL', message: modulesResult?.message || 'No se pudo cargar módulos.' };
+      return {
+        success: false,
+        code: 'MODULES_FAIL',
+        message: modulesResult?.message || 'No se pudo cargar módulos.'
+      };
     }
     modulosCache = modulesResult.modulos.map(m => ({
       id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
       link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
     }));
 
-    return { success: true, user: result.user, modulos: modulosCache, token: result.token };
+    return { success: true, user: auth.user, modulos: modulosCache, token: auth.token };
   } catch (e) {
     writeToLog(`login IPC error: ${e.message}`);
     try {
@@ -808,12 +1187,15 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
         await finalizarSesionActivaService({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
       }
     } catch {}
-    stopSessionHeartbeat();
+    stopSessionHeartbeat?.();
     stopSessionWatchdog?.();
+    stopSessionRealtimeWatcher?.();
     activeSession = null;
     return { success: false, code: 'INTERNAL', message: `Error interno al intentar iniciar sesión: ${e.message}` };
   }
 });
+
+
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: EMPRESAS
