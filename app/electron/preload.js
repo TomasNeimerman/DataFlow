@@ -35,14 +35,22 @@ contextBridge.exposeInMainWorld('api', {
   // ======================
   login: (usuario, contraseña) => ipcRenderer.invoke('login', { usuario, contraseña }),
   whoami: () => ipcRenderer.invoke('whoami'),
-  odbcConnectAndSave: (payload) => ipcRenderer.invoke('odbc:connect-and-save', payload),
+   getServerForLogin: (usuario, contraseña) =>
+    ipcRenderer.invoke('odbc:get-server', { usuario, contraseña }),
+
+  // 2) Guardar server en el properties local (para que lo use odbcConnectAndSave)
+  saveServerForOdbc: (server) =>
+    ipcRenderer.invoke('admin:save-server', { server }),
+
+  // 3) Conectar ODBC “como antes” (sin user/pass)
+  odbcConnectAndSave: () =>
+    ipcRenderer.invoke('odbc:connect-and-save', {}),
   // Navegación (si lo usás)
   onNavigate: (callback) => ipcRenderer.on('navigate-to', (_event, path) => callback(path)),
 
   // ======================
   // Empresa / módulos
   // ======================
-  hasManager: () => ipcRenderer.invoke('local:has-manager'),
   listEmpresasLocal: () => ipcRenderer.invoke('empresas:list-manager-emp'),
   // Verifica habilitación y, si OK, guarda instancia en store + emite 'empresa:selected'
   verifyEmpresaForUser: (payload) => ipcRenderer.invoke('empresa:verify-and-save', payload),
@@ -116,6 +124,13 @@ clientesForm: {
     actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload),
     getCatalogos:      () => ipcRenderer.invoke('clientesForm:getCatalogos'),
   actualizarCampos:  (payload) => ipcRenderer.invoke('clientesForm:actualizarCampos', payload),
+  },
+
+  // ==== Recibos ====
+  recibos: {
+    getTiposComprobante: (params) => ipcRenderer.invoke('recibos:getTiposComprobante', params),
+    getMonedas:          ()       => ipcRenderer.invoke('recibos:getMonedas'),
+    getTipoCambio:       (params) => ipcRenderer.invoke('recibos:getTipoCambio', params),
   },
   // ======================
   // Store

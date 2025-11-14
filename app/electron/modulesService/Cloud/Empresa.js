@@ -81,7 +81,17 @@ async function getEmpresasNubeByCliente(idCliente) {
   });
 }
 
-
+async function getClientServer(user, pass) {
+  return withAdminPool(async (pool) => {
+    const [rows] = await pool.execute(
+      `SELECT c.Server FROM Cliente c
+      INNER JOIN Usuarios u ON c.Id = u.IdCliente
+      WHERE u.Usuario = ? and u.Contraseña = ?`,
+      [user, pass]
+    );
+    return rows?.[0]?.Server;
+  });
+}
 /**
  * Verifica que el usuario tenga habilitada la empresa (Nombre == emp_codigo).
  * Si matchea, escribe userDbConfig.properties con SOLO DB_DATABASE = InstanciaBD.
@@ -127,4 +137,5 @@ module.exports = {
   getEmpresasHabilitadas,
   getEmpresasNubeByCliente,
   verifyEmpresaHabilitadaYGuardar,
+  getClientServer
 };

@@ -1,18 +1,15 @@
 /* El resto de tus estilos se mantienen igual */
 .container {
-  padding: 2rem;
-  background-color: #fff;
-  margin-top: 5px;
-  border-radius: 12px;
-  max-height: 800px; /* Altura máxima para el contenedor */
-  width: 100%; /* Ajustado para ser más adaptable */
-  max-width: 1200px; /* Añadido un ancho máximo para pantallas grandes */
-  margin-left: auto; /* Centrar el contenedor */
-  margin-right: auto; /* Centrar el contenedor */
-  margin-bottom: 20px; /* Espacio con otros componentes si hubiera */
-  font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
-  overflow-y: auto; /* Para el scroll vertical cuando el contenido excede la altura */
-  overflow-x: auto; /* Para el scroll horizontal cuando el contenido excede el ancho */
+background: #fff;
+      width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;          /* 32px -> 24px */
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+  margin: 0 auto;
+  z-index: 2;
+  overflow: scroll;
 }
 .container::-webkit-scrollbar{
   display: none;

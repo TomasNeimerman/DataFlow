@@ -38,10 +38,7 @@ const BDSelect = () => {
   // 🔁 “refresh fino” post-selección: avisa a toda la app sin recargar
   const notifyLiveRefresh = useCallback(
     ({ idCliente, empCodigo, instanciaBD, nombre }) => {
-      // Notificación semántica de selección de empresa
       emit("empresa:selected", { idCliente, empCodigo, instanciaBD, nombre });
-
-      // Y broadcast de “cambios en store” para quien escuche del lado UI
       emit("store:any-change", {
         selectedEmpresaCodigo: empCodigo || "",
         selectedEmpresaNombre: nombre || "",
@@ -57,41 +54,45 @@ const BDSelect = () => {
     setSuccessMessage("");
 
     try {
-      if (!window.api) throw new Error("La API de Electron (window.api) no está disponible.");
+      if (!window.api)
+        throw new Error("La API de Electron (window.api) no está disponible.");
 
-      // 0) Verificar BD local “manager”
-      const chk = await window.api.hasManager?.();
-      if (!chk?.ok) {
-        setError("No se encuentra sistema Bejerman ERP instalado");
-        setEmpresas([]);
-        return;
-      }
+      // 🔹 OJO: el chequeo de manager ya se hace en el login vía ODBC.
+      // Si llegamos hasta acá, asumimos que la BD "manager" existe.
+      // Antes acá se llamaba a window.api.hasManager(), pero ya no es necesario.
 
       // 1) Empresas locales habilitadas
       const res = await window.api.listEmpresasLocal?.();
-      if (!res?.success) throw new Error(res?.message || "No se pudieron cargar las empresas locales.");
+      if (!res?.success)
+        throw new Error(
+          res?.message || "No se pudieron cargar las empresas locales."
+        );
       const data = Array.isArray(res.data) ? res.data : [];
       setEmpresas(data);
 
       // 2) Restaurar selección
-      const savedCode  = await window.api.getStoreValue?.("selectedEmpresaCodigo");
-      const savedName  = await window.api.getStoreValue?.("selectedEmpresaNombre");
-      const instDB     = await window.api.getStoreValue?.("selectedInstanciaBD");
+      const savedCode = await window.api.getStoreValue?.("selectedEmpresaCodigo");
+      const savedName = await window.api.getStoreValue?.("selectedEmpresaNombre");
+      const instDB = await window.api.getStoreValue?.("selectedInstanciaBD");
 
       if (savedCode || instDB) {
         setSelectedCodigo(String(savedCode || ""));
         setIsConfigured(Boolean(instDB));
-        if (instDB) setSuccessMessage(`Empresa seleccionada: ${savedName || savedCode}`);
+        if (instDB)
+          setSuccessMessage(`Empresa seleccionada: ${savedName || savedCode}`);
       }
     } catch (err) {
       console.error("Error al cargar empresas:", err);
       setError(err.message || "Error al cargar empresas.");
+      setEmpresas([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { cargarEmpresas(); }, [cargarEmpresas]);
+  useEffect(() => {
+    cargarEmpresas();
+  }, [cargarEmpresas]);
 
   // Reaccionar a selección emitida por main u otros
   useEffect(() => {
@@ -99,7 +100,11 @@ const BDSelect = () => {
       if (payload?.instanciaBD) {
         setIsConfigured(true);
         if (payload?.empCodigo) setSelectedCodigo(payload.empCodigo);
-        setSuccessMessage(`Empresa seleccionada: ${payload?.nombre || payload?.empCodigo || ""}`);
+        setSuccessMessage(
+          `Empresa seleccionada: ${
+            payload?.nombre || payload?.empCodigo || ""
+          }`
+        );
         setError("");
       }
     });
@@ -153,25 +158,36 @@ const BDSelect = () => {
       setSuccessMessage("");
 
       const idCliente = await window.api.getStoreValue?.("idCliente");
-      if (!idCliente) throw new Error("No se encontró idCliente. Inicie sesión.");
+      if (!idCliente)
+        throw new Error("No se encontró idCliente. Inicie sesión.");
 
       // Verifica habilitación en nube y fija DB en properties + store
-      const verify = await window.api.verifyEmpresaForUser?.({ idCliente, empCodigo: selectedCodigo });
-      if (!verify?.success) throw new Error(verify?.message || "El usuario no está habilitado...");
+      const verify = await window.api.verifyEmpresaForUser?.({
+        idCliente,
+        empCodigo: selectedCodigo,
+      });
+      if (!verify?.success)
+        throw new Error(
+          verify?.message || "El usuario no está habilitado..."
+        );
 
-      // Persistir datos útiles en store para UI
       const empLocal = empresas.find((x) => x.Codigo === selectedCodigo);
-      const nombre   = verify?.data?.razonSocial || empLocal?.RazonSocial || selectedCodigo;
+      const nombre =
+        verify?.data?.razonSocial ||
+        empLocal?.RazonSocial ||
+        selectedCodigo;
 
-      await window.api.setStoreValue?.("selectedEmpresaCodigo", selectedCodigo);
+      await window.api.setStoreValue?.(
+        "selectedEmpresaCodigo",
+        selectedCodigo
+      );
       await window.api.setStoreValue?.("selectedEmpresaNombre", nombre);
-      // selectedInstanciaBD lo seteó el main
+      // selectedInstanciaBD lo setea el main
 
       setIsConfigured(true);
       setSuccessMessage("¡Configuración guardada exitosamente!");
       setError("");
 
-      // ⬅️ refresco fino (no recarga la página)
       notifyLiveRefresh({
         idCliente,
         empCodigo: selectedCodigo,
@@ -180,7 +196,10 @@ const BDSelect = () => {
       });
     } catch (err) {
       console.error("BDSelect handleGuardar:", err);
-      setError(err.message || "El usuario no está habilitado para operar esa empresa.");
+      setError(
+        err.message ||
+          "El usuario no está habilitado para operar esa empresa."
+      );
     } finally {
       setSaving(false);
     }
@@ -200,7 +219,6 @@ const BDSelect = () => {
       setSelectedCodigo("");
       setSuccessMessage("Selección borrada. Elegí otra empresa y guardá.");
 
-      // Notificación de limpieza (refresco fino)
       const idCliente = await window.api.getStoreValue?.("idCliente");
       notifyLiveRefresh({
         idCliente,
@@ -217,7 +235,9 @@ const BDSelect = () => {
   };
 
   if (loading && empresas.length === 0) {
-    return <div className={styles.formCardContainer}>Cargando empresas...</div>;
+    return (
+      <div className={styles.formCardContainer}>Cargando empresas...</div>
+    );
   }
 
   return (
@@ -248,7 +268,10 @@ const BDSelect = () => {
             <div className={styles.infoSmall}>
               Usando:{" "}
               <strong>
-                {(empresas.find((e) => e.Codigo === selectedCodigo)?.RazonSocial) || selectedCodigo}
+                {(
+                  empresas.find((e) => e.Codigo === selectedCodigo)
+                    ?.RazonSocial
+                ) || selectedCodigo}
               </strong>
             </div>
           )}
@@ -274,7 +297,9 @@ const BDSelect = () => {
         )}
 
         {error && <div className={styles.statusError}>Error: {error}</div>}
-        {successMessage && <div className={styles.statusSuccess}>{successMessage}</div>}
+        {successMessage && (
+          <div className={styles.statusSuccess}>{successMessage}</div>
+        )}
       </form>
     </div>
   );

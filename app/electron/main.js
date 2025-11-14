@@ -33,6 +33,7 @@ function getOdbc() {
 const { tryAutoResume } = require('./helpers/autoResume');     // (keep: external flow)
 const { getDeviceId } = require('./helpers/device');
 const { startSessionHeartbeat, stopSessionHeartbeat } = require('./helpers/session');
+const { odbcConnectAndSave, getServerForLogin, saveServerForOdbc } =require('./helpers/ODBCConnection.js');
 let __adminPool = null;
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -473,6 +474,7 @@ const ActualizadorPrecios = require('./modulesService/Local/ActualizadorPrecios.
 const ClientesSvc = require('./modulesService/Local/ListaPrecClientes');
 
 const ClientesService = require('./modulesService/Local/Clientes');
+const Recibos = require('./modulesService/Local/Recibos');
 /* ────────────────────────────────────────────────────────────────────────────
  *  MAIN WINDOW
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -759,236 +761,40 @@ const safeIpc = (name, handler) => {
   });
 };
 
-function diagLog(line) {
+
+// 1) Obtener server desde credenciales del usuario (no toca ODBC aún)
+ipcMain.handle('odbc:get-server', async (_evt, { usuario, contraseña }) => {
   try {
-    const p = path.join(process.cwd(), 'odbc-diag.log');
-    const ts = new Date().toISOString();
-    fs.appendFileSync(p, `[${ts}] ${line}\n`);
-  } catch {}
-}
-
-// Ejecuta "reg QUERY ..." y devuelve stdout o null
-function queryReg(pathKey, arch = '64') {
-  return new Promise((resolve) => {
-    const args = ['QUERY', pathKey, '/s', arch === '32' ? '/reg:32' : '/reg:64'];
-    execFile('reg', args, { windowsHide: true }, (err, stdout) => {
-      if (err || !stdout) return resolve(null);
-      resolve(stdout.toString());
-    });
-  });
-}
-
-// Parsea salida de REG: "Server" y "Database"
-function parseRegODBC(txt) {
-  if (!txt) return null;
-  const pick = (k) => {
-    const m = txt.match(new RegExp(`\\s${k}\\s+REG_[A-Z_]+\\s+(.+)`));
-    return m ? (m[1] || '').trim() : null;
-  };
-  return { server: pick('Server'), database: pick('Database'), driverPath: pick('Driver') };
-}
-
-// Lista drivers disponibles del módulo odbc
-function listDrivers(odbc) {
-  try {
-    const arr = odbc.drivers?.() || [];
-    return arr.map(d => (typeof d === 'string' ? d : d?.name)).filter(Boolean);
-  } catch {
-    return [];
+    return await getServerForLogin({ user: usuario, password: contraseña });
+  } catch (e) {
+    return { ok: false, code: 'GET_SERVER_ERR', message: e?.message || String(e) };
   }
-}
+});
 
-// Elige driver x64 preferente (18, luego 17, luego SQL Server genérico)
-function pickSqlOdbcDriver(odbc) {
-  const list = listDrivers(odbc).join(' | ');
-  if (/ODBC Driver 18 for SQL Server/i.test(list)) return '{ODBC Driver 18 for SQL Server}';
-  if (/ODBC Driver 17 for SQL Server/i.test(list)) return '{ODBC Driver 17 for SQL Server}';
-  // fallback: el genérico suele no soportar TLS moderno, pero sirve para detectar errores
-  return '{SQL Server}';
-}
-
-// Crea connstring DSN-less desde datos del DSN 32-bit
-function makeConnStrFrom32bit(server, user, pass, driverName = '{ODBC Driver 18 for SQL Server}') {
-  const base =
-    `Driver=${driverName};` +
-    `Server=${server};` +                   // si trae "host,puerto" lo respetamos
-    `Uid=${user};Pwd=${pass};` +
-    `Database=master;Encrypt=Yes;TrustServerCertificate=Yes;` +
-    `Connection Timeout=8;`;               // un toque más largo para redes lentas
-  return base;
-}
-
-// Sanitiza connstring para log/alert
-function maskConnStr(cs, pass) {
-  if (!cs) return '';
-  return cs.replace(pass || '', '***');
-}
-
-// Normaliza error para debug
-function errInfo(e) {
-  return {
-    message: e?.message || String(e),
-    stack: e?.stack?.split('\n').slice(0, 6).join('\n'),
-    odbcErrors: e?.odbcErrors || []
-  };
-}
+ipcMain.handle('admin:save-server', async (_evt, { server }) => {
+  try {
+    return await saveServerForOdbc(server);
+  } catch (e) {
+    return { ok: false, code: 'SAVE_SERVER_ERR', message: e?.message || String(e) };
+  }
+});
 
 ipcMain.handle('odbc:connect-and-save', async () => {
-  const t0 = Date.now();
-  const debug = {
-    step: 'start',
-    pid: process.pid,
-    arch: process.arch,
-    platform: process.platform,
-    electron: process.versions.electron,
-    node: process.versions.node,
-    napi: process.versions.napi,
-    timings: []
-  };
-
-  const tick = (label) => debug.timings.push({ step: label, ms: Date.now() - t0 });
-
   try {
-    tick('entered');
-    if (isDev) {
-      debug.step = 'dev-skip';
-      tick('dev-skip');
-      return { success: true, skipped: true, debug };
-    }
-
-    const { getAdminDbConfig, writeAdminDbConfig } = require('./userDbConfig.js');
-    const base = getAdminDbConfig?.() || {};
-    const user = base.user || 'bejerman';
-    const pass = base.password || '';
-
-    debug.config = { userPreview: user ? 'bejerman' : '(vacío)' };
-
-    tick('require-odbc');
-    let odbc;
-    try { odbc = require('odbc'); }
-    catch (e) {
-      debug.step = 'require-odbc-failed';
-      debug.error = errInfo(e);
-      diagLog(`ODBC require error: ${e?.message}`);
-      tick('require-odbc-failed');
-      return { success: false, message: 'No se pudo conectar al servidor', code: 'ODBC_MOD_FAIL', debug };
-    }
-
-    debug.drivers = listDrivers(odbc);
-    tick('drivers-listed');
-
-    // 1) Intento DSN 64 bits directo
-    const dsn64Key = 'HKLM\\SOFTWARE\\ODBC\\ODBC.INI\\SQL SERVER';
-    const dsn64Txt = await queryReg(dsn64Key, '64');
-    const dsn64 = parseRegODBC(dsn64Txt);
-    debug.dsn64 = { exists: !!dsn64Txt, server: dsn64?.server, driverPath: dsn64?.driverPath?.split('\\').slice(-1)[0] };
-    tick('reg64-read');
-
-    let connStr = null;
-    let connMode = null;
-
-    try {
-      if (dsn64Txt) {
-        debug.step = 'connect-dsn64';
-        const cs =
-          `DSN=SQL SERVER;UID=${user};PWD=${pass};DATABASE=master;` +
-          `Trusted_Connection=No;Encrypt=Yes;TrustServerCertificate=Yes;Connection Timeout=8;`;
-        debug.connStrPreview = maskConnStr(cs, pass);
-        const cn = await odbc.connect(cs);
-        connStr = cs;
-        connMode = 'dsn64';
-
-        // query props
-        debug.step = 'query-connprops';
-        const rs = await cn.query(`
-          SELECT
-            CONVERT(varchar(128), CONNECTIONPROPERTY('local_net_address')) AS addr,
-            CONVERT(varchar(32),  CONNECTIONPROPERTY('local_tcp_port'))    AS port
-        `);
-        await cn.close();
-
-        const server = String(rs?.[0]?.addr || '').trim();
-        const port   = Number(rs?.[0]?.port || 1433);
-        debug.detected = { server, port, mode: connMode };
-        tick('dsn64-ok');
-
-        if (!server || !port) {
-          debug.step = 'no-addr-port';
-          diagLog(`No addr/port after dsn64`);
-          return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_ADDR_PORT', debug };
-        }
-
-        try { writeAdminDbConfig?.({ server, port }); } catch (e) { debug.persistError = e?.message; }
-        return { success: true, server, port, debug };
-      }
-    } catch (eDsn64) {
-      debug.step = 'connect-dsn64-failed';
-      debug.error_dsn64 = errInfo(eDsn64);
-      diagLog(`DSN64 connect error: ${eDsn64?.message}`);
-      // seguimos al fallback
-      tick('dsn64-failed');
-    }
-
-    // 2) Fallback: leer DSN 32 bits y armar DSN-less x64
-    debug.step = 'read-dsn32';
-    const dsn32Key = 'HKLM\\SOFTWARE\\WOW6432Node\\ODBC\\ODBC.INI\\SQL SERVER';
-    const dsn32Txt = await queryReg(dsn32Key, '32');
-    const dsn32 = parseRegODBC(dsn32Txt);
-    debug.dsn32 = { exists: !!dsn32Txt, server: dsn32?.server, driverPath: dsn32?.driverPath?.split('\\').slice(-1)[0] };
-    tick('reg32-read');
-
-    if (!dsn32?.server) {
-      debug.step = 'no-dsn32-server';
-      diagLog(`No DSN32 or missing Server`);
-      return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_DSN32', debug };
-    }
-
-    const driverName = pickSqlOdbcDriver(odbc);
-    connStr = makeConnStrFrom32bit(dsn32.server, user, pass, driverName);
-    connMode = 'dsnless32';
-    debug.connStrPreview = maskConnStr(connStr, pass);
-    debug.driverChosen = driverName;
-
-    try {
-      debug.step = 'connect-dsnless32';
-      const cn = await odbc.connect(connStr);
-
-      debug.step = 'query-connprops';
-      const rs = await cn.query(`
-        SELECT
-          CONVERT(varchar(128), CONNECTIONPROPERTY('local_net_address')) AS addr,
-          CONVERT(varchar(32),  CONNECTIONPROPERTY('local_tcp_port'))    AS port
-      `);
-      await cn.close();
-
-      const server = String(rs?.[0]?.addr || '').trim();
-      const port   = Number(rs?.[0]?.port || 1433);
-      debug.detected = { server, port, mode: connMode };
-      tick('dsnless32-ok');
-
-      if (!server || !port) {
-        debug.step = 'no-addr-port';
-        diagLog(`No addr/port after dsnless32`);
-        return { success: false, message: 'No se pudo conectar al servidor', code: 'NO_ADDR_PORT', debug };
-      }
-
-      try { writeAdminDbConfig?.({ server, port }); } catch (e) { debug.persistError = e?.message; }
-      return { success: true, server, port, debug };
-
-    } catch (eDsnless) {
-      debug.step = 'connect-dsnless32-failed';
-      debug.error_dsnless32 = errInfo(eDsnless);
-      diagLog(`DSN-less(32) connect error: ${eDsnless?.message}`);
-      tick('dsnless32-failed');
-      return { success: false, message: 'No se pudo conectar al servidor', code: 'ODBC_CONNECT_FAIL', debug };
-    }
-
-  } catch (e) {
-    debug.step = 'exception';
-    debug.exception = errInfo(e);
-    diagLog(`ODBC exception: ${e?.message}`);
-    tick('exception');
-    return { success: false, message: 'No se pudo conectar al servidor', code: 'EXCEPTION', debug };
+    const isDev =
+      !!process.env.ELECTRON_START_URL || process.env.NODE_ENV === 'development';
+    return await odbcConnectAndSave({ isDev });
+  } catch (error) {
+    return {
+      success: false,
+      code: 'IPC_ODBC_ERROR',
+      message: 'Error inesperado en la conexión ODBC',
+      debug: {
+        step: 'ipc-catch',
+        error: error?.message,
+        stack: error?.stack?.split('\n').slice(0, 8).join('\n'),
+      },
+    };
   }
 });
 // get-modules → módulos con `habilitado` y `video`
@@ -1029,6 +835,7 @@ safeIpc('get-modulos-x-cliente', obtenerModulosXClienteService);
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: LOGIN / SESSION
  * ──────────────────────────────────────────────────────────────────────────── */
+
 ipcMain.handle('logout', async () => {
   try {
     const usuario  = activeSession?.usuario || store.get('user');
@@ -1077,10 +884,13 @@ function buildSessionStoreBlob({ userObj, deviceId }) {
     return null;
   }
 }
+
 ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
   writeToLog(`Login intento: ${usuario}`);
   try {
-    const deviceId = getDeviceId(store);
+    // 0) DeviceId normalizado (evita duplicados por mayúsculas/minúsculas)
+    const rawDeviceId = getDeviceId(store);
+    const deviceId    = String(rawDeviceId || '').trim().toUpperCase();
 
     // 1) Autenticación (trae user.admin, IdCliente y token)
     const auth = await iniciarSesionService({ usuario, contraseña, deviceId });
@@ -1088,23 +898,23 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
       return {
         success: false,
         code: auth?.code || 'BAD_CREDENTIALS',
-        message: auth?.message || 'Credenciales inválidas'
+        message: auth?.message || 'Credenciales inválidas.'
       };
     }
     const isAdmin = !!auth.user.admin;
 
-    // 2) Lock por device: solo aplica a NO-admin
+    // 2) Lock por device (solo NO-admin). Admin tiene bypass.
     const check = await verificarSesionActivaService({ usuario, deviceId, isAdmin });
-if (!check?.success) {
-  const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
-  return {
-    success: false,
-    code: check?.code || 'ACTIVE_OTHER_DEVICE',
-    message: check?.message || `Usuario activo en otra máquina${dev}.`
-  };
-}
+    if (!check?.success) {
+      const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
+      return {
+        success: false,
+        code: check?.code || 'ACTIVE_OTHER_DEVICE',
+        message: check?.message || `Usuario activo en otra máquina${dev}.`
+      };
+    }
 
-    // 3) Persistencia local mínima (antes del snapshot para incluir estos valores)
+    // 3) Persistencia local mínima (antes del snapshot)
     store.set('idCliente', auth.user.IdCliente);
     store.set('user', usuario);
     store.set('jwtToken', auth.token);
@@ -1112,22 +922,22 @@ if (!check?.success) {
     store.set('deviceId', deviceId);
     store.set('isAdmin', isAdmin ? 1 : 0);
 
-    // 4) Snapshot base64 para SesionesActivas.StoreData
+    // 4) Snapshot StoreData (base64) para SesionesActivas.StoreData
     const storeBlob = buildSessionStoreBlob({ userObj: auth.user, deviceId });
 
-    // 5) Registrar/activar ESTA máquina (políticas por rol dentro del servicio)
-const lock = await registrarSesionActivaService({
-  usuario,
-  deviceId,
-  token: auth.token,
-  storeBlob,
-  isAdmin,                 // << MUY IMPORTANTE
-});
+    // 5) Registrar/activar ESTA máquina (el servicio aplica las reglas del diagrama)
+    const lock = await registrarSesionActivaService({
+      usuario,
+      deviceId,
+      token: auth.token,
+      storeBlob,
+      isAdmin, // <- MUY importante para multi-device admin
+    });
     if (!lock?.success) {
       return {
         success: false,
         code: lock?.code || 'SESSION_LOCK_FAILED',
-        message: lock?.message || 'No se pudo registrar la sesión.'
+        message: lock?.message || 'No se pudo registrar/activar la sesión.'
       };
     }
 
@@ -1141,9 +951,11 @@ const lock = await registrarSesionActivaService({
           writeToLog('StoreData decodificado y aplicado.');
         }
       }
-    } catch (e) { writeToLog(`decode StoreData error (no bloqueante): ${e.message}`); }
+    } catch (e) {
+      writeToLog(`decode StoreData error (no bloqueante): ${e.message}`);
+    }
 
-    // 7) Heartbeat
+    // 7) Heartbeat (refresca LastSeen mientras la sesión esté activa)
     activeSession = { usuario, deviceId, token: auth.token, isAdmin };
     stopSessionHeartbeat?.();
     startSessionHeartbeat({
@@ -1154,13 +966,15 @@ const lock = await registrarSesionActivaService({
       }
     });
 
-    // 8) Watchers de sesión: realtime (ZongJi) + polling de respaldo
+    // 8) Monitores de sesión:
+    //    - realtime con ZongJi (UPDATE/DELETE en SesionesActivas)
+    //    - fallback polling rápido (250ms) para entorno sin binlog
     stopSessionWatchdog?.();
     stopSessionRealtimeWatcher?.();
-    startSessionRealtimeWatcher({ usuario, deviceId });                // logout instantáneo ante UPDATE/DELETE
-    startSessionWatchdog({ usuario, deviceId, intervalMs: 500 });      // fallback veloz (0.5s)
+    startSessionRealtimeWatcher({ usuario, deviceId });
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 250 });
 
-    // 9) Módulos → cache
+    // 9) Cargar módulos (cache para el popup / home)
     const modulesResult = await obtenerModulosService(auth.user.IdCliente);
     if (!modulesResult?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
@@ -1171,7 +985,7 @@ const lock = await registrarSesionActivaService({
       return {
         success: false,
         code: 'MODULES_FAIL',
-        message: modulesResult?.message || 'No se pudo cargar módulos.'
+        message: modulesResult?.message || 'No se pudieron cargar los módulos.'
       };
     }
     modulosCache = modulesResult.modulos.map(m => ({
@@ -1179,6 +993,7 @@ const lock = await registrarSesionActivaService({
       link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
     }));
 
+    writeToLog(`Login OK: ${usuario} @ ${deviceId} ${isAdmin ? '(admin)' : ''}`);
     return { success: true, user: auth.user, modulos: modulosCache, token: auth.token };
   } catch (e) {
     writeToLog(`login IPC error: ${e.message}`);
@@ -1191,24 +1006,13 @@ const lock = await registrarSesionActivaService({
     stopSessionWatchdog?.();
     stopSessionRealtimeWatcher?.();
     activeSession = null;
-    return { success: false, code: 'INTERNAL', message: `Error interno al intentar iniciar sesión: ${e.message}` };
+    return { success: false, code: 'INTERNAL', message: `Error interno al iniciar sesión: ${e.message}` };
   }
 });
-
-
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: EMPRESAS
  * ──────────────────────────────────────────────────────────────────────────── */
-ipcMain.handle('local:has-manager', async () => {
-  try {
-    const ok = await hasManagerDb();
-    return { success: true, ok };
-  } catch (e) {
-    writeToLog?.(`has-manager IPC error: ${e?.message}`);
-    return { success: false, ok: false, message: e?.message || 'Error verificando BD local.' };
-  }
-});
 
 ipcMain.handle('empresas:list-manager-emp', async () => {
   try {
@@ -1397,6 +1201,44 @@ ipcMain.handle('clientesForm:getCatalogos', async () => {
 
 ipcMain.handle('clientesForm:actualizarCampos', async (_e, payload) => {
   return await ClientesService.actualizarCampos(payload);
+});
+
+// Recibos
+ipcMain.handle('recibos:getTiposComprobante', async (event, payload = {}) => {
+  try {
+    const data = await Recibos.getTiposComprobante({
+      tipoFijo: payload.tipoFijo || 'RC',
+      circuito: payload.circuito || 'V',
+    });
+    return { ok: true, data };
+  } catch (e) {
+    console.error('[IPC recibos:getTiposComprobante]', e);
+    return { ok: false, error: e.message };
+  }
+});
+
+// Monedas habilitadas
+ipcMain.handle('recibos:getMonedas', async () => {
+  try {
+    const data = await Recibos.getMonedas();
+    return { ok: true, data };
+  } catch (e) {
+    console.error('[IPC recibos:getMonedas]', e);
+    return { ok: false, error: e.message };
+  }
+});
+
+// Tipo de cambio a la fecha
+// payload: { mon_codigo: 'USD', fecha: 'YYYY-MM-DD' }
+ipcMain.handle('recibos:getTipoCambio', async (event, payload = {}) => {
+  try {
+    const { mon_codigo, fecha } = payload;
+    const cotizacion = await Recibos.getTipoCambio({ mon_codigo, fecha });
+    return { ok: true, cotizacion };
+  } catch (e) {
+    console.error('[IPC recibos:getTipoCambio]', e);
+    return { ok: false, error: e.message };
+  }
 });
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS

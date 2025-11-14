@@ -67,16 +67,48 @@
 .field label{ font-weight: 600; }
 .labelStrong{ font-weight: 700; }
 
-.selector,.input[type="file"],
-.input[type="date"],
-.input[type="number"]{
+/* Inputs y selects unificados */
+.input,
+.selector{
   width: 100%;
   box-sizing: border-box;
-  padding: 10px;
+  padding: 10px 12px;
   border: 1px solid #ddd;
   border-radius: 6px;
   background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  font-size: .95rem;
 }
+
+/* Estética de select con flecha */
+.selector{
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg width='20' height='20' viewBox='0 0 20 20' xmlns='http://www.w3.org/2000/svg'><path d='M6 8l4 4 4-4' stroke='%23999' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 18px 18px;
+  padding-right: 40px;
+}
+
+/* Focus states */
+.input:focus,
+.selector:focus{
+  outline: none;
+  border-color: #e82c02;
+  box-shadow: 0 0 0 3px rgba(232,44,2,.15);
+}
+
+/* Disabled */
+.input:disabled,
+.selector:disabled{
+  background: #f8f8f8;
+  color: #888;
+  cursor: not-allowed;
+}
+
+/* Ajustes por tipo */
+.input[type="file"]{ padding: 7px 10px; }
+.input[type="date"]::-webkit-calendar-picker-indicator{ opacity: .7; }
 
 /* Botón */
 .btn{
@@ -88,14 +120,30 @@
   font-weight: 800;
   cursor: pointer;
   width: 100%;
+  transition: filter .15s ease, background-color .15s ease, opacity .15s ease;
 }
 .btn:hover{ background-color: #d42602; }
+.btn:disabled{ opacity: .6; cursor: not-allowed; }
 
 /* Subtítulo */
 .subtitle{
   margin: 8px 0 0 0;
   font-size: 1.05rem;
   font-weight: 700;
+}
+
+/* Mensajes */
+.errorBox{
+  background: #fff1ee;
+  border: 1px solid #ffd6ce;
+  color: #8b1d10;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.muted{
+  color: #666;
+  padding: 12px;
 }
 
 /* Tabla de cheques */
@@ -124,6 +172,10 @@
 .table tbody td{
   border-bottom: 1px solid #f3f3f3;
   padding: 10px 12px;
+}
+
+.table tbody tr:hover td{
+  background: #fff7f5;
 }
 
 .table tfoot td{

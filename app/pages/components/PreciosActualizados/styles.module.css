@@ -1,17 +1,14 @@
 /* ===== Container (tal como pediste) ===== */
 .container {
-  padding: 2rem;
-  background-color: #fff;
-  margin-top: 5px;
-  border-radius: 12px;
-  flex: auto;
-  justify-content: center;
-  max-width: 100%;
-  margin-bottom: 20px;
-  font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
-  overflow-y: auto;
-  overflow-x: auto;
-  max-height: 450px;
+ background: #fff;
+      width: clamp(320px, 92vw, 1080px);
+    min-height: clamp(520px, 80vh, 720px);
+    max-height: 720px;
+    padding: 24px;          /* 32px -> 24px */
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+  margin: 0 auto;
+  z-index: 2;
 }
 .container::-webkit-scrollbar { display: none; }
 

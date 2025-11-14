@@ -53,80 +53,167 @@ export default function LoginPage() {
           return;
         }
         router.replace("/Index");
-        // 🔁 pequeño refresh para que banner/módulos se pinten ya
         setTimeout(hardRefresh, 60);
       }
     });
     return unsub;
   }, [subscribe, router]);
 
-  const handleLogin = async () => {
-    try {
-      setError("");
-      setLoading(true);
+const handleLogin = async () => {
+  try {
+    setError("");
+    setLoading(true);
 
-      if (!usuario || !contraseña) {
-        setError("Completá usuario y contraseña.");
-        setLoading(false);
-        return;
-      }
-          // 0) Paso ODBC-style (sólo en PROD; en DEV se saltea en el main)
-      try {
-        const pre = await window.api?.odbcConnectAndSave?.();
-        if (pre?.debug) {
-     const d = pre.debug;
-     const states = Array.isArray(d.odbcErrors)
-     ? d.odbcErrors.map(x => `${x.sqlstate || x.SQLSTATE} (${x.code || x.nativeError || ''})`).join(', ')
-     : '';
-     alert(
-       `ODBC falló\n` +
-       `Paso: ${d.step || 'desconocido'}\n` +
-       (d.error ? `Error: ${d.error}\n` : '') +
-       (states ? `SQLSTATE(s): ${states}\n` : '') +
-       (d.detected ? `Detectado: ${JSON.stringify(d.detected)}\n` : '') +
-       (d.used ? `Modo: ${d.used}\n` : '') +
-       (d.connStrPreview ? `Conn: ${d.connStrPreview}\n` : '')
-     );
-   }
-        if (!pre?.success) {
-          setError(pre?.message || "No se pudo conectar con la configuracion del ODBC");
-          setLoading(false);
-          return;
-        }
-      } catch {
-        setError("No se pudo conectar al servidor");
-        setLoading(false);
-        return;
-      }
-      // 1) Debe existir la BD local "manager"
-      const chk = await window.api?.hasManager?.();
-      if (!chk?.ok) {
-        setError("No se encuentra sistema Bejerman ERP instalado");
-        setLoading(false);
-        return;
-      }
-
-      // 2) Login (main persiste en electron-store y emite session:state)
-      const response = await window.api?.login?.(usuario, contraseña);
-      if (!response?.success) {
-        setError(response?.message || "Error al iniciar sesión.");
-        setLoading(false);
-        return;
-      }
-
-      // Compat con legacy localStorage (si lo venís usando)
-      localStorage.setItem("fechaInicio", new Date().toISOString());
-      localStorage.setItem("jwtToken", response.token || "");
-
-      // 3) Redirección inmediata (el refresh viene por el evento arriba)
-      router.push("/Index");
-    } catch (err) {
-      console.error(err);
-      setError("Error al iniciar sesión.");
-    } finally {
+    if (!usuario || !contraseña) {
+      setError("Completá usuario y contraseña.");
       setLoading(false);
+      return;
     }
-  };
+
+    // ───────── PASO ODBC (getServer + save + connect) ─────────
+    try {
+      console.log("[LOGIN] Paso ODBC: getServerForLogin...");
+      const srv = await window.api.getServerForLogin(usuario, contraseña);
+      console.log("[LOGIN] getServerForLogin resp:", srv);
+
+      let serverToUse;
+      if (srv?.ok && srv?.server) {
+        serverToUse = srv.server;
+      } else {
+        const msg =
+          srv?.message || "No se pudo determinar el servidor del cliente.";
+        alert(
+          `Atención\n\n${msg}\n\nSe usará "localhost" de manera automática.`
+        );
+        serverToUse = "localhost";
+      }
+
+      console.log("[LOGIN] saveServerForOdbc:", serverToUse);
+      const sv = await window.api.saveServerForOdbc(serverToUse);
+      console.log("[LOGIN] saveServerForOdbc resp:", sv);
+      if (!sv?.ok) {
+        setError(sv?.message || "No se pudo guardar el servidor");
+        setLoading(false);
+        return;
+      }
+
+      console.log("[LOGIN] odbcConnectAndSave...");
+      const pre = await window.api.odbcConnectAndSave();
+      console.log("[LOGIN] odbcConnectAndSave resp:", pre);
+
+      // 🔦 Diagnóstico ODBC (tal como ya tenías)
+      if (pre?.debug) {
+        const d = pre.debug || {};
+        const pickStates = (arr) =>
+          Array.isArray(arr)
+            ? arr
+                .map(
+                  (x) =>
+                    `${x.sqlstate || x.SQLSTATE || "??"}:${
+                      x.code || x.nativeError || ""
+                    }`
+                )
+                .join(", ")
+            : "";
+
+        const attempts = Array.isArray(d.dsnless32Attempts)
+          ? d.dsnless32Attempts
+          : [];
+        const attemptsTxt = attempts
+          .map((a, i) => {
+            const base = `#${i + 1} driver=${a.driver} server=${a.server} enc=${
+              a.encrypt
+            } trust=${a.trust}\n   conn=${a.connStrPreview}`;
+            if (a.ok) return base + `\n   ✔ OK`;
+            const states = pickStates(a.error?.odbcErrors);
+            return (
+              base +
+              `\n   ✖ ${a.error?.message || "error"}${
+                states ? ` | SQLSTATEs: ${states}` : ""
+              }`
+            );
+          })
+          .join("\n");
+
+        const lines = [
+          `Paso: ${d.step || "desconocido"}`,
+          d.code ? `Código: ${d.code}` : "",
+          d.error?.message ? `Error: ${d.error.message}` : "",
+          d.driverChosen ? `Driver elegido: ${d.driverChosen}` : "",
+          d.usedVariant
+            ? `Variante: server=${d.usedVariant.server} enc=${d.usedVariant.encrypt} trust=${d.usedVariant.trust}`
+            : "",
+          d.connStrPreview ? `Conn: ${d.connStrPreview}` : "",
+          d.drivers?.length
+            ? `Drivers (x64): ${d.drivers.join(" | ")}`
+            : "(no se detectaron drivers)",
+          d.dsn64
+            ? `DSN64: exists=${d.dsn64.exists} server=${
+                d.dsn64.server || "-"
+              } driver=${d.dsn64.driverPath || "-"}`
+            : "",
+          d.dsn32
+            ? `DSN32: exists=${d.dsn32.exists} server=${
+                d.dsn32.server || "-"
+              } driver=${d.dsn32.driverPath || "-"}`
+            : "",
+          attemptsTxt ? `\nIntentos DSN-less:\n${attemptsTxt}` : "",
+          d.timings ? `\nTimings: ${JSON.stringify(d.timings)}` : "",
+        ].filter(Boolean);
+
+        if (!pre?.success) {
+          alert(`ODBC falló\n\n${lines.join("\n")}`);
+        }
+      }
+
+      if (!pre?.success) {
+        setError(
+          pre?.message || "No se pudo conectar con la configuración del ODBC"
+        );
+        setLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.error("[LOGIN] Error en bloque ODBC:", e);
+      setError("No se pudo conectar al servidor");
+      setLoading(false);
+      return;
+    }
+
+    // ───────── PASO LOGIN contra el main/DB ─────────
+    console.log("[LOGIN] llamando window.api.login...");
+    const response = await window.api?.login?.(usuario, contraseña);
+    console.log("[LOGIN] respuesta login:", response);
+
+    if (!response?.success) {
+      setError(response?.message || "Error al iniciar sesión.");
+      setLoading(false);
+      return;
+    }
+
+    // Compat localStorage
+    localStorage.setItem("fechaInicio", new Date().toISOString());
+    localStorage.setItem("jwtToken", response.token || "");
+
+    // por las dudas, logueamos idCliente
+    try {
+      const idCliente = await window.api?.getStoreValue?.("idCliente");
+      console.log("[LOGIN] idCliente post-login:", idCliente);
+    } catch (e) {
+      console.warn("[LOGIN] No se pudo leer idCliente:", e);
+    }
+
+    // Redirección
+    console.log("[LOGIN] router.push('/Index')");
+    router.push("/Index");
+  } catch (err) {
+    console.error("[LOGIN] catch general:", err);
+    setError("Error al iniciar sesión.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const onKeyDown = (e) => {
     if (e.key === "Enter") handleLogin();
@@ -164,7 +251,14 @@ export default function LoginPage() {
         {error && <p className={styles.error}>{error}</p>}
 
         <button className={styles.btn} onClick={handleLogin} disabled={loading}>
-          {loading ? "Ingresando..." : "Ingresar"}
+          {loading ? (
+            <div className={styles.loadingWrapper}>
+              <div className={styles.loaderBar}></div>
+              <span className={styles.loadingText}>Ingresando...</span>
+            </div>
+          ) : (
+            "Ingresar"
+          )}
         </button>
       </div>
     </div>

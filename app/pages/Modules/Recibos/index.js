@@ -1,15 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 
-export default function Recibos() {
-  // Estado UI
-  const [cliente, setCliente] = useState("");
-  const [fecha, setFecha] = useState("");
-  const [tipoComprobante] = useState("RC");
-  const [moneda, setMoneda] = useState("ARS");
-  const [tc, setTc] = useState("1.0000"); // TC por defecto (ARS=1)
+export default function RecibosPage() {
+  // Catálogos por IPC
+  const [tipos, setTipos] = useState([]);
+  const [monedas, setMonedas] = useState([]);
+  const [clientes, setClientes] = useState([]); // [{ CodCliente, TipoCliente }]
 
-  // Setear fecha del día al montar
+  // Form
+  const [cliente, setCliente] = useState("");   // guarda CodCliente
+  const [fecha, setFecha] = useState("");
+  const [tipoComprobante, setTipoComprobante] = useState("");
+  const [moneda, setMoneda] = useState("");
+  const [tc, setTc] = useState("");
+
+  // Cheques (se llenará vía importación IPC)
+  const [cheques, setCheques] = useState([]);
+
+  // UI
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  // Fecha por defecto (hoy)
   useEffect(() => {
     const now = new Date();
     const yyyy = now.getFullYear();
@@ -18,57 +30,88 @@ export default function Recibos() {
     setFecha(`${yyyy}-${mm}-${dd}`);
   }, []);
 
-  // Datos de ejemplo (5 cheques)
-  const CHEQUES_EJEMPLO = useMemo(
-    () => [
-      { codBanco: "143", banco: "Banco Macro",   numero: "00012345", importe: 120000.5, tipo: "ECH" },
-      { codBanco: "011", banco: "Banco Nación",  numero: "98765432", importe:  85000.0, tipo: "CHE" },
-      { codBanco: "007", banco: "Banco Galicia", numero: "55566677", importe: 150000.0, tipo: "CHE" },
-      { codBanco: "017", banco: "BBVA",          numero: "11223344", importe:  92000.75, tipo: "ECH" },
-      { codBanco: "072", banco: "Santander",     numero: "22334455", importe:  70000.0, tipo: "CHE" },
-    ],
-    []
-  );
-
-  // Habilitar/deshabilitar TC según moneda
-  const tcDisabled = moneda === "ARS";
-
+  // Cargar catálogos (solo funciones)
   useEffect(() => {
-    if (moneda === "ARS") {
-      setTc("1.0000");
-    } else {
-      // si venía en 0 o vacío, dale un valor “seguro”
-      if (!(parseFloat(tc) > 0)) setTc("1000.0000");
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        setErr("");
+
+        if (!window?.api) { setErr("Bridge IPC no disponible."); return; }
+
+        const [rTipos, rMon, rCliTodos] = await Promise.all([
+          window.api.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito: "V" }),
+          window.api.recibos?.getMonedas?.(),
+          window.api.clientesForm?.traerTodos?.(),
+        ]);
+        if (!mounted) return;
+        
+        if (rTipos?.ok && Array.isArray(rTipos.data)) setTipos(rTipos.data);
+        if (rMon?.ok && Array.isArray(rMon.data)) setMonedas(rMon.data);
+        
+        // ---- Clientes: usar SOLO CodCliente y TipoCliente ----
+        // rCliTodos puede venir como {ok, data} o directamente como array:
+        if (!rCliTodos?.ok) {
+          setClientes(rCliTodos?.data || []);
+        };
+        
+      } catch (e) {
+        console.error(e);
+        setErr("Error cargando catálogos.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Traer TC (siempre por función; sin suposiciones)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        if (!fecha || !moneda) { setTc(""); return; }
+        if (!window?.api?.recibos?.getTipoCambio) { setTc(""); return; }
+
+        const r = await window.api.recibos.getTipoCambio({ mon_codigo: moneda, fecha });
+        if (!mounted) return;
+        setTc(r?.ok && r.cotizacion ? String(r.cotizacion) : "");
+      } catch (e) {
+        console.error(e);
+        if (mounted) setTc("");
+      }
+    })();
+    return () => { mounted = false; };
+  }, [moneda, fecha]);
+
+  // Total (solo numérico; moneda la decide el select)
+  const total = useMemo(() => {
+    if (!Array.isArray(cheques) || cheques.length === 0) return 0;
+    return cheques.reduce((acc, c) => acc + (Number(c.importe) || 0), 0);
+  }, [cheques]);
+
+  const totalFmt = useMemo(() => {
+    if (!cheques.length) return "—";
+    try {
+      return new Intl.NumberFormat("es-AR", {
+        style: moneda ? "currency" : undefined,
+        currency: moneda || undefined,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(total);
+    } catch {
+      return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
     }
-  }, [moneda]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [total, moneda, cheques.length]);
 
-  const currencyFmt = (value, currency) =>
-    new Intl.NumberFormat("es-AR", { style: "currency", currency }).format(value);
-
-  // Filas + total (conversión por TC si aplica)
-  const { filas, total } = useMemo(() => {
-    const tcn = Math.max(parseFloat(tc || "1"), 0.0000001); // evitar /0
-    let sum = 0;
-
-    const rows = CHEQUES_EJEMPLO.map((c) => {
-      const importeConv = moneda === "ARS" ? c.importe : c.importe / tcn;
-      sum += importeConv;
-      return {
-        ...c,
-        importeConv,
-        importeFmt: currencyFmt(importeConv, moneda),
-      };
-    });
-
-    return { filas: rows, total: sum };
-  }, [CHEQUES_EJEMPLO, moneda, tc]);
-
-  const badge = (tipo) => {
-    const text = tipo === "ECH" ? "ECH — ECheq" : "CHE — Cheque";
-    const cls  = tipo === "ECH" ? styles.badgeECH : styles.badgeCHE;
-    return <span className={`${styles.badge} ${cls}`}>{text}</span>;
+  const Badge = ({ tipo }) => {
+    const cls = tipo === "ECH" ? `${styles.badge} ${styles.badgeECH}` : `${styles.badge} ${styles.badgeCHE}`;
+    const label = tipo === "ECH" ? "ECH — ECheq" : "CHE — Cheque";
+    return <span className={cls}>{label}</span>;
   };
 
+  const readyToConfirm = !loading && cliente && fecha && tipoComprobante && moneda;
   return (
     <div className={styles.pageBg}>
       <div className={styles.container}>
@@ -76,9 +119,11 @@ export default function Recibos() {
           <h1 className={styles.title}>Recibos</h1>
         </div>
 
+        {err && <div style={{ color: "#b00020", fontWeight: 700, marginBottom: 8 }}>{err}</div>}
+
         <div className={styles.tab}>
-          {/* Grid de formulario */}
           <div className={styles.formGrid}>
+            {/* Cliente (value = CodCliente, label = CodCliente - TipoCliente) */}
             <div className={styles.field}>
               <label htmlFor="cliente">Cliente</label>
               <select
@@ -86,13 +131,18 @@ export default function Recibos() {
                 className={styles.selector}
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
+                disabled={loading || !clientes.length}
               >
                 <option value="">Seleccione un cliente</option>
-                <option value="1">Cliente 1</option>
-                <option value="2">Cliente 2</option>
+                {clientes.map((c) => (
+                  <option key={c.CodCliente} value={c.CodCliente}>
+                    {c.CodCliente} - {c.TipoCliente}
+                  </option>
+                ))}
               </select>
             </div>
 
+            {/* Fecha */}
             <div className={styles.field}>
               <label htmlFor="fecha">Fecha</label>
               <input
@@ -101,35 +151,49 @@ export default function Recibos() {
                 className={styles.input}
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
+                disabled={loading}
               />
             </div>
 
+            {/* Tipo de Comprobante */}
             <div className={styles.field}>
               <label htmlFor="tipoComprobante">Tipo de Comprobante</label>
               <select
                 id="tipoComprobante"
-                className={styles.select}
+                className={styles.selector}
                 value={tipoComprobante}
-                onChange={() => {}}
+                onChange={(e) => setTipoComprobante(e.target.value)}
+                disabled={loading || !tipos.length}
               >
-                <option value="RC">RC - Recibo</option>
+                <option value="">Seleccione tipo</option>
+                {tipos.map((t) => (
+                  <option key={t.tco_cod} value={t.tco_cod}>
+                    {t.tco_cod} - {t.tco_desc}
+                  </option>
+                ))}
               </select>
             </div>
 
+            {/* Moneda */}
             <div className={styles.field}>
               <label htmlFor="moneda">Moneda</label>
               <select
                 id="moneda"
-                className={styles.select}
+                className={styles.selector}
                 value={moneda}
                 onChange={(e) => setMoneda(e.target.value)}
+                disabled={loading || !monedas.length}
               >
-                <option value="ARS">ARS - Peso Argentino</option>
-                <option value="USD">USD - Dólar</option>
-                <option value="EUR">EUR - Euro</option>
+                <option value="">Seleccione moneda</option>
+                {monedas.map((m) => (
+                  <option key={m.mon_codigo} value={m.mon_codigo}>
+                    {m.mon_codigo} - {m.mon_descrip}
+                  </option>
+                ))}
               </select>
             </div>
 
+            {/* Tipo de Cambio */}
             <div className={styles.field}>
               <label htmlFor="tc">Tipo de Cambio</label>
               <input
@@ -139,23 +203,26 @@ export default function Recibos() {
                 min="0"
                 className={styles.input}
                 value={tc}
-                disabled={tcDisabled}
                 onChange={(e) => setTc(e.target.value)}
+                disabled={loading || !moneda}
+                placeholder={moneda ? "Cargando..." : "Seleccione moneda y fecha"}
+                readOnly
               />
             </div>
 
+            {/* Importar Cheques */}
             <div className={styles.field}>
               <label htmlFor="archivo" className={styles.labelStrong}>
                 Importar Cheques de terceros / ECheqs
               </label>
-              <input id="archivo" type="file" className={styles.input} />
+              <input id="archivo" type="file" className={styles.input} disabled={loading} />
             </div>
           </div>
 
-          {/* Acciones */}
-          <button className={styles.btn}>Confirmar Recibos</button>
+          <button className={styles.btn} disabled={!readyToConfirm}>
+            Confirmar Recibos
+          </button>
 
-          {/* Previsualización */}
           <h2 className={styles.subtitle}>Previsualización de cheques</h2>
           <div className={styles.tableResponsive}>
             <table className={styles.table}>
@@ -169,24 +236,33 @@ export default function Recibos() {
                 </tr>
               </thead>
               <tbody>
-                {filas.map((c, i) => (
-                  <tr key={`${c.numero}-${i}`}>
-                    <td>{c.codBanco}</td>
-                    <td>{c.banco}</td>
-                    <td>{c.numero}</td>
-                    <td className={styles.tdRight}>{c.importeFmt}</td>
-                    <td>{badge(c.tipo)}</td>
+                {cheques.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 12, color: "#666" }}>
+                      No hay cheques importados todavía.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  cheques.map((c, i) => (
+                    <tr key={`${c.numero ?? i}-${i}`}>
+                      <td>{c.codBanco ?? ""}</td>
+                      <td>{c.banco ?? ""}</td>
+                      <td>{c.numero ?? ""}</td>
+                      <td className={styles.tdRight}>
+                        {new Intl.NumberFormat("es-AR", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }).format(Number(c.importe) || 0)}
+                      </td>
+                      <td>{c.tipo ? <Badge tipo={c.tipo} /> : ""}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={3} className={`${styles.tdRight} ${styles.tdTotalLabel}`}>
-                    Total
-                  </td>
-                  <td className={`${styles.tdRight} ${styles.tdTotalAmount}`}>
-                    {currencyFmt(total, moneda)}
-                  </td>
+                  <td colSpan={3} className={`${styles.tdRight} ${styles.tdTotalLabel}`}>Total</td>
+                  <td className={`${styles.tdRight} ${styles.tdTotalAmount}`}>{totalFmt}</td>
                   <td />
                 </tr>
               </tfoot>

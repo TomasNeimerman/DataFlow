@@ -159,41 +159,33 @@ async function obtenerModulos(idCliente) {
 ==============================================================================*/
 async function verificarSesionActiva({ usuario, deviceId, isAdmin = undefined }) {
   return withAdminPool(async (pool) => {
-    // Si no vino el flag, lo resolvemos desde la tabla Usuarios
+    const U = String(usuario || '').trim();
+    const D = String(deviceId || '').trim().toUpperCase();
+
     if (typeof isAdmin !== 'boolean') {
       const [u] = await pool.execute(
-        `SELECT COALESCE(admin,0) AS AdminFlag
-           FROM Usuarios
-          WHERE Usuario = ?
-          LIMIT 1`,
-        [usuario]
+        `SELECT COALESCE(admin,0) AS AdminFlag FROM Usuarios WHERE Usuario=? LIMIT 1`, [U]
       );
       isAdmin = !!(u?.[0] && Number(u[0].AdminFlag) === 1);
     }
-
-    // 🔓 Admin puede abrir múltiples sesiones a la vez
     if (isAdmin) return { success: true, code: 'ADMIN_BYPASS' };
 
-    // 🔒 No-admin: si hay otra máquina activa distinta, bloquear
     const [rows] = await pool.execute(
-      `SELECT DeviceId, Activa
+      `SELECT DeviceId
          FROM SesionesActivas
-        WHERE Usuario = ? AND Activa = 1
+        WHERE Usuario=? AND Activa=1
         LIMIT 1`,
-      [usuario]
+      [U]
     );
-
     if (!rows.length) return { success: true, code: 'NO_ACTIVE' };
-
-    const row = rows[0];
-    if (String(row.DeviceId) === String(deviceId)) {
-      return { success: true, code: 'ACTIVE_SAME_DEVICE', deviceId: row.DeviceId };
+    if (String(rows[0].DeviceId).toUpperCase() === D) {
+      return { success: true, code: 'ACTIVE_SAME_DEVICE', deviceId: rows[0].DeviceId };
     }
     return {
       success: false,
       code: 'ACTIVE_OTHER_DEVICE',
-      deviceId: row.DeviceId,
-      message: `Usuario activo en el dispositivo "${row.DeviceId}".`
+      deviceId: rows[0].DeviceId,
+      message: `Usuario activo en el dispositivo "${rows[0].DeviceId}".`
     };
   });
 }
@@ -201,80 +193,103 @@ async function verificarSesionActiva({ usuario, deviceId, isAdmin = undefined })
 
 async function registrarSesionActiva({ usuario, deviceId, token, storeBlob, isAdmin = undefined }) {
   return withAdminPool(async (pool) => {
+    const U = String(usuario || '').trim();
+    const D = String(deviceId || '').trim().toUpperCase();  // 👈 normalizado
+
     // Resolver admin si no vino
     if (typeof isAdmin !== 'boolean') {
       const [u] = await pool.execute(
-        `SELECT COALESCE(admin,0) AS AdminFlag FROM Usuarios WHERE Usuario=? LIMIT 1`,
-        [usuario]
+        `SELECT COALESCE(admin,0) AS AdminFlag FROM Usuarios WHERE Usuario=? LIMIT 1`, [U]
       );
       isAdmin = !!(u?.[0] && Number(u[0].AdminFlag) === 1);
     }
 
-    // ¿Existe la fila para este device?
-    const [exRows] = await pool.execute(
-      `SELECT Activa FROM SesionesActivas WHERE Usuario = ? AND DeviceId = ? LIMIT 1`,
-      [usuario, deviceId]
+    // ¿Existe mi fila?
+    const [mineRows] = await pool.execute(
+      `SELECT Activa FROM SesionesActivas WHERE Usuario=? AND DeviceId=? LIMIT 1`,
+      [U, D]
     );
+    const tengoFila = mineRows.length > 0;
+    const miActiva = tengoFila ? Number(mineRows[0].Activa ?? 0) : 0;
 
-    if (exRows.length) {
-      const activa = Number(exRows[0].Activa ?? 0);
+    // ¿Hay otra máquina activa (distinta a D)?
+    let hayOtraActiva = false;
+    if (!isAdmin) {
+      const [other] = await pool.execute(
+        `SELECT 1
+           FROM SesionesActivas
+          WHERE Usuario=? AND DeviceId<>? AND Activa=1
+          LIMIT 1`,
+        [U, D]
+      );
+      hayOtraActiva = other.length > 0;
+    }
 
-      if (!isAdmin) {
-        if (activa !== 1) {
-          return {
-            success: false,
-            code: 'DEVICE_DISABLED',
-            message: 'Sesión deshabilitada para este dispositivo. Requiere habilitación de un administrador.'
-          };
-        }
-        const [others] = await pool.execute(
-          `SELECT DeviceId FROM SesionesActivas
-            WHERE Usuario = ? AND DeviceId <> ? AND Activa = 1
-            LIMIT 1`,
-          [usuario, deviceId]
-        );
-        if (others.length) {
-          return {
-            success: false,
-            code: 'ACTIVE_OTHER_DEVICE',
-            deviceId: others[0].DeviceId,
-            message: `Usuario activo en el dispositivo "${others[0].DeviceId}".`
-          };
-        }
+    // ── Política por casos ────────────────────────────────────────────────
+    if (!tengoFila) {
+      // Usuario sin sesión previa en este dispositivo
+      if (!isAdmin && hayOtraActiva) {
+        return {
+          success: false,
+          code: 'ACTIVE_OTHER_DEVICE',
+          message: 'Usuario activo en otro dispositivo.'
+        };
       }
+      // Crear/activar este device
+      await pool.execute(
+        `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, StoreData, LastSeen, Activa)
+         VALUES (?, ?, ?, ?, NOW(), 1)
+         ON DUPLICATE KEY UPDATE
+           Token=VALUES(Token),
+           StoreData=VALUES(StoreData),
+           LastSeen=NOW(),
+           Activa=1`,
+        [U, D, token || null, storeBlob || null]
+      );
+      return { success: true, code: 'CREATED' };
+    }
 
-      // Admin (multi) o no-admin validado: activar/actualizar este device
+    // Tengo fila en este device (miActiva = 0/1)
+    if (miActiva === 1) {
+      // Ya habilitada → iniciar sesion (update)
       await pool.execute(
         `UPDATE SesionesActivas
-            SET Token = ?, StoreData = ?, LastSeen = NOW(), Activa = 1
-          WHERE Usuario = ? AND DeviceId = ?`,
-        [token || null, storeBlob || null, usuario, deviceId]
+            SET Token=?, StoreData=?, LastSeen=NOW(), Activa=1
+          WHERE Usuario=? AND DeviceId=?`,
+        [token || null, storeBlob || null, U, D]
       );
       return { success: true, code: 'UPDATED' };
     }
 
-    // Device nuevo
-    if (!isAdmin) {
-      const [act] = await pool.execute(
-        `SELECT DeviceId FROM SesionesActivas WHERE Usuario = ? AND Activa = 1 LIMIT 1`,
-        [usuario]
+    // miActiva === 0 (deshabilitado en este device)
+    if (isAdmin) {
+      // Admin → habilitar e iniciar
+      await pool.execute(
+        `UPDATE SesionesActivas
+            SET Token=?, StoreData=?, LastSeen=NOW(), Activa=1
+          WHERE Usuario=? AND DeviceId=?`,
+        [token || null, storeBlob || null, U, D]
       );
-      if (act.length) {
-        return {
-          success: false,
-          code: 'ACTIVE_OTHER_DEVICE',
-          deviceId: act[0].DeviceId,
-          message: `Usuario activo en el dispositivo "${act[0].DeviceId}".`
-        };
-      }
+      return { success: true, code: 'REACTIVATED_BY_ADMIN' };
     }
 
+    // No-admin: sólo si NO hay otra máquina activa puede reactivarse
+    if (hayOtraActiva) {
+      return {
+        success: false,
+        code: 'ACTIVE_OTHER_DEVICE',
+        message: 'Usuario activo en otro dispositivo.'
+      };
+    }
+
+    // No hay otra activa → reactivar este device
     await pool.execute(
-      `INSERT INTO SesionesActivas (Usuario, DeviceId, Token, StoreData, LastSeen, Activa)
-       VALUES (?, ?, ?, ?, NOW(), 1)`,
-      [usuario, deviceId, token || null, storeBlob || null]
+      `UPDATE SesionesActivas
+          SET Token=?, StoreData=?, LastSeen=NOW(), Activa=1
+        WHERE Usuario=? AND DeviceId=?`,
+      [token || null, storeBlob || null, U, D]
     );
-    return { success: true, code: 'CREATED' };
+    return { success: true, code: 'REACTIVATED' };
   });
 }
 async function obtenerSesionPorDevice({ usuario, deviceId }) {

@@ -26,7 +26,7 @@ async function getListasHabilitadas() {
 }
 
 /** LISTAR CLIENTES de la lista seleccionada (listaCod), con tu query */
-async function listarClientesHabilitados({ listaCod } = {}) {
+async function  listarClientesHabilitados({ listaCod } = {}) {
   let pool;
   try {
     pool = await sql.connect(getAdminDbConfig());
