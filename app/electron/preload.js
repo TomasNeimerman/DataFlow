@@ -10,7 +10,21 @@ const allowedIpcEvents = [
   'cheques:updated',
   'precios:updated',
 ];
+const clientesForm = {
+  // Listado / combos
+  traerTodos:            () => ipcRenderer.invoke('clientesForm:traerTodos'),
+  traerCodigosLista:     () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
 
+  // Catálogos (legacy completo y por solapas)
+  getCatalogos:          () => ipcRenderer.invoke('clientesForm:getCatalogos'),
+  getCatalogosGeneral:   () => ipcRenderer.invoke('clientesForm:getCatalogosGeneral'),
+  getCatalogosImpositivos: () => ipcRenderer.invoke('clientesForm:getCatalogosImpositivos'),
+  getCatalogosOtros:     () => ipcRenderer.invoke('clientesForm:getCatalogosOtros'),
+
+  // Updates
+  actualizarLista:       (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload),
+  actualizarCampos:      (payload) => ipcRenderer.invoke('clientesForm:actualizarCampos', payload),
+};
 // Para poder desuscribir correctamente
 const _listenerMap = new WeakMap();
 
@@ -117,20 +131,14 @@ clientesListar: (payload) => ipcRenderer.invoke('clientes:listar', payload),
 clientesActualizarFiltrado: (payload) => ipcRenderer.invoke('clientes:actualizar-filtrado', payload), 
 getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
 
-clientesForm: {
-    traerTodos:        () => ipcRenderer.invoke('clientesForm:traerTodos'),
-    traerCodigosLista: () => ipcRenderer.invoke('clientesForm:traerCodigosLista'),
-    // payload: { fromCod, toCod, cliCods: string[] }
-    actualizarLista:   (payload) => ipcRenderer.invoke('clientesForm:actualizarLista', payload),
-    getCatalogos:      () => ipcRenderer.invoke('clientesForm:getCatalogos'),
-  actualizarCampos:  (payload) => ipcRenderer.invoke('clientesForm:actualizarCampos', payload),
-  },
+  clientesForm,
 
   // ==== Recibos ====
   recibos: {
     getTiposComprobante: (params) => ipcRenderer.invoke('recibos:getTiposComprobante', params),
     getMonedas:          ()       => ipcRenderer.invoke('recibos:getMonedas'),
     getTipoCambio:       (params) => ipcRenderer.invoke('recibos:getTipoCambio', params),
+    getFacturas: (p) => ipcRenderer.invoke('recibos:getFacturas', p),
   },
   // ======================
   // Store

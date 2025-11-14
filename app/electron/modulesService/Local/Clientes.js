@@ -19,49 +19,29 @@ function mapCatalog(rs, codeCandidates, descCandidates) {
     const des = String(pick(row, descCandidates) ?? '').trim();
     if (cod) out.push({ value: cod, label: des ? `${cod} - ${des}` : cod });
   });
-  // ordenar por value
   out.sort((a, b) => (a.value > b.value ? 1 : -1));
   return out;
 }
 
-/** =========================
- *  1) CATALOGOS (combos)
- *  =========================
- *
- *  Devuelve todas las tablas relacionadas que usa el front:
- *  CondVta, TipCli, DefListP (habilitadas), Vendedor, Zona,
- *  Defi1Cli, Defi2Cli, Transporte, Proveed,
- *  SitIVA, TipoDocum, SituGan, SitIB, Apertura,
- *  PRV y Paises (por si usás provincias desde cualquiera).
+/* ============================================================
+ * 1) CATALOGOS (separados por solapa) + agregador
+ * ============================================================
  */
-async function getCatalogos() {
+
+/** ─── Solapa: General ───────────────────────────────────── */
+async function getCatalogosGeneral() {
   let pool;
   try {
     pool = await sql.connect(getAdminDbConfig());
     const req = pool.request();
 
-    const [
-      cvt, tip, dlp, ven, zon,
-      d1, d2, trn, pro,
-      siva, tdoc, sgan, sib, ape,
-      prv, pai
-    ] = await Promise.all([
+    const [cvt, tip, dlp, ven, zon, prv, pai] = await Promise.all([
       req.query("SELECT cvt_Cod, cvt_Desc FROM CondVta"),
       req.query("SELECT tic_Cod, tic_Desc FROM TipCli"),
       req.query("SELECT dlp_Cod, dlp_Desc FROM DefListP WHERE dlp_Habilitacion='1'"),
       req.query("SELECT ven_Cod, ven_Desc FROM Vendedor"),
       req.query("SELECT zon_Cod, zon_Desc FROM Zona"),
-      req.query("SELECT dc1_Cod, dc1_Desc FROM Defi1Cli"),
-      req.query("SELECT dc2_Cod, dc2_Desc FROM Defi2Cli"),
-      req.query("SELECT trn_Cod, trn_Desc FROM Transporte"),
-      req.query("SELECT pro_Cod, pro_RazSoc FROM Proveed"),
-      req.query("SELECT siv_Cod, siv_Desc FROM SitIVA"),
-      req.query("SELECT tdc_Cod, tdc_Desc FROM TipoDocum"),
-      req.query("SELECT sig_Cod, sig_Desc FROM SituGan"),
-      req.query("SELECT sib_Cod, sib_Desc FROM SitIB"),
-      req.query("SELECT ape_Cod, ape_Desc FROM Apertura"),
-      // Provincias / Países (nombres pueden variar, tratamos de ser tolerantes)
-      req.query("SELECT * FROM PRV"),
+      req.query("SELECT * FROM prv"),
       req.query("SELECT * FROM Paises"),
     ]);
 
@@ -71,35 +51,87 @@ async function getCatalogos() {
       DefListP: mapCatalog(dlp,  ['dlp_Cod'],  ['dlp_Desc']),
       Vendedor: mapCatalog(ven,  ['ven_Cod'],  ['ven_Desc']),
       Zona:     mapCatalog(zon,  ['zon_Cod'],  ['zon_Desc']),
+      PRV:      mapCatalog(prv,  ['prv_Codigo','prv_Cod','prv_Id','Codigo','Cod','prv_codigo'], ['prv_descrip','prv_Desc','prv_Nombre','Descripcion','Desc']),
+      Paises:   mapCatalog(pai,  ['pai_Cod','pais_Cod','Codigo','Cod','Id'],       ['pai_Desc','pais_Desc','Nombre','Desc','Descripcion']),
+    };
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, message: e?.message || 'Error obteniendo catálogos (General).' };
+  } finally { try { await pool?.close(); } catch {} }
+}
 
-      Defi1Cli: mapCatalog(d1, ['dc1_Cod'], ['dc1_Desc']),
-      Defi2Cli: mapCatalog(d2, ['dc2_Cod'], ['dc2_Desc']),
-      Transporte: mapCatalog(trn, ['trn_Cod'], ['trn_Desc']),
-      Proveed: mapCatalog(pro, ['pro_Cod'], ['pro_RazSoc']),
+/** ─── Solapa: Datos Impositivos ────────────────────────── */
+async function getCatalogosImpositivos() {
+  let pool;
+  try {
+    pool = await sql.connect(getAdminDbConfig());
+    const req = pool.request();
 
+    const [siva, tdoc, sgan, sib, ape] = await Promise.all([
+      req.query("SELECT siv_Cod, siv_Desc FROM SitIVA"),
+      req.query("SELECT tdc_Cod, tdc_Desc FROM TipoDocum"),
+      req.query("SELECT sig_Cod, sig_Desc FROM SituGan"),
+      req.query("SELECT sib_Cod, sib_Desc FROM SitIB"),
+      req.query("SELECT ape_Cod, ape_Desc FROM Apertura"),
+    ]);
+
+    const data = {
       SitIVA:    mapCatalog(siva, ['siv_Cod'], ['siv_Desc']),
       TipoDocum: mapCatalog(tdoc, ['tdc_Cod'], ['tdc_Desc']),
       SituGan:   mapCatalog(sgan, ['sig_Cod'], ['sig_Desc']),
       SitIB:     mapCatalog(sib,  ['sib_Cod'], ['sib_Desc']),
       Apertura:  mapCatalog(ape,  ['ape_Cod'], ['ape_Desc']),
-
-      // PRV / Paises: mapeo tolerante
-      PRV: mapCatalog(prv, ['prv_Codigo','prv_Cod','prv_Id','Codigo','Cod'], ['prv_Desc','prv_Nombre','Descripcion','Desc']),
-      Paises: mapCatalog(pai, ['pai_Cod','pais_Cod','Codigo','Cod','Id'], ['pai_Desc','pais_Desc','Nombre','Desc','Descripcion']),
     };
-
     return { success: true, data };
   } catch (e) {
-    return { success: false, message: e?.message || 'Error obteniendo catálogos.' };
-  } finally {
-    try { await pool?.close(); } catch {}
-  }
+    return { success: false, message: e?.message || 'Error obteniendo catálogos (Impositivos).' };
+  } finally { try { await pool?.close(); } catch {} }
 }
 
-/** =========================
- *  2) LISTADO (traerTodos)
- *  =========================
- *  Incluye códigos y descripciones necesarias para filtros.
+/** ─── Solapa: Otros Datos ──────────────────────────────── */
+async function getCatalogosOtros() {
+  let pool;
+  try {
+    pool = await sql.connect(getAdminDbConfig());
+    const req = pool.request();
+
+    const [d1, d2, trn, pro] = await Promise.all([
+      req.query("SELECT dc1_Cod, dc1_Desc FROM Defi1Cli"),
+      req.query("SELECT dc2_Cod, dc2_Desc FROM Defi2Cli"),
+      req.query("SELECT trn_Cod, trn_Desc FROM Transporte"),
+      req.query("SELECT pro_Cod, pro_RazSoc FROM Proveed"),
+    ]);
+
+    const data = {
+      Defi1Cli:   mapCatalog(d1, ['dc1_Cod'], ['dc1_Desc']),
+      Defi2Cli:   mapCatalog(d2, ['dc2_Cod'], ['dc2_Desc']),
+      Transporte: mapCatalog(trn, ['trn_Cod'], ['trn_Desc']),
+      Proveed:    mapCatalog(pro, ['pro_Cod'], ['pro_RazSoc']),
+    };
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, message: e?.message || 'Error obteniendo catálogos (Otros).' };
+  } finally { try { await pool?.close(); } catch {} }
+}
+
+/** ─── Agregador (compatibilidad con front existente) ───── */
+async function getCatalogos() {
+  const [g, i, o] = await Promise.all([
+    getCatalogosGeneral(),
+    getCatalogosImpositivos(),
+    getCatalogosOtros(),
+  ]);
+  const ok = [g, i, o].every(x => x && x.success);
+  if (!ok) {
+    const firstErr = [g, i, o].find(x => !x?.success);
+    return { success: false, message: firstErr?.message || 'Error obteniendo catálogos.' };
+  }
+  return { success: true, data: { ...(g.data || {}), ...(i.data || {}), ...(o.data || {}) } };
+}
+
+/* ============================================================
+ * 2) LISTADO (traerTodos) — sin cambios
+ * ============================================================
  */
 async function traerTodos() {
   let pool;
@@ -150,9 +182,10 @@ async function traerTodos() {
   } finally { try { await pool?.close(); } catch {} }
 }
 
-/** =========================
- *  3) Listas habilitadas (legacy)
- *  ========================= */
+/* ============================================================
+ * 3) Listas habilitadas (legacy) — sin cambios
+ * ============================================================
+ */
 async function traerCodigosLista() {
   let pool;
   try {
@@ -169,10 +202,10 @@ async function traerCodigosLista() {
   } finally { try { await pool?.close(); } catch {} }
 }
 
-/** ===============================================================
- *  4) Actualizar lista SOLO para clientes seleccionados (legacy)
- *  payload: { fromCod, toCod, cliCods: string[] }
- *  =============================================================== */
+/* ============================================================
+ * 4) Actualizar lista (legacy) — sin cambios
+ * ============================================================
+ */
 async function actualizarLista({ fromCod, toCod, cliCods = [] } = {}) {
   if (!toCod) return { success: false, message: 'Falta lista destino (toCod).' };
   if (!Array.isArray(cliCods) || cliCods.length === 0) {
@@ -204,72 +237,155 @@ async function actualizarLista({ fromCod, toCod, cliCods = [] } = {}) {
   } finally { try { await pool?.close(); } catch {} }
 }
 
-/** ===============================================================
- *  5) Actualizar CAMPOS VARIOS para clientes seleccionados
- *  payload:
- *    {
- *      cliCods: string[],
- *      sets: {
- *        condVta?, provincia?, vendedor?, tipoCli?, lista?, zona?,
- *        iva?, tdoc?, gan?, ib?, ape?,
- *        trn?, prov?, def1?, def2?
- *      },
- *      fromList?: string (opcional: restringe a lista actual)
- *    }
- *  =============================================================== */
+/* ============================================================
+ * 5) Actualizar CAMPOS VARIOS — sin cambios
+ * ============================================================
+ */
+// Helper: resolver ven_Cod desde código, "cod - desc" o descripción pura
+async function resolveVendedorCode(pool, raw) {
+  const val = String(raw ?? '').trim();
+  if (!val) return null;
+
+  // 1) si vino "600 - Pablo Tucci" o "600" -> probar por código
+  const maybeCode = val.replace(/\s*-.*/, '').trim();
+  if (maybeCode) {
+    const rsCode = await pool.request()
+      .input('c', sql.VarChar(50), maybeCode)
+      .query('SELECT ven_Cod FROM Vendedor WHERE ven_Cod = @c');
+    if (rsCode.recordset?.length === 1) {
+      return String(rsCode.recordset[0].ven_Cod).trim();
+    }
+  }
+
+  // 2) si no, buscar por descripción exacta
+  const rsDesc = await pool.request()
+    .input('d', sql.VarChar(200), val)
+    .query('SELECT ven_Cod FROM Vendedor WHERE ven_Desc = @d');
+
+  if (rsDesc.recordset?.length === 1) {
+    return String(rsDesc.recordset[0].ven_Cod).trim();
+  }
+  if (rsDesc.recordset?.length > 1) {
+    throw new Error(`Descripción de vendedor ambigua: '${val}'.`);
+  }
+  throw new Error(`No se encontró vendedor por código/descr.: '${val}'.`);
+}
+
 async function actualizarCampos({ cliCods = [], sets = {}, fromList = null } = {}) {
   if (!Array.isArray(cliCods) || cliCods.length === 0) {
     return { success: false, message: 'No hay clientes seleccionados (cliCods).' };
   }
 
-  // Mapeo front -> columna
-  const mapCols = {
-    condVta:  'clicvt_Cod',
-    provincia:'cliprv_Codigo',   // si usás clipai_Cod, podés duplicar set acá
-    vendedor: 'cliven_Cod',
-    tipoCli:  'clitic_Cod',
-    lista:    'clidlp_Cod',
-    zona:     'clizon_Cod',
+  // Copia que vamos a normalizar (especialmente vendedor)
+  const setsNorm = { ...sets };
 
-    iva:   'clisiv_Cod',
-    tdoc:  'clitdc_Cod',
-    gan:   'clisig_Cod',
-    ib:    'clisib_Cod',
-    ape:   'cliape_Cod',
-
-    trn:   'clitrn_Cod',
-    prov:  'clipro_Cod',
-    def1:  'clidc1_Cod',
-    def2:  'clidc2_Cod',
-  };
-
-  const setPairs = [];
-  const inputs = [];
-
-  Object.entries(mapCols).forEach(([key, col]) => {
-    const val = sets?.[key];
-    if (val != null && val !== '') {
-      const pname = `v_${key}`;
-      setPairs.push(`c.${col} = @${pname}`);
-      inputs.push({ pname, type: sql.VarChar(50), value: String(val) });
-    }
-  });
-
-  if (setPairs.length === 0) {
-    return { success: false, message: 'No hay campos para actualizar en "sets".' };
-  }
-
-  const idsCsv = cliCods.map(String).join(',');
-
+  // Abro conexión una vez porque voy a resolver vendedor y luego actualizar
   let pool;
   try {
     pool = await sql.connect(getAdminDbConfig());
+
+    // ─────────────────────────────
+    // Caso especial: VENDEDOR
+    // El front ahora puede mandar: "600 - Pablo Tucci", "Pablo Tucci" o "600".
+    // Siempre resolvemos a ven_Cod antes del UPDATE para no romper la FK.
+    // ─────────────────────────────
+    if (setsNorm.vendedor != null && setsNorm.vendedor !== '') {
+      const raw = String(setsNorm.vendedor).trim();
+      const possibleCode = raw.includes(' - ') ? raw.split(' - ')[0].trim() : raw;
+      const possibleDesc = raw.includes(' - ')
+        ? raw.split(' - ').slice(1).join(' - ').trim()
+        : raw;
+
+      let rs;
+
+      // 1) Intento por código exacto (ej: "600")
+      rs = await pool.request()
+        .input('code', sql.VarChar(50), possibleCode)
+        .query(`
+          SELECT ven_Cod
+          FROM Vendedor
+          WHERE LTRIM(RTRIM(ven_Cod)) = LTRIM(RTRIM(@code))
+        `);
+
+      // 2) Si no hubo match por código, intento por descripción exacta (ej: "Pablo Tucci")
+      if (!rs.recordset?.length) {
+        rs = await pool.request()
+          .input('desc', sql.NVarChar(200), possibleDesc)
+          .query(`
+            SELECT ven_Cod
+            FROM Vendedor
+            WHERE LTRIM(RTRIM(ven_Desc)) = LTRIM(RTRIM(@desc))
+          `);
+      }
+
+      if (!rs.recordset?.length) {
+        return {
+          success: false,
+          message: `El vendedor '${raw}' no existe (ni por código ni por descripción).`
+        };
+      }
+      if (rs.recordset.length > 1) {
+        const sample = rs.recordset.slice(0, 5).map(r => r.ven_Cod).join(', ');
+        return {
+          success: false,
+          message: `La descripción de vendedor '${possibleDesc}' es ambigua. Códigos posibles: ${sample}.`
+        };
+      }
+
+      // Código final a usar en Clientes.cliven_Cod
+      const vendorCode = String(rs.recordset[0].ven_Cod).trim();
+      setsNorm.vendedor = vendorCode;
+    }
+
+    // ─────────────────────────────
+    // Mapeo general de campos → columnas
+    // ─────────────────────────────
+    const mapCols = {
+      // General
+      condVta:  'clicvt_Cod',
+      provincia:'cliprv_Codigo',
+      vendedor: 'cliven_Cod',   // ahora ya normalizado a ven_Cod existente
+      tipoCli:  'clitic_Cod',
+      lista:    'clidlp_Cod',
+      zona:     'clizon_Cod',
+      // Impositivos
+      iva:   'clisiv_Cod',
+      tdoc:  'clitdc_Cod',
+      gan:   'clisig_Cod',
+      ib:    'clisib_Cod',
+      ape:   'cliape_Cod',
+      // Otros
+      trn:   'clitrn_Cod',
+      prov:  'clipro_Cod',
+      def1:  'clidc1_Cod',
+      def2:  'clidc2_Cod',
+    };
+
+    // Build dinámico del SET
+    const setPairs = [];
+    const inputs = [];
+
+    Object.entries(mapCols).forEach(([key, col]) => {
+      const val = setsNorm?.[key];
+      if (val != null && val !== '') {
+        const pname = `v_${key}`;
+        setPairs.push(`c.${col} = @${pname}`);
+        inputs.push({ pname, type: sql.VarChar(50), value: String(val) });
+      }
+    });
+
+    if (setPairs.length === 0) {
+      return { success: false, message: 'No hay campos para actualizar en "sets".' };
+    }
+
+    const idsCsv = cliCods.map(String).join(',');
+
     const req = pool.request();
-    // params dinámicos
     inputs.forEach(p => req.input(p.pname, p.type, p.value));
     req.input('ids', sql.NVarChar(sql.MAX), idsCsv);
     req.input('fromList', sql.VarChar(20), fromList ? String(fromList) : null);
 
+    // UPDATE final (mismo patrón de antes)
     const q = `
       UPDATE c SET
         ${setPairs.join(',\n        ')}
@@ -279,8 +395,9 @@ async function actualizarCampos({ cliCods = [], sets = {}, fromList = null } = {
 
       SELECT @@ROWCOUNT AS updatedRows;
     `;
-    const rs = await req.query(q);
-    return { success: true, updatedRows: rs.recordset?.[0]?.updatedRows ?? 0 };
+    const upd = await req.query(q);
+
+    return { success: true, updatedRows: upd.recordset?.[0]?.updatedRows ?? 0 };
   } catch (e) {
     return { success: false, message: e?.message || 'Error actualizando campos de clientes.' };
   } finally {
@@ -288,8 +405,17 @@ async function actualizarCampos({ cliCods = [], sets = {}, fromList = null } = {
   }
 }
 
+
+
+
 module.exports = {
+  // nuevos por solapa
+  getCatalogosGeneral,
+  getCatalogosImpositivos,
+  getCatalogosOtros,
+  // agregador (compatibilidad)
   getCatalogos,
+  // existentes
   traerTodos,
   traerCodigosLista,
   actualizarLista,

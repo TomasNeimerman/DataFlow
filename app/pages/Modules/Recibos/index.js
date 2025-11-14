@@ -2,26 +2,26 @@ import { useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 
 export default function RecibosPage() {
-  // Catálogos por IPC
   const [tipos, setTipos] = useState([]);
-  const [monedas, setMonedas] = useState([]);
-  const [clientes, setClientes] = useState([]); // [{ CodCliente, TipoCliente }]
+  const [monMtca, setMonMtca] = useState([]);
+  const [clientes, setClientes] = useState([]);
 
-  // Form
-  const [cliente, setCliente] = useState("");   // guarda CodCliente
+  const [cliente, setCliente] = useState("");
   const [fecha, setFecha] = useState("");
   const [tipoComprobante, setTipoComprobante] = useState("");
-  const [moneda, setMoneda] = useState("");
+  const [monSel, setMonSel] = useState({ mon_codigo: "", mtca_codigo: "" });
   const [tc, setTc] = useState("");
-
-  // Cheques (se llenará vía importación IPC)
   const [cheques, setCheques] = useState([]);
 
-  // UI
-  const [loading, setLoading] = useState(true);
+  const [loadingCore, setLoadingCore] = useState(true);
+  const [loadingClientes, setLoadingClientes] = useState(true);
   const [err, setErr] = useState("");
 
-  // Fecha por defecto (hoy)
+  // --- NUEVO: Facturas ---
+  const [facturasEnabled, setFacturasEnabled] = useState(false);
+  const [facturas, setFacturas] = useState([]);           // array de facturas
+  const [facturaSel, setFacturaSel] = useState("");       // valor seleccionado
+
   useEffect(() => {
     const now = new Date();
     const yyyy = now.getFullYear();
@@ -30,62 +30,87 @@ export default function RecibosPage() {
     setFecha(`${yyyy}-${mm}-${dd}`);
   }, []);
 
-  // Cargar catálogos (solo funciones)
+  // Tipos + Moneda/TC
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        setLoading(true);
+        setLoadingCore(true);
         setErr("");
-
         if (!window?.api) { setErr("Bridge IPC no disponible."); return; }
 
-        const [rTipos, rMon, rCliTodos] = await Promise.all([
+        const [rTipos, rMon] = await Promise.all([
           window.api.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito: "V" }),
           window.api.recibos?.getMonedas?.(),
-          window.api.clientesForm?.traerTodos?.(),
         ]);
         if (!mounted) return;
-        
+
         if (rTipos?.ok && Array.isArray(rTipos.data)) setTipos(rTipos.data);
-        if (rMon?.ok && Array.isArray(rMon.data)) setMonedas(rMon.data);
-        
-        // ---- Clientes: usar SOLO CodCliente y TipoCliente ----
-        // rCliTodos puede venir como {ok, data} o directamente como array:
-        if (!rCliTodos?.ok) {
-          setClientes(rCliTodos?.data || []);
-        };
-        
+
+        const monRows = rMon?.ok ? rMon.data : Array.isArray(rMon) ? rMon : [];
+        setMonMtca(
+          Array.isArray(monRows)
+            ? monRows
+                .filter(x => x?.mon_codigo != null && x?.mtca_codigo != null)
+                .map(x => ({
+                  mon_codigo: String(x.mon_codigo),
+                  mon_descrip: String(x.mon_descrip ?? ""),
+                  mtca_codigo: String(x.mtca_codigo),
+                  mtca_descrip: String(x.mtca_descrip ?? ""),
+                }))
+            : []
+        );
       } catch (e) {
         console.error(e);
         setErr("Error cargando catálogos.");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) setLoadingCore(false);
       }
     })();
     return () => { mounted = false; };
   }, []);
 
-  // Traer TC (siempre por función; sin suposiciones)
+  // Clientes
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        if (!fecha || !moneda) { setTc(""); return; }
-        if (!window?.api?.recibos?.getTipoCambio) { setTc(""); return; }
+        setLoadingClientes(true);
+        let res;
+        if (window.api?.traerTodos) res = await window.api.traerTodos();
+        else if (window.api?.clientesForm?.traerTodos) res = await window.api.clientesForm.traerTodos();
+        const data = Array.isArray(res) ? res : (res?.data ?? []);
+        if (mounted) setClientes(data);
+      } catch (e) {
+        console.error("[Clientes] carga fallida:", e);
+        if (mounted) setClientes([]);
+      } finally {
+        if (mounted) setLoadingClientes(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
-        const r = await window.api.recibos.getTipoCambio({ mon_codigo: moneda, fecha });
+  // Tipo de cambio
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { mon_codigo, mtca_codigo } = monSel || {};
+        if (!fecha || !mon_codigo || !mtca_codigo) { setTc(""); return; }
+        if (!window?.api?.recibos?.getTipoCambio) { setTc(""); return; }
+        const r = await window.api.recibos.getTipoCambio({ mon_codigo, mtca_codigo, fecha });
         if (!mounted) return;
-        setTc(r?.ok && r.cotizacion ? String(r.cotizacion) : "");
+        setTc(r?.ok && r.cotizacion != null ? String(r.cotizacion) : "");
       } catch (e) {
         console.error(e);
         if (mounted) setTc("");
       }
     })();
     return () => { mounted = false; };
-  }, [moneda, fecha]);
+  }, [monSel, fecha]);
 
-  // Total (solo numérico; moneda la decide el select)
+  // --- Helpers ---
   const total = useMemo(() => {
     if (!Array.isArray(cheques) || cheques.length === 0) return 0;
     return cheques.reduce((acc, c) => acc + (Number(c.importe) || 0), 0);
@@ -94,24 +119,81 @@ export default function RecibosPage() {
   const totalFmt = useMemo(() => {
     if (!cheques.length) return "—";
     try {
+      const curr = monSel?.mon_codigo || undefined;
       return new Intl.NumberFormat("es-AR", {
-        style: moneda ? "currency" : undefined,
-        currency: moneda || undefined,
+        style: curr ? "currency" : undefined,
+        currency: curr,
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }).format(total);
     } catch {
       return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(total);
     }
-  }, [total, moneda, cheques.length]);
+  }, [total, monSel, cheques.length]);
 
-  const Badge = ({ tipo }) => {
-    const cls = tipo === "ECH" ? `${styles.badge} ${styles.badgeECH}` : `${styles.badge} ${styles.badgeCHE}`;
-    const label = tipo === "ECH" ? "ECH — ECheq" : "CHE — Cheque";
-    return <span className={cls}>{label}</span>;
+  const comboValue = (m) => `${m.mon_codigo}||${m.mtca_codigo}`;
+  const parseComboValue = (v) => {
+    const [mon_codigo = "", mtca_codigo = ""] = String(v || "").split("||");
+    return { mon_codigo, mtca_codigo };
   };
 
-  const readyToConfirm = !loading && cliente && fecha && tipoComprobante && moneda;
+  const readyToConfirm =
+    !(loadingCore || loadingClientes) &&
+    cliente && fecha && tipoComprobante &&
+    monSel?.mon_codigo && monSel?.mtca_codigo && tc;
+
+  const showFacturasUI = cliente && monSel?.mon_codigo && monSel?.mtca_codigo;
+
+  // Descripciones actuales de moneda/tipo (para la opción contextual del select)
+  const selDesc = useMemo(() => {
+    const found = monMtca.find(
+      m => m.mon_codigo === monSel.mon_codigo && m.mtca_codigo === monSel.mtca_codigo
+    );
+    return {
+      mon: found?.mon_descrip || "",
+      tca: found?.mtca_descrip || "",
+    };
+  }, [monMtca, monSel]);
+
+  // Toggle habilitar/deshabilitar y fetch de facturas
+  async function toggleFacturas() {
+    if (!facturasEnabled) {
+      // habilitando
+      try {
+        setFacturasEnabled(true);
+        setFacturaSel("");
+        setFacturas([]);
+        const payload = {
+          codcli: cliente.trim(),
+          mon_codigo: monSel.mon_codigo,
+          mtca_codigo: monSel.mtca_codigo,
+        };
+        console.log(payload)
+        const r = await window.api.recibos?.getFacturas?.(payload);
+        const rows = r?.ok ? (r.data || []) : Array.isArray(r) ? r : [];
+        setFacturas(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        console.error("[Facturas] error:", e);
+        setFacturas([]);
+      }
+    } else {
+      // deshabilitando
+      setFacturasEnabled(false);
+      setFacturaSel("");
+      setFacturas([]);
+    }
+  }
+
+  // Formato helpers para la lista
+  const fmtDate = (d) => {
+    try { return new Date(d).toLocaleDateString("es-AR"); } catch { return d ?? ""; }
+  };
+  const fmtMoney = (n) => {
+    try {
+      return new Intl.NumberFormat("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n) || 0);
+    } catch { return n ?? ""; }
+  };
+
   return (
     <div className={styles.pageBg}>
       <div className={styles.container}>
@@ -119,11 +201,11 @@ export default function RecibosPage() {
           <h1 className={styles.title}>Recibos</h1>
         </div>
 
-        {err && <div style={{ color: "#b00020", fontWeight: 700, marginBottom: 8 }}>{err}</div>}
+        {err && <div className={styles.errorBox}>{err}</div>}
 
         <div className={styles.tab}>
           <div className={styles.formGrid}>
-            {/* Cliente (value = CodCliente, label = CodCliente - TipoCliente) */}
+            {/* Cliente (Codigo - RazonSocial) */}
             <div className={styles.field}>
               <label htmlFor="cliente">Cliente</label>
               <select
@@ -131,12 +213,12 @@ export default function RecibosPage() {
                 className={styles.selector}
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
-                disabled={loading || !clientes.length}
+                disabled={loadingClientes || !clientes.length}
               >
-                <option value="">Seleccione un cliente</option>
+                <option value="">{loadingClientes ? "Cargando..." : "Seleccione un cliente"}</option>
                 {clientes.map((c) => (
                   <option key={c.CodCliente} value={c.CodCliente}>
-                    {c.CodCliente} - {c.TipoCliente}
+                    {c.CodCliente} - {c.RazonSocial}
                   </option>
                 ))}
               </select>
@@ -151,7 +233,7 @@ export default function RecibosPage() {
                 className={styles.input}
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
-                disabled={loading}
+                disabled={loadingCore}
               />
             </div>
 
@@ -163,7 +245,7 @@ export default function RecibosPage() {
                 className={styles.selector}
                 value={tipoComprobante}
                 onChange={(e) => setTipoComprobante(e.target.value)}
-                disabled={loading || !tipos.length}
+                disabled={loadingCore || !tipos.length}
               >
                 <option value="">Seleccione tipo</option>
                 {tipos.map((t) => (
@@ -174,20 +256,20 @@ export default function RecibosPage() {
               </select>
             </div>
 
-            {/* Moneda */}
+            {/* Moneda / Tipo de Cambio (combo) */}
             <div className={styles.field}>
-              <label htmlFor="moneda">Moneda</label>
+              <label htmlFor="moneda">Moneda / Tipo de Cambio</label>
               <select
                 id="moneda"
                 className={styles.selector}
-                value={moneda}
-                onChange={(e) => setMoneda(e.target.value)}
-                disabled={loading || !monedas.length}
+                value={monSel.mon_codigo && monSel.mtca_codigo ? `${monSel.mon_codigo}||${monSel.mtca_codigo}` : ""}
+                onChange={(e) => setMonSel(parseComboValue(e.target.value))}
+                disabled={loadingCore || !monMtca.length}
               >
-                <option value="">Seleccione moneda</option>
-                {monedas.map((m) => (
-                  <option key={m.mon_codigo} value={m.mon_codigo}>
-                    {m.mon_codigo} - {m.mon_descrip}
+                <option value="">Seleccione moneda / tipo</option>
+                {monMtca.map((m, i) => (
+                  <option key={`${m.mon_codigo}-${m.mtca_codigo}-${i}`} value={comboValue(m)}>
+                    {m.mon_descrip} — {m.mtca_descrip}
                   </option>
                 ))}
               </select>
@@ -204,8 +286,8 @@ export default function RecibosPage() {
                 className={styles.input}
                 value={tc}
                 onChange={(e) => setTc(e.target.value)}
-                disabled={loading || !moneda}
-                placeholder={moneda ? "Cargando..." : "Seleccione moneda y fecha"}
+                disabled={loadingCore || !monSel.mon_codigo || !monSel.mtca_codigo || !fecha}
+                placeholder={!monSel.mon_codigo || !monSel.mtca_codigo || !fecha ? "Seleccione moneda/tipo y fecha" : "Cargando..."}
                 readOnly
               />
             </div>
@@ -215,13 +297,45 @@ export default function RecibosPage() {
               <label htmlFor="archivo" className={styles.labelStrong}>
                 Importar Cheques de terceros / ECheqs
               </label>
-              <input id="archivo" type="file" className={styles.input} disabled={loading} />
+              <input id="archivo" type="file" className={styles.input} disabled={loadingCore} />
             </div>
           </div>
 
-          <button className={styles.btn} disabled={!readyToConfirm}>
-            Confirmar Recibos
-          </button>
+          {/* =================== BLOQUE FACTURAS =================== */}
+          {showFacturasUI && (
+            <div style={{ width: "100%", marginTop: 8 }}>
+              <label className={styles.labelStrong} htmlFor="facturasSelect">Facturas</label>
+              <select
+                id="facturasSelect"
+                className={styles.selector}
+                style={{ width: "100%" }}
+                value={facturaSel}
+                onChange={(e) => setFacturaSel(e.target.value)}
+                disabled={!facturasEnabled}
+              >
+                {/* Opción contextual con los datos elegidos */}
+                <option value="">
+                  {cliente} — {selDesc.mon} — {selDesc.tca}
+                </option>
+
+                {/* Opciones reales (si está habilitado y hubo fetch) */}
+                {facturasEnabled && facturas.map((f, idx) => (
+                  <option key={idx} value={f.Comprobante}>
+                    {f["Fecha Emision"]} — Emisión {fmtDate(f["Fecha Emision"])} — Saldo {fmtMoney(f.Saldo)}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                className={styles.btn}
+                style={{ marginTop: 8 }}
+                onClick={toggleFacturas}
+              >
+                {facturasEnabled ? "Deshabilitar Factura" : "Habilitar Factura"}
+              </button>
+            </div>
+          )}
+          {/* ======================================================= */}
 
           <h2 className={styles.subtitle}>Previsualización de cheques</h2>
           <div className={styles.tableResponsive}>
@@ -238,7 +352,7 @@ export default function RecibosPage() {
               <tbody>
                 {cheques.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: 12, color: "#666" }}>
+                    <td colSpan={5} className={styles.muted}>
                       No hay cheques importados todavía.
                     </td>
                   </tr>
@@ -254,7 +368,13 @@ export default function RecibosPage() {
                           maximumFractionDigits: 2,
                         }).format(Number(c.importe) || 0)}
                       </td>
-                      <td>{c.tipo ? <Badge tipo={c.tipo} /> : ""}</td>
+                      <td>
+                        {c.tipo
+                          ? <span className={`${styles.badge} ${c.tipo === "ECH" ? styles.badgeECH : styles.badgeCHE}`}>
+                              {c.tipo === "ECH" ? "ECH — ECheq" : "CHE — Cheque"}
+                            </span>
+                          : ""}
+                      </td>
                     </tr>
                   ))
                 )}

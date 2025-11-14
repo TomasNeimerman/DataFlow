@@ -26,6 +26,7 @@
   flex-direction: column;
 }
 
+/* Header */
 .titleContainer{
   display: flex;
   justify-content: space-between;
@@ -33,15 +34,15 @@
   gap: 20px;
   margin-bottom: 20px;
 }
-
 .title{
   color: #000;
   margin: 0;
 }
 
-/* Contenido */
+/* Contenido: ARRIBA */
 .tab{
-  margin-top: auto;
+  /* 👇 ANTES: margin-top: auto;  — eso empujaba todo hacia abajo */
+  margin-top: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -63,7 +64,6 @@
   flex-direction: column;
   gap: 6px;
 }
-
 .field label{ font-weight: 600; }
 .labelStrong{ font-weight: 700; }
 
@@ -141,10 +141,7 @@
   border-radius: 8px;
   font-weight: 600;
 }
-.muted{
-  color: #666;
-  padding: 12px;
-}
+.muted{ color: #666; padding: 12px; }
 
 /* Tabla de cheques */
 .tableResponsive{
@@ -154,13 +151,11 @@
   border-radius: 8px;
   background: #fff;
 }
-
 .table{
   width: 100%;
   border-collapse: collapse;
   min-width: 680px;
 }
-
 .table thead th{
   text-align: left;
   background: #fafafa;
@@ -168,16 +163,11 @@
   padding: 10px 12px;
   font-weight: 700;
 }
-
 .table tbody td{
   border-bottom: 1px solid #f3f3f3;
   padding: 10px 12px;
 }
-
-.table tbody tr:hover td{
-  background: #fff7f5;
-}
-
+.table tbody tr:hover td{ background: #fff7f5; }
 .table tfoot td{
   padding: 12px;
   border-top: 2px solid #eee;
@@ -186,7 +176,6 @@
 }
 
 .thRight, .tdRight{ text-align: right; }
-
 .tdTotalLabel{ color: #222; }
 .tdTotalAmount{ color: #111; }
 
@@ -200,11 +189,5 @@
   border: 1px solid #ddd;
   background: #fff;
 }
-.badgeECH{
-  border-color: #c0e3ff;
-  background: #eef7ff;
-}
-.badgeCHE{
-  border-color: #ffd7b8;
-  background: #fff3ea;
-}
+.badgeECH{ border-color: #c0e3ff; background: #eef7ff; }
+.badgeCHE{ border-color: #ffd7b8; background: #fff3ea; }

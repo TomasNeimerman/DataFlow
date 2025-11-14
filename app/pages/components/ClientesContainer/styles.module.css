@@ -1,4 +1,3 @@
-/* ───────────────── Contenedor ───────────────── */
 .container{
   background:#fff;
   width: clamp(320px, 92vw, 1080px);
@@ -130,7 +129,7 @@ max-height: 200px; overflow: auto;
 .filterItem{ grid-column: span 3; display:flex; flex-direction:column; gap:6px; }
 .filterFull{ grid-column: 1 / -1; }
 .label{ font-weight:600; }
-.select{ padding:6px 8px; border:1px solid #ddd; border-radius:6px; }
+.select{ padding:6px 8px; border:1px solid #ddd; border-radius:6px;     max-width: inherit;}
 
 .summaryLine{ margin-top:10px; color:#444; }
 .errorText{ color:#c00; }
@@ -227,12 +226,67 @@ max-height: 200px; overflow: auto;
 }
 .filterItem{ display:flex; flex-direction:column; gap:6px; }
 .label{ font-weight:600; }
-.select{ padding:8px; border:1px solid #ddd; border-radius:6px; }
-
-/* Filas de campos con input en header */
 .fieldRow{
-  display:grid; grid-template-columns: 1fr 2fr; gap:10px; align-items:center;
-  background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px 12px;
+  /* antes: grid-template-columns: 1fr 2fr;  */
+  background-color: #f0f0f0;
+  border-radius: 5px;
+  padding: 8px 6px;
+  grid-template-columns: minmax(140px,1fr) minmax(0,2fr);
+}
+
+/* === Select base unificado (usa uno solo, eliminá duplicados previos) === */
+.select{
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+
+  min-height: 38px;
+  height: 38px;
+  padding: 8px 36px 8px 10px;
+
+  border: 1px solid #dcdcdc;
+  border-radius: 8px;
+  background: #fff;
+
+  font: inherit;
+  color: #111;
+  outline: none;
+
+  /* flechita consistente y centrada */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px 16px;
+}
+
+.select:focus{
+  border-color: #e82c02;
+  box-shadow: 0 0 0 3px rgba(232,44,2,.15);
+}
+
+/* Evita que navegadores bajen opacidad del control deshabilitado */
+.select:disabled{
+  background-color: #b0b0b0;
+  border-color: #b0b0b0;
+  color: #8a8a8a;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Quita el “expand” viejo de IE/Edge clásico */
+.select::-ms-expand{ display:none; }
+
+/* Dentro de la sección de actualización, forzamos background blanco (sobre fondo gris de la fila) */
+.updateGrid .select{ background:#fff; }
+
+/* Por si algún estilo previo quedaba peleando */
+.fieldRow .select{
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .fieldLabel{ display:flex; align-items:center; gap:8px; font-weight:700; }
 

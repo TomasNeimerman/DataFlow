@@ -1179,31 +1179,47 @@ ipcMain.handle('paramgen:get-ordenamientos', async () => {
   return { success: true, data: { pge_NomDefi1Cli: '', pge_NomDefi2Cli: '' } };
 });
 
+// Usa un único import para todo el back de Clientes
+const Clientes = require('./modulesService/Local/Clientes'); // ajustá la ruta si difiere
+
+// ⚠️ Registrá los handlers una sola vez (sin duplicados)
 ipcMain.handle('clientesForm:traerTodos', async () => {
-  try { return await ClientesService.traerTodos(); }
-  catch (e) { return { success:false, message: e?.message || 'Error' }; }
+  return await Clientes.traerTodos();
 });
 
-// Listas habilitadas
-ipcMain.handle('clientesForm:traerCodigosLista', async () => {
-  try { return await ClientesService.traerCodigosLista(); }
-  catch (e) { return { success:false, message: e?.message || 'Error' }; }
-});
-
-// Actualizar SOLO seleccionados
-ipcMain.handle('clientesForm:actualizarLista', async (_e, payload) => {
-  try { return await ClientesService.actualizarLista(payload); }
-  catch (e) { return { success:false, message: e?.message || 'Error' }; }
-});
 ipcMain.handle('clientesForm:getCatalogos', async () => {
-  return await ClientesService.getCatalogos();
+  return await Clientes.getCatalogos();
+});
+
+// Catálogos por solapa
+ipcMain.handle('clientesForm:getCatalogosGeneral', async () => {
+  return await Clientes.getCatalogosGeneral();
+});
+
+ipcMain.handle('clientesForm:getCatalogosImpositivos', async () => {
+  return await Clientes.getCatalogosImpositivos();
+});
+
+ipcMain.handle('clientesForm:getCatalogosOtros', async () => {
+  return await Clientes.getCatalogosOtros();
+});
+
+// Listas habilitadas (legacy)
+ipcMain.handle('clientesForm:traerCodigosLista', async () => {
+  return await Clientes.traerCodigosLista();
+});
+
+// Updates
+ipcMain.handle('clientesForm:actualizarLista', async (_e, payload) => {
+  return await Clientes.actualizarLista(payload);
 });
 
 ipcMain.handle('clientesForm:actualizarCampos', async (_e, payload) => {
-  return await ClientesService.actualizarCampos(payload);
+  return await Clientes.actualizarCampos(payload);
 });
 
 // Recibos
+// Tipos de Comprobante (RC/V)
 ipcMain.handle('recibos:getTiposComprobante', async (event, payload = {}) => {
   try {
     const data = await Recibos.getTiposComprobante({
@@ -1217,10 +1233,11 @@ ipcMain.handle('recibos:getTiposComprobante', async (event, payload = {}) => {
   }
 });
 
-// Monedas habilitadas
+// Monedas + Tipos de Cambio por moneda
 ipcMain.handle('recibos:getMonedas', async () => {
   try {
     const data = await Recibos.getMonedas();
+    // data: [{ mon_codigo, mon_descrip, mtca_codigo, mtca_descrip }, ...]
     return { ok: true, data };
   } catch (e) {
     console.error('[IPC recibos:getMonedas]', e);
@@ -1228,15 +1245,24 @@ ipcMain.handle('recibos:getMonedas', async () => {
   }
 });
 
-// Tipo de cambio a la fecha
-// payload: { mon_codigo: 'USD', fecha: 'YYYY-MM-DD' }
+// Tipo de Cambio (moneda + tipo cambio + fecha)
 ipcMain.handle('recibos:getTipoCambio', async (event, payload = {}) => {
   try {
-    const { mon_codigo, fecha } = payload;
-    const cotizacion = await Recibos.getTipoCambio({ mon_codigo, fecha });
+    const { mon_codigo, mtca_codigo, fecha } = payload;
+    const cotizacion = await Recibos.getTipoCambio({ mon_codigo, mtca_codigo, fecha });
     return { ok: true, cotizacion };
   } catch (e) {
     console.error('[IPC recibos:getTipoCambio]', e);
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('recibos:getFacturas', async (event, payload = {}) => {
+  try {
+    const { codcli, mon_codigo, mtca_codigo } = payload;
+    const data = await Recibos.getFacturas({ codcli, mon_codigo, mtca_codigo });
+    return { ok: true, data };
+  } catch (e) {
+    console.error('[IPC recibos:getFacturas]', e);
     return { ok: false, error: e.message };
   }
 });
