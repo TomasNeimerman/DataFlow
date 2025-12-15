@@ -23,112 +23,130 @@ function tryAlert(title, message) {
 
 // ---------- script EXACTO (tal cual lo pasaste) ----------
 const SQL_UPDATE_PRECIOS_EXACTO = `
-BEGIN TRANSACTION;
+USE SBDATEST;
+SET NOCOUNT ON;
 
-IF OBJECT_ID('tempdb..#ResultadosActualizacion') IS NOT NULL
-    DROP TABLE #ResultadosActualizacion;
+------------------------------------------------------------
+-- 1. Crear tabla temporal con precios calculados desde la vista
+------------------------------------------------------------
+IF OBJECT_ID('tempdb..#Calc') IS NOT NULL DROP TABLE #Calc;
 
-CREATE TABLE #ResultadosActualizacion (
-    lprdlp_Cod VARCHAR(3) NOT NULL,
-    lprart_CodGen VARCHAR(20) NOT NULL,
-    lprart_CodEle1 VARCHAR(6) NOT NULL,
-    lprart_CodEle2 VARCHAR(6) NOT NULL,
-    lprart_CodEle3 VARCHAR(6) NOT NULL,
-    CostoOriginal MONEY NULL,
-    MonedaOriginal VARCHAR(3) NULL,
-    TipoCambioOriginal VARCHAR(3) NULL,
-    FechaCotizacionAplicada DATETIME NULL,
-    CotizacionAplicada FLOAT NULL,
-    CostoBasePesos MONEY NULL,
-    MargenMay REAL NOT NULL DEFAULT 0,
-    MargenMin REAL NOT NULL DEFAULT 0,
-    PrecioFinal MONEY NULL,
-    PrecioOriginal MONEY NULL,
-    InfoCotizacion VARCHAR(100) NULL
-);
+SELECT
+    v.lprdlp_Cod,
+    v.lprart_CodGen,
+    v.lprart_CodEle1,
+    v.lprart_CodEle2,
+    v.lprart_CodEle3,
+    v.CostoBasePesos,
+    v.ar2_MargenMay,
+    v.ar2_MargenMin,
+    v.PrecioFinal,
+    v.PrecioOriginal AS PrecioOriginalLBC,
+    v.FechaCotizacionAplicada,
+    v.CotizacionAplicada
+INTO #Calc
+FROM dbo.CONE_Mark_Up_Articulos_Analisis v
+WHERE v.lprdlp_Cod = 'LBC'
+  AND v.CostoBasePesos > 0;   -- solo artículos con costo válido
 
-DECLARE @FechaAyer DATE = DATEADD(day, -1, CAST(GETDATE() AS DATE));
-DECLARE @FechaHoy DATE = CAST(GETDATE() AS DATE);
 
-INSERT INTO dbo.ListaPrec (lprdlp_Cod, lprart_CodGen, lprart_CodEle1, lprart_CodEle2, lprart_CodEle3, lpr_Precio, lpr_Imprime, lpr_FecMod, lprusu_Codigo)
+------------------------------------------------------------
+-- 2. Insertar artículos faltantes en la lista LBC
+------------------------------------------------------------
+INSERT INTO dbo.ListaPrec (
+    lprdlp_Cod,
+    lprart_CodGen,
+    lprart_CodEle1,
+    lprart_CodEle2,
+    lprart_CodEle3,
+    lpr_Precio
+)
 SELECT
     'LBC',
-    a.art_CodGen,
-    a.art_CodEle1,
-    a.art_CodEle2,
-    a.art_CodEle3,
-    0,
-    1,
-    GETDATE(),
-    'ADMIN'
-FROM dbo.Articulos a
-LEFT JOIN dbo.DtsArticulos da
-    ON a.art_CodGen = da.art_CodGen
-    AND a.art_CodEle1 = da.art_CodEle1
-    AND a.art_CodEle2 = da.art_CodEle2
-    AND a.art_CodEle3 = da.art_CodEle3
-WHERE a.art_CircVta = 1
-  AND a.art_InclEnLisP = 1
-  AND da.Dart_ActualizarListaPrec = 'S'
-  AND a.art_codGen+a.art_codele1++a.art_codele2+a.art_codele3 NOT IN 
-  (SELECT lp.lprart_codGen+lp.lprart_codele1+lp.lprart_codele2+lp.lprart_CodEle3 FROM dbo.ListaPrec lp
-                  WHERE lp.lprdlp_Cod = 'LBC'
-                    AND lp.lprart_CodGen = a.art_CodGen
-                    AND lp.lprart_CodEle1 = a.art_CodEle1
-                    AND lp.lprart_CodEle2 = a.art_CodEle2
-                    AND lp.lprart_CodEle3 = a.art_CodEle3)
+    c.lprart_CodGen,
+    c.lprart_CodEle1,
+    c.lprart_CodEle2,
+    c.lprart_CodEle3,
+    c.PrecioFinal
+FROM #Calc c
+LEFT JOIN ListaPrec lp
+  ON lp.lprdlp_Cod = 'LBC'
+ AND lp.lprart_CodGen = c.lprart_CodGen
+ AND lp.lprart_CodEle1 = c.lprart_CodEle1
+ AND lp.lprart_CodEle2 = c.lprart_CodEle2
+ AND lp.lprart_CodEle3 = c.lprart_CodEle3
+WHERE lp.lprart_CodGen IS NULL;
 
-INSERT INTO #ResultadosActualizacion 
-(lprdlp_Cod, 
-lprart_CodGen, 
-lprart_CodEle1, 
-lprart_CodEle2, 
-lprart_CodEle3, 
-CostoOriginal,
-MonedaOriginal, 
-TipoCambioOriginal, 
-FechaCotizacionAplicada, 
-CotizacionAplicada, 
-CostoBasePesos, 
-PrecioFinal, 
-PrecioOriginal, 
-InfoCotizacion)
-SELECT [lprdlp_Cod],[lprart_CodGen],[lprart_CodEle1],[lprart_CodEle2],[lprart_CodEle3],
-       [CostoOriginal],[MonedaOriginal],[TipoCambioOriginal],[FechaCotizacionAplicada],
-       [CotizacionAplicada],[CostoBasePesos],[PrecioFinal],[PrecioOriginal],[InfoCotizacion]
-  FROM [SBDATEST].[dbo].[CONE_Mark_Up_Articulos_Analisis]
 
+------------------------------------------------------------
+-- 3. Actualizar precios existentes en la lista LBC
+------------------------------------------------------------
 UPDATE lp
-SET lp.lpr_Precio = CASE WHEN ra.PrecioFinal IS NULL THEN 0 ELSE ra.PrecioFinal END ,
-    lp.lpr_FecMod = GETDATE(),
-    lp.lprusu_Codigo = 'ADMIN'
-FROM dbo.ListaPrec lp
-INNER JOIN #ResultadosActualizacion ra
-    ON lp.lprdlp_Cod = ra.lprdlp_Cod
-    AND lp.lprart_CodGen = ra.lprart_CodGen
-    AND lp.lprart_CodEle1 = ra.lprart_CodEle1
-    AND lp.lprart_CodEle2 = ra.lprart_CodEle2
-    AND lp.lprart_CodEle3 = ra.lprart_CodEle3
-WHERE lp.lprdlp_Cod = 'LBC';
+SET lp.lpr_Precio = ROUND(c.PrecioFinal,2)
+FROM ListaPrec lp
+JOIN #Calc c
+  ON lp.lprdlp_Cod = 'LBC'
+ AND lp.lprart_CodGen = c.lprart_CodGen
+ AND lp.lprart_CodEle1 = c.lprart_CodEle1
+ AND lp.lprart_CodEle2 = c.lprart_CodEle2
+ AND lp.lprart_CodEle3 = c.lprart_CodEle3;
 
+
+/* ------------------------------------------------------------
+   4) Registrar auditoría en dbo.CONE_RegistroActualizacionPrecios
+   (bloque corregido: columnas reales y cálculo seguro)
+   ------------------------------------------------------------ */
+
+/* ------------------------------------------------------------
+   INSERT corregido: llenar MarkupAplicadoPorcentaje con el markup real
+   ------------------------------------------------------------ */
 INSERT INTO dbo.CONE_RegistroActualizacionPrecios (
-    ListaPrecioCod,ArticuloCodGen,ArticuloCodEle1,ArticuloCodEle2,ArticuloCodEle3,
-    PrecioOriginal,PrecioNuevo,CostoOriginal,MonedaOriginal,TipoCambioOriginal,
-    FechaCotizacionAplicada,CotizacionAplicada,CostoBasePesos,MarkupAplicadoPorcentaje,
-    InfoCotizacion,UsuarioEjecucion
+    FechaEjecucion,
+    ListaPrecioCod,
+    ArticuloCodGen,
+    ArticuloCodEle1,
+    ArticuloCodEle2,
+    ArticuloCodEle3,
+    PrecioOriginal,
+    PrecioNuevo,
+    CostoOriginal,               -- si no lo tenés en #Calc dejar NULL
+    MonedaOriginal,              -- si no lo tenés en #Calc dejar NULL
+    TipoCambioOriginal,          -- si no lo tenés en #Calc dejar NULL
+    FechaCotizacionAplicada,
+    CotizacionAplicada,
+    CostoBasePesos,
+    MarkupAplicadoPorcentaje,
+    InfoCotizacion,
+    UsuarioEjecucion
 )
-SELECT ra.lprdlp_Cod,ra.lprart_CodGen,ra.lprart_CodEle1,ra.lprart_CodEle2,ra.lprart_CodEle3,
-       ra.PrecioOriginal,ra.PrecioFinal,ra.CostoOriginal,ra.MonedaOriginal,ra.TipoCambioOriginal,
-       ra.FechaCotizacionAplicada,ra.CotizacionAplicada,ra.CostoBasePesos,
-       ISNULL(CASE WHEN ra.CostoBasePesos <> 0
-              THEN (ra.PrecioFinal / ra.CostoBasePesos - 1) * 100 ELSE 0 END, 0),
-       ra.InfoCotizacion,SUSER_SNAME()
-FROM #ResultadosActualizacion ra
-WHERE ra.lprdlp_Cod = 'LBC';
+SELECT
+    GETDATE() AS FechaEjecucion,
+    'LBC' AS ListaPrecioCod,
+    c.lprart_CodGen,
+    c.lprart_CodEle1,
+    c.lprart_CodEle2,
+    c.lprart_CodEle3,
+    c.PrecioOriginalLBC AS PrecioOriginal,
+    c.PrecioFinal AS PrecioNuevo,
+    NULL AS CostoOriginal,       -- mapear si querés traerlo a #Calc
+    NULL AS MonedaOriginal,      -- mapear si querés traerlo a #Calc
+    NULL AS TipoCambioOriginal,  -- mapear si querés traerlo a #Calc
+    c.FechaCotizacionAplicada,
+    c.CotizacionAplicada,
+    c.CostoBasePesos,
+    -- Markup efectivo aplicado sobre CostoBasePesos (safe divisor)
+    CASE 
+      WHEN c.CostoBasePesos IS NULL OR c.CostoBasePesos = 0 THEN 0
+      ELSE ( (CASE WHEN c.PrecioFinal IS NULL THEN 0 ELSE c.PrecioFinal END) / c.CostoBasePesos - 1.0 ) * 100.0
+    END AS MarkupAplicadoPorcentaje,
+    -- Guardamos los márgenes usados dentro de InfoCotizacion para trazabilidad
+    'May:' + ISNULL(CONVERT(VARCHAR(20), ROUND(c.ar2_MargenMay,2)), '0') 
+      + ' Min:' + ISNULL(CONVERT(VARCHAR(20), ROUND(c.ar2_MargenMin,2)), '0')
+      + ' / Cot:' + ISNULL(CONVERT(VARCHAR(20), c.CotizacionAplicada), '1') 
+      AS InfoCotizacion,
+    ISNULL(SUSER_SNAME(),'ADMIN') AS UsuarioEjecucion
+FROM #Calc c;
 
-DROP TABLE #ResultadosActualizacion;
-
-COMMIT TRANSACTION;
 `;
 
 // ---------- obtener listados simples ----------

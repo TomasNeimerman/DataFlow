@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import styles from "./styles.module.css";
 import DownloadIcon from "../DownloadButton";
 
+
 const Modal = ({ open, title, onClose, children }) => {
   if (!open) return null;
   return (

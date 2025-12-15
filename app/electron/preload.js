@@ -139,6 +139,11 @@ getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
     getMonedas:          ()       => ipcRenderer.invoke('recibos:getMonedas'),
     getTipoCambio:       (params) => ipcRenderer.invoke('recibos:getTipoCambio', params),
     getFacturas: (p) => ipcRenderer.invoke('recibos:getFacturas', p),
+    getMonedasTcEditables: () => ipcRenderer.invoke('recibos:get-monedas-tc-editables'),
+    getSaldoCliente: (payload) => ipcRenderer.invoke('recibos:get-saldo-cliente', payload),
+    getTransferencias: () => ipcRenderer.invoke("recibos:getTransferencias"),
+    getCajas:        () => ipcRenderer.invoke("recibos:getCajas"),
+    getAplicaciones: () => ipcRenderer.invoke("recibos:getAplicaciones"),
   },
   // ======================
   // Store

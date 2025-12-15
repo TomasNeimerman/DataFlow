@@ -4,6 +4,7 @@
 // - Conecta vía ODBC a la BD "manager"
 // - Verifica que exista la BD "manager" (DB_ID)
 // - Persiste server/port en userDbConfig
+// - En DEV (isDev = true) no toca nada: sólo devuelve { success:true, skipped:true }
 
 const { execFileSync } = require('child_process');
 const fs   = require('fs');
@@ -264,9 +265,16 @@ async function odbcConnectAndSave({ isDev = false } = {}) {
 
   try {
     tick(debug, 'entered', t0);
+
+    // ⬅️ En DEV no tocamos ODBC ni registro
     if (isDev) {
       debug.step = 'dev-skip';
-      return { success: true, skipped: true, debug };
+      logDiag('ODBC: dev-skip (no se tocan DSN, ni drivers, ni manager).');
+      return {
+        success: true,
+        skipped: true,
+        debug,
+      };
     }
 
     // 1) Config / credenciales

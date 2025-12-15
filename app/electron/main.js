@@ -19,15 +19,7 @@ const { getDbConfig, onDbConfigChange } = require('./dbConfig');         // (kee
 const { initializeConfig,getAdminDbConfig, writeAdminDbConfig } = require('./userDbConfig.js');
 let odbc;
 
-function getOdbc() {
-  if (!odbc) {
-    try { odbc = require('odbc'); }
-    catch (e) {
-      throw new Error('ODBC module not available (rebuild/arch/driver).');
-    }
-  }
-  return odbc;
-}
+
 
 // Helpers
 const { tryAutoResume } = require('./helpers/autoResume');     // (keep: external flow)
@@ -767,22 +759,34 @@ ipcMain.handle('odbc:get-server', async (_evt, { usuario, contraseña }) => {
   try {
     return await getServerForLogin({ user: usuario, password: contraseña });
   } catch (e) {
-    return { ok: false, code: 'GET_SERVER_ERR', message: e?.message || String(e) };
+    return {
+      ok: false,
+      code: 'GET_SERVER_ERR',
+      message: e?.message || String(e),
+    };
   }
 });
 
+// 2) Guardar server para que luego lo use el helper ODBC
 ipcMain.handle('admin:save-server', async (_evt, { server }) => {
   try {
-    return await saveServerForOdbc(server);
+    return await saveServerForOdbc(server); // { ok: true }
   } catch (e) {
-    return { ok: false, code: 'SAVE_SERVER_ERR', message: e?.message || String(e) };
+    return {
+      ok: false,
+      code: 'SAVE_SERVER_ERR',
+      message: e?.message || String(e),
+    };
   }
 });
 
+// 3) Conexión ODBC (sólo hace cosas "reales" en producción)
 ipcMain.handle('odbc:connect-and-save', async () => {
   try {
     const isDev =
-      !!process.env.ELECTRON_START_URL || process.env.NODE_ENV === 'development';
+      !!process.env.ELECTRON_START_URL ||
+      process.env.NODE_ENV === 'development';
+
     return await odbcConnectAndSave({ isDev });
   } catch (error) {
     return {
@@ -1266,6 +1270,16 @@ ipcMain.handle('recibos:getFacturas', async (event, payload = {}) => {
     return { ok: false, error: e.message };
   }
 });
+ipcMain.handle('recibos:get-monedas-tc-editables', async () => {
+  return await Recibos.getMonedasTcEditables();
+});
+ipcMain.handle('recibos:get-saldo-cliente', async (_evt, payload) => {
+  return await Recibos.getSaldoCliente(payload);
+});
+
+ipcMain.handle("recibos:getTransferencias", () => Recibos.getTransferencias());
+ipcMain.handle("recibos:getCajas",          () => Recibos.getCajas());
+ipcMain.handle("recibos:getAplicaciones",   () => Recibos.getAplicaciones());
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS
  * ──────────────────────────────────────────────────────────────────────────── */
