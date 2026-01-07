@@ -12,11 +12,3 @@
     overflow-x: auto;
     background: linear-gradient(to bottom right, #ffffff, #ffcccc, #ff6666);
   }
-  .img {
-    width: 160px;
-    height: 80px;
-    position: absolute;
-    top: 0;
-    left: 0;
-    margin: 10px;
-  }

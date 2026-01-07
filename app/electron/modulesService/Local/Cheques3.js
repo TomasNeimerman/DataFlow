@@ -1,25 +1,12 @@
+// electron/modulesService/Cheques3.js
 const sql = require('mssql');
 const { getAdminDbConfig } = require('../../userDbConfig.js');
 
-// Helper: leer ch3_FecMod justo después del UPDATE
-async function getModifiedAt(pool, id) {
-  const r = new sql.Request(pool);
-  r.input('idCheque', sql.Int, id);
-  const q = await r.query(`
-    SELECT
-      ch3_FecMod,
-      CONVERT(varchar(19), ch3_FecMod, 120) AS ch3_FecMod_str
-    FROM Cheques3
-    WHERE ch3_ID = @idCheque
-  `);
-  const row = q.recordset?.[0] || {};
-  return {
-    modifiedAtIso: row.ch3_FecMod || null,   // Date del driver
-    modifiedAt: row.ch3_FecMod_str || null   // "YYYY-MM-DD HH:MM:SS"
-  };
-}
-
-// --- LISTADO ---
+/**
+ * LISTADO: ahora trae TODOS los cheques de terceros
+ * con las columnas y alias pedidos:
+ *  Empresa, ID_Cheque, Cliente, Número, FechaVencimiento, Importe, Estado, Situacion
+ */
 async function obtenerCheque3Rechazado() {
   let pool;
   try {
@@ -28,20 +15,18 @@ async function obtenerCheque3Rechazado() {
 
     const result = await pool.request().query(`
       SELECT
-        C.ch3emp_Codigo,
-        C.ch3_ID,
-        C.ch3_NroCheq,
-        C.ch3_Edo,
-        C.ch3_FVto,
-        C.ch3_Importe,
-        C.ch3suc_Cod,
-        C.ch3sit_Cod,
-        CONVERT(varchar(19),
-          (SELECT MAX(S.c3s_FCmbio) FROM Cheq3Sit S WHERE S.c3sch3_ID = C.ch3_ID),
-          120
-        ) AS ch3_FCmbio
+        C.ch3emp_Codigo                      AS Empresa,
+        C.ch3_ID                             AS idCheque,
+        CL.cli_RazSoc                        AS Cliente,
+        C.ch3_NroCheq                        AS NroCheque,
+        C.ch3_Fvto                           AS FechaVencimiento,
+        C.ch3_Importe                        AS Importe,
+        C.ch3_Edo                            AS Estado,
+        C.ch3_FecMod                         AS FecMod,
+        S.sit_Desc                           AS Situacion
       FROM Cheques3 AS C
-      WHERE C.ch3_Edo = 'R'
+      LEFT JOIN Situacion AS S ON S.sit_Cod = C.ch3sit_Cod
+      LEFT JOIN Clientes  AS CL ON CL.cli_cod = C.ch3cli_Cod
     `);
 
     return { success: true, cheque: result.recordset || [] };
@@ -53,38 +38,49 @@ async function obtenerCheque3Rechazado() {
   }
 }
 
-// --- UPDATE SITUACION (legacy) — ahora devuelve fecha de modificación
+/**
+ * UPDATE (legacy): solo situación (se mantiene por compat)
+ * Devuelve updatedAt (yyyy-MM-dd HH:mm:ss) desde ch3_FecMod.
+ */
 async function actualizarCheque3(IDCheque, sit) {
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
 
-    const parsedIDCheque = parseInt(IDCheque, 10);
-    if (isNaN(parsedIDCheque)) throw new Error(`ID inválido: '${IDCheque}'`);
+    const id = parseInt(IDCheque, 10);
+    if (isNaN(id)) throw new Error(`ID inválido: '${IDCheque}'`);
 
-    const request = new sql.Request(pool);
-    request.input('idCheque', sql.Int, parsedIDCheque);
-    request.input('sit', sql.NVarChar, String(sit ?? ''));
+    const r = new sql.Request(pool);
+    r.input('idCheque', sql.Int, id);
+    r.input('sit', sql.NVarChar, String(sit ?? ''));
 
-    await request.query(`
+    await r.query(`
       UPDATE Cheques3
       SET ch3sit_Cod = @sit,
           ch3_FecMod = GETDATE()
       WHERE ch3_ID = @idCheque
     `);
 
-    const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, parsedIDCheque);
-    return { success: true, message: 'Situación actualizada.', modifiedAt, modifiedAtIso };
+    const r2 = await pool.request()
+      .input('idCheque', sql.Int, id)
+      .query(`SELECT CONVERT(varchar(19), ch3_FecMod, 120) AS updatedAt FROM Cheques3 WHERE ch3_ID = @idCheque`);
+
+    const updatedAt = r2.recordset?.[0]?.updatedAt || null;
+    return { success: true, message: 'Situación actualizada.', updatedAt };
   } catch (err) {
     console.error('❌ Error en actualizarCheque3 (Cheques3):', err);
     return { success: false, message: err.message };
   } finally {
-    if (pool) { await pool.close(); }
+    if (pool) await pool.close();
   }
 }
 
-// --- UPDATE por CAMPO — devuelve fecha de modificación en todos los casos
+/**
+ * UPDATE por campo: 'situacion' | 'fvto' | 'numero'
+ * - fvto espera 'YYYY-MM-DD'
+ * - retorna siempre updatedAt (yyyy-MM-dd HH:mm:ss)
+ */
 async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
   let pool;
   try {
@@ -94,14 +90,15 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
     const id = parseInt(IDCheque, 10);
     if (isNaN(id)) throw new Error(`ID inválido: '${IDCheque}'`);
 
-    if (!['situacion','fvto','numero'].includes(String(campo))) {
+    const mode = String(campo || '').toLowerCase();
+    if (!['situacion', 'fvto', 'numero'].includes(mode)) {
       throw new Error(`Campo no soportado: '${campo}'`);
     }
 
     const r = new sql.Request(pool);
     r.input('idCheque', sql.Int, id);
 
-    if (campo === 'situacion') {
+    if (mode === 'situacion') {
       r.input('val', sql.NVarChar, String(valor ?? ''));
       await r.query(`
         UPDATE Cheques3
@@ -109,12 +106,7 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
-      return { success: true, message: 'Situación actualizada.', modifiedAt, modifiedAtIso };
-    }
-
-    if (campo === 'fvto') {
-      // Valor esperado 'YYYY-MM-DD'
+    } else if (mode === 'fvto') {
       r.input('val', sql.NVarChar, String(valor ?? ''));
       await r.query(`
         UPDATE Cheques3
@@ -122,11 +114,7 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
-      return { success: true, message: 'Fecha de vencimiento actualizada.', modifiedAt, modifiedAtIso };
-    }
-
-    if (campo === 'numero') {
+    } else if (mode === 'numero') {
       r.input('val', sql.NVarChar, String(valor ?? ''));
       await r.query(`
         UPDATE Cheques3
@@ -134,11 +122,20 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
             ch3_FecMod = GETDATE()
         WHERE ch3_ID = @idCheque
       `);
-      const { modifiedAtIso, modifiedAt } = await getModifiedAt(pool, id);
-      return { success: true, message: 'Número de cheque actualizado.', modifiedAt, modifiedAtIso };
     }
 
-    return { success: false, message: 'Sin cambios.' };
+    const r2 = await pool.request()
+      .input('idCheque', sql.Int, id)
+      .query(`SELECT CONVERT(varchar(19), ch3_FecMod, 120) AS updatedAt FROM Cheques3 WHERE ch3_ID = @idCheque`);
+
+    const updatedAt = r2.recordset?.[0]?.updatedAt || null;
+
+    const msg =
+      mode === 'situacion' ? 'Situación actualizada.' :
+      mode === 'fvto'      ? 'Fecha de vencimiento actualizada.' :
+                             'Número de cheque actualizado.';
+
+    return { success: true, message: msg, updatedAt };
   } catch (err) {
     console.error('❌ actualizarCheque3Campo:', err);
     return { success: false, message: err.message };
@@ -147,12 +144,16 @@ async function actualizarCheque3Campo({ IDCheque, campo, valor }) {
   }
 }
 
+/**
+ * Catálogo de Situación (código + descripción)
+ */
 async function getSituacion(){
   let pool;
   try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
-    const result = await pool.request().query(`SELECT sit_Cod, sit_Desc FROM Situacion`);
+    const result = await pool.request()
+      .query(`SELECT sit_Cod, sit_Desc FROM Situacion`);
     return { success: true, data: result.recordset || [] };
   } catch (err) {
     console.error('❌ getSituacion:', err);
@@ -162,22 +163,46 @@ async function getSituacion(){
   }
 }
 
+/**
+ * Registro histórico (Cheq3Sit):
+ * - Acepta sitAnt como código o descripción. Si viene descripción,
+ *   se intenta resolver al código antes de insertar.
+ */
 async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
   let pool;
   const messages = [];
-  try{
-    if (suc === undefined) { suc = ' '; }
-    messages.push(`Verificando si la situacion del cheque ya existe: ${sitAnt} con ${sit}`);
+  try {
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
 
-    if (sitAnt != sit ) {
-      const dbConfig = getAdminDbConfig();
-      pool = await sql.connect(dbConfig);
+    if (suc === undefined) { suc = ' '; }
+
+    let sitAntCode = String(sitAnt ?? '').trim();
+    const sitNewCode = String(sit ?? '').trim();
+
+    // Resolver sitAnt si vino descripción (o algo que no es código)
+    if (sitAntCode) {
+      // ¿Existe como código?
+      const chk1 = await pool.request()
+        .input('x', sql.NVarChar, sitAntCode)
+        .query(`SELECT TOP 1 sit_Cod FROM Situacion WHERE sit_Cod = @x`);
+      if (!chk1.recordset?.length) {
+        const chk2 = await pool.request()
+          .input('x', sql.NVarChar, sitAntCode)
+          .query(`SELECT TOP 1 sit_Cod FROM Situacion WHERE sit_Desc = @x`);
+        sitAntCode = chk2.recordset?.[0]?.sit_Cod || '';
+      }
+    }
+
+    messages.push(`Verificando si la situacion del cheque ya existe: ${sitAntCode} -> ${sitNewCode}`);
+
+    if (sitAntCode !== sitNewCode) {
       await pool.request()
         .input('emp', sql.NVarChar, emp)
         .input('suc', sql.NVarChar, suc)
         .input('IDCheque', sql.Int, IDCheque)
-        .input('sit', sql.NVarChar, sit)
-        .input('sitAnt', sql.NVarChar, sitAnt)
+        .input('sit', sql.NVarChar, sitNewCode)
+        .input('sitAnt', sql.NVarChar, sitAntCode)
         .input('pCG', sql.NVarChar, 'C')
         .query(`
           INSERT INTO Cheq3Sit
@@ -193,7 +218,7 @@ async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
       messages.push(msg);
       return { success: true, message: messages.join('\n') };
     }
-  } catch(err){
+  } catch (err) {
     console.error('❌ registroCheq3Sit:', err);
     messages.push(`❌ No se pudo generar el registro: ${err.message}`);
     return { success: false, message: messages.join('\n') };
@@ -202,9 +227,12 @@ async function registroCheq3Sit(emp, suc, IDCheque, sit, sitAnt){
   }
 }
 
+/**
+ * Última fecha de cambio por Cheq3Sit (para resaltar en UI)
+ */
 async function getUpdatedbyRegistro(){
   let pool;
-  try{
+  try {
     const dbConfig = getAdminDbConfig();
     pool = await sql.connect(dbConfig);
     const result = await pool.request().query(`
@@ -212,11 +240,11 @@ async function getUpdatedbyRegistro(){
       FROM Cheq3Sit
       GROUP BY c3sch3_ID;
     `);
-    return {success: true, data: result.recordset || []};
-  }catch(err){
+    return { success: true, data: result.recordset || [] };
+  } catch (err) {
     console.error('❌ getUpdatedbyRegister:', err);
     return { success: false, message: err.message };
-  }finally {
+  } finally {
     if (pool) await pool.close();
   }
 }

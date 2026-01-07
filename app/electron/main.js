@@ -4,7 +4,7 @@
 /* ────────────────────────────────────────────────────────────────────────────
  *  IMPORTS
  * ──────────────────────────────────────────────────────────────────────────── */
-const { app, BrowserWindow, ipcMain, Menu, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, session, dialog } = require('electron');
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
@@ -1089,6 +1089,80 @@ ipcMain.handle('chequesp:preview', async () => {
   try { return await obtenerChequesPreviewService(); }
   catch (e) { return { success: false, message: e?.message || 'No se pudo obtener la vista previa.' }; }
 });
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  if (Array.isArray(payload.rows)) return payload.rows;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.cheques)) return payload.cheques;
+  if (Array.isArray(payload.cheque)) return payload.cheque;
+  return [];
+}
+
+// Helper para leer claves variantes
+const pick = (o, keys, def = '') => {
+  for (const k of keys) {
+    const v = o?.[k];
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return def;
+};
+ipcMain.handle('cheques3:export-xlsx', async (_e, payload) => {
+  try {
+    const rowsIn = normalizeRows(payload);
+    const pad = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const fname = `cheques_de_terceros_${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.xlsx`;
+    if (!rowsIn.length) {
+      return { success: false, message: 'No hay datos para exportar.' };
+    }
+
+    // Armamos columnas pedidas: sin “nueva situación”, sin fecha vto si no querés,
+    // y con Cliente + Nro de Cheque.
+    const rowsOut = rowsIn.map(r => ({
+      Empresa      : pick(r, ['emp','Empresa','ch3emp_Codigo']),
+      idCheque     : pick(r, ['idCheque','ch3_ID','IDCheque','id']),
+      Cliente      : pick(r, ['cliente','Cliente','cli_RazSoc','cli_RazSoc.','cl_RazSoc']),
+      NroCheque    : String(pick(r, ['nroDefinitivo','NroCheque','ch3_NroCheq','numero','Numero'])),
+      Importe      : pick(r, ['importeRaw','Importe','ch3_Importe','importe']),
+      Estado       : pick(r, ['estado','Estado','ch3_Edo']),
+      FechaVenc: pick(r, ['fVto','FecVto','FechaVencimiento','ch3_FVenc','fvto']),
+      FechaModif: pick(r, ['fMod', 'FecMod', 'FechaModificacion', 'ch3_FCmbio'])
+
+    }));
+
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Exportar cheques',
+      defaultPath: fname,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    });
+    if (canceled || !filePath) return { success: false, message: 'Exportación cancelada.' };
+
+    if (XLSX) {
+      const ws = XLSX.utils.json_to_sheet(rowsOut);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Cheques');
+      XLSX.writeFile(wb, filePath);
+    } else {
+      // Fallback CSV (por si aún no instalaron `xlsx`)
+      const headers = Object.keys(rowsOut[0]);
+      const csv = [
+        headers.join(','), 
+        ...rowsOut.map(o => headers.map(h => {
+          const cell = o[h] ?? '';
+          const s = String(cell).replace(/"/g, '""');
+          return /[",\n]/.test(s) ? `"${s}"` : s;
+        }).join(','))
+      ].join('\n');
+      fs.writeFileSync(filePath.replace(/\.xlsx$/i, '.csv'), csv, 'utf8');
+    }
+
+    return { success: true, path: filePath, count: rowsOut.length };
+  } catch (err) {
+    return { success: false, message: err?.message || 'Error exportando XLSX' };
+  }
+});
+
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: ARTÍCULOS

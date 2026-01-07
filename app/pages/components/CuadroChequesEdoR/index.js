@@ -1,365 +1,372 @@
 // app/components/CuadroChequesEdoR.js
 "use client";
-import React, { useState, useEffect } from "react";
-import styles from './styles.module.css';
+import React, { useEffect, useMemo, useState } from "react";
+import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
 
-const ChequesRechazados = ({
-  chequesRechazados = [],
-  situaciones = [],
-  onChequeToggle = () => {},
-  selectedChequesData = {},
-  onImportarClick = () => {},
-  isImportButtonDisabled = false,
-  importStatus = null,
-  importMessage = '',
-  runLogs = [],
-  runErrors = [],
-  onSelectAllChange = () => {},
-  refreshKey = 0,
+export default function ChequesRechazados(props) {
+  const {
+    chequesRechazados = [],
+    situaciones = [],
+    onChequeToggle = () => {},
+    selectedChequesData = {},
+    onImportarClick = () => {},
+    isImportButtonDisabled = false,
+    importStatus = null,
+    importMessage = "",
+    runLogs = [],
+    runErrors = [],
+    onSelectAllChange = () => {},
+    refreshKey = 0,
 
-  // 👇 nuevos props
-  fieldMode = 'situacion',
-  onFieldModeChange = () => {},
-  onRowValueChange = () => {},
-  onGlobalValueChange = () => {},
-}) => {
-  const [sortColumn, setSortColumn] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc');
-  const [sortedCheques, setSortedCheques] = useState([]);
-  const [updatedFechasById, setUpdatedFechasById] = useState({});
-  const [localErrors, setLocalErrors] = useState([]);
+    fieldMode = "situacion",
+    onFieldModeChange = () => {},
+    onRowValueChange = () => {},
+    onGlobalValueChange = () => {},
+  } = props;
 
+  // ====== FILTROS ======
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [fId, setFId] = useState("");
+  const [fNro, setFNro] = useState("");
+  const [fDesde, setFDesde] = useState("");
+  const [fHasta, setFHasta] = useState("");
+  const [fMin, setFMin] = useState("");
+  const [fMax, setFMax] = useState("");
+
+  const limpiar = () => {
+    setFId(""); setFNro(""); setFDesde(""); setFHasta(""); setFMin(""); setFMax("");
+  };
+
+  const parseD = (s) => (s ? new Date(s) : null);
+  const toNum = (v) =>
+    typeof v === "number"
+      ? v
+      : Number(String(v ?? "").replace(/\./g, "").replace(/[^0-9,-]+/g, "").replace(",", ".")) || 0;
+
+  const filtered = useMemo(() => {
+    const d1 = parseD(fDesde);
+    const d2 = parseD(fHasta);
+    const n1 = fMin !== "" ? toNum(fMin) : null;
+    const n2 = fMax !== "" ? toNum(fMax) : null;
+
+    return (chequesRechazados || []).filter((c) => {
+      const idok = !fId || String(c.idCheque || "").includes(fId.trim());
+      const nrook = !fNro || String(c.nroDefinitivo || "").includes(fNro.trim());
+
+      let fechaOk = true;
+      if (d1 || d2) {
+        const t = c.fvtoRaw instanceof Date && !isNaN(c.fvtoRaw) ? c.fvtoRaw.getTime() : NaN;
+        const t1 = d1 ? d1.getTime() : -Infinity;
+        const t2 = d2 ? d2.getTime() : +Infinity;
+        fechaOk = !isNaN(t) && t >= t1 && t <= t2;
+      }
+
+      let impOk = true;
+      const val = toNum(c.importeRaw ?? c.importe);
+      if (n1 !== null && val < n1) impOk = false;
+      if (n2 !== null && val > n2) impOk = false;
+
+      return idok && nrook && fechaOk && impOk;
+    });
+  }, [chequesRechazados, fId, fNro, fDesde, fHasta, fMin, fMax]);
+
+  // ====== ORDEN ======
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    if (!sortCol) return arr;
+
+    arr.sort((a, b) => {
+      let A = a?.[sortCol];
+      let B = b?.[sortCol];
+
+      if (sortCol === "fvto") {
+        A = a?.fvtoRaw instanceof Date ? a.fvtoRaw.getTime() : 0;
+        B = b?.fvtoRaw instanceof Date ? b.fvtoRaw.getTime() : 0;
+      } else if (sortCol === "importe") {
+        A = toNum(a?.importeRaw ?? a?.importe);
+        B = toNum(b?.importeRaw ?? b?.importe);
+      } else if (sortCol === "idCheque" || sortCol === "nroDefinitivo") {
+        A = parseInt(A, 10) || 0;
+        B = parseInt(B, 10) || 0;
+      }else if (sortCol === "fMod") {
+        A = a?.fModRaw instanceof Date ? a.fModRaw.getTime() : 0;
+        B = b?.fModRaw instanceof Date ? b.fModRaw.getTime() : 0;
+      }
+
+      if (A < B) return sortDir === "asc" ? -1 : 1;
+      if (A > B) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return arr;
+  }, [filtered, sortCol, sortDir]);
+
+  const sortArrow = (name) => (
+    <span style={{ marginLeft: 6 }}>
+      <b style={{ opacity: sortCol === name && sortDir === "asc" ? 1 : 0.35 }}>▲</b>
+      <b style={{ opacity: sortCol === name && sortDir === "desc" ? 1 : 0.35, marginLeft: 2 }}>▼</b>
+    </span>
+  );
+
+  // ====== SELECCIÓN ======
+  const selectedIds = Object.keys(selectedChequesData || {}).filter(
+    (id) => selectedChequesData?.[id]?.isSelected
+  );
+  const allSelected =
+    sorted.length > 0 && selectedIds.length === sorted.length;
+
+  const toggleAll = (checked) => onSelectAllChange?.(!!checked);
+
+  // ====== EXPORT XLSX ======
   const getSitDesc = (code) => {
-    if (code === undefined || code === null || code === '') return '';
+    if (code === undefined || code === null || code === "") return "";
     const sit = Array.isArray(situaciones)
-      ? situaciones.find(s => String(s.sit_Cod) === String(code))
+      ? situaciones.find((s) => String(s.sit_Cod) === String(code))
       : null;
     return sit ? sit.sit_Desc : String(code);
   };
 
-  const normalize = (v) => String(v ?? '').trim();
-
-  useEffect(() => {
-    const fetchUpdatedDates = async () => {
-      try {
-        if (typeof window !== 'undefined' && window.api?.getUpdatedFecha) {
-          const data = await window.api.getUpdatedFecha();
-          setUpdatedFejasByIdSafe(data?.data || {});
-        }
-      } catch {
-        setUpdatedFejasByIdSafe({});
-      }
-    };
-    // Safe setter for SSR build
-    const setUpdatedFejasByIdSafe = (v) => setUpdatedFechasById(v);
-    fetchUpdatedDates();
-  }, [refreshKey]);
-
-  useEffect(() => {
-    if (!Array.isArray(chequesRechazados) || chequesRechazados.length === 0) {
-      setSortedCheques([]);
-      return;
+  const handleExport = async () => {
+  try {
+    const payload = (chequesRechazados || []).map(r => ({
+      emp: r.emp,
+      idCheque: r.idCheque,
+      cliente: r.cliente ?? '',           // viene del back; si no, dejá vacío
+      nroDefinitivo: r.nroDefinitivo,
+      importeRaw: r.importeRaw,
+      estado: r.estado,
+      fvto: r.fvto,
+      fMod: r.fMod
+    }));
+    const res = await window.api?.exportChequesXLSX?.(payload);
+    if (!res?.success) {
+      alert(res?.message || 'No se pudo exportar');
+    } else {
+      alert(`Exportado OK (${res.count} filas).`);
     }
-    const arr = [...chequesRechazados];
+  } catch (e) {
+    alert(e?.message || 'Error inesperado al exportar');
+  }
+};
 
-    if (sortColumn) {
-      arr.sort((a, b) => {
-        let valA = a?.[sortColumn];
-        let valB = b?.[sortColumn];
-
-        if (sortColumn === 'fvto') {
-          valA = a?.fvtoRaw instanceof Date && !isNaN(a.fvtoRaw) ? a.fvtoRaw.getTime() : 0;
-          valB = b?.fvtoRaw instanceof Date && !isNaN(b.fvtoRaw) ? b.fvtoRaw.getTime() : 0;
-        } else if (sortColumn === 'importe') {
-          valA = parseFloat(String(valA ?? '').replace(/[^0-9,-]+/g, "").replace(",", "."));
-          valB = parseFloat(String(valB ?? '').replace(/[^0-9,-]+/g, "").replace(",", "."));
-          if (isNaN(valA)) valA = 0;
-          if (isNaN(valB)) valB = 0;
-        } else if (sortColumn === 'idCheque' || sortColumn === 'nroDefinitivo') {
-          valA = parseInt(valA, 10) || 0;
-          valB = parseInt(valB, 10) || 0;
-        }
-
-        if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-        if (valA > valB) return sortDirection === 'asc' ?  1 : -1;
-        return 0;
-      });
-    }
-    setSortedCheques(arr);
-  }, [chequesRechazados, sortColumn, sortDirection]);
-
-  const handleSort = (columnName) => {
-    if (sortColumn === columnName) setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    else { setSortColumn(columnName); setSortDirection('asc'); }
-  };
-
-  const renderSortArrow = (columnName) => (
-    <span style={{ marginLeft: '5px' }}>
-      <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'asc' ? 'bold' : 'normal' }}>▲</span>
-      <span style={{ fontWeight: sortColumn === columnName && sortDirection === 'desc' ? 'bold' : 'normal' }}>▼</span>
-    </span>
-  );
-
-  const selectedIds = Object.keys(selectedChequesData || {}).filter(id => selectedChequesData?.[id]?.isSelected);
-  const selectedCount = selectedIds.length;
-  const allSelected = Array.isArray(chequesRechazados) && chequesRechazados.length > 0 && selectedCount === chequesRechazados.length;
-
-  const handleHeaderSelectAll = (checked) => {
-    onSelectAllChange?.(!!checked);
-  };
-
-  // 🔒 Validación de duplicados de NÚMERO (considera el estado final post-actualización)
-  const validateDuplicateNumbers = () => {
-    const errors = [];
-    if (fieldMode !== 'numero') return errors;
-    if (!Array.isArray(chequesRechazados) || chequesRechazados.length === 0) return errors;
-
-    // Mapa: id -> número actual normalizado
-    const currentNumById = new Map(
-      chequesRechazados.map(ch => [String(ch.idCheque), normalize(ch.nroDefinitivo)])
-    );
-
-    // Mapa: id seleccionado -> número objetivo (solo si hay newValue no vacío)
-    const targetNumById = new Map();
-    selectedIds.forEach(id => {
-      const t = normalize(selectedChequesData?.[id]?.newValue);
-      if (t) targetNumById.set(String(id), t);
-    });
-
-    // Estado final por ID (si está seleccionado y tiene newValue => usa ese, si no queda igual)
-    const finalNumById = new Map();
-    chequesRechazados.forEach(ch => {
-      const id = String(ch.idCheque);
-      const target = targetNumById.get(id);
-      const finalNum = target ? target : currentNumById.get(id);
-      finalNumById.set(id, normalize(finalNum));
-    });
-
-    // Agrupar IDs por número final
-    const idsByFinalNum = new Map();
-    for (const [id, num] of finalNumById.entries()) {
-      if (!num) continue;
-      const arr = idsByFinalNum.get(num) || [];
-      arr.push(id);
-      idsByFinalNum.set(num, arr);
-    }
-
-    // Conflicto: número con más de un ID al finalizar y al menos uno de los seleccionados cambia su número a ese valor
-    for (const [num, ids] of idsByFinalNum.entries()) {
-      if (ids.length <= 1) continue;
-
-      // ¿Hay algún seleccionado que explícitamente se esté actualizando a 'num'?
-      const selectedChangingToNum = selectedIds.filter(id => normalize(selectedChequesData?.[id]?.newValue) === num);
-
-      if (selectedChangingToNum.length > 0) {
-        // Mostrar conflicto solo una vez por número
-        errors.push(`Número de cheque duplicado: "${num}". Quedaría asignado a los IDs: ${ids.join(', ')}.`);
-      }
-    }
-
-    return errors;
-  };
-
-  // Click de Actualizar con validación previa
-  const handleValidateAndImport = () => {
-    const errs = validateDuplicateNumbers();
-    if (errs.length > 0) {
-      setLocalErrors(errs);
-      return;
-    }
-    setLocalErrors([]);
-    onImportarClick?.();
-  };
-
-  // Render editor para el valor global
+  // ====== RENDER ======
   const renderGlobalEditor = () => {
-    if (selectedCount === 0) return null;
-    if (fieldMode === 'situacion') {
+    if (selectedIds.length === 0) return null;
+    if (fieldMode === "situacion") {
       return (
         <select className={styles.select} defaultValue="" onChange={(e) => onGlobalValueChange(e.target.value)}>
           <option value="">Seleccionar...</option>
-          {Array.isArray(situaciones) && situaciones.map(s => (
-            <option key={s.sit_Cod} value={s.sit_Cod}>{s.sit_Desc}</option>
+          {(situaciones || []).map((s) => (
+            <option key={s.sit_Cod} value={s.sit_Cod}>
+              {s.sit_Desc}
+            </option>
           ))}
         </select>
       );
-    } else if (fieldMode === 'fvto') {
-      return (
-        <input type="date" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />
-      );
-    } else if (fieldMode === 'numero') {
-      return (
-        <input type="text" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />
-      );
+    }
+    if (fieldMode === "fvto") {
+      return <input type="date" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />;
+    }
+    if (fieldMode === "numero") {
+      return <input type="text" className={styles.input} onChange={(e) => onGlobalValueChange(e.target.value)} />;
     }
     return null;
   };
 
-  // Render editor por fila
-  const renderRowEditor = (cheque) => {
-    const isSelected = !!selectedChequesData?.[cheque.idCheque]?.isSelected;
-    if (!isSelected) return <span className={styles.muted}>—</span>;
+  const renderRowEditor = (row) => {
+    const sel = !!selectedChequesData?.[row.idCheque]?.isSelected;
+    if (!sel) return <span className={styles.muted}>—</span>;
+    const val = selectedChequesData?.[row.idCheque]?.newValue || "";
 
-    const rowVal = selectedChequesData?.[cheque.idCheque]?.newValue || '';
-
-    if (fieldMode === 'situacion') {
+    if (fieldMode === "situacion") {
       return (
         <select
           className={styles.select}
-          value={rowVal}
-          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+          value={val}
+          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
         >
           <option value="">Seleccionar...</option>
-          {Array.isArray(situaciones) && situaciones.map(s => (
-            <option key={s.sit_Cod} value={s.sit_Cod}>{s.sit_Desc}</option>
+          {(situaciones || []).map((s) => (
+            <option key={s.sit_Cod} value={s.sit_Cod}>
+              {s.sit_Desc}
+            </option>
           ))}
         </select>
       );
-    } else if (fieldMode === 'fvto') {
+    }
+    if (fieldMode === "fvto") {
       return (
         <input
           type="date"
           className={styles.input}
-          value={rowVal}
-          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+          value={val}
+          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
         />
       );
-    } else if (fieldMode === 'numero') {
+    }
+    if (fieldMode === "numero") {
       return (
         <input
           type="text"
           className={styles.input}
-          value={rowVal}
-          onChange={(e) => onRowValueChange(cheque.idCheque, e.target.value)}
+          value={val}
+          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
         />
       );
     }
     return null;
   };
 
-  const newValueHeader =
-    fieldMode === 'situacion' ? 'Nueva Situación' :
-    fieldMode === 'fvto'      ? 'Nueva Fecha Vto.' :
-                                'Nuevo Número';
-
-  const combinedErrors = [
-    ...localErrors,
-    ...(Array.isArray(runErrors) ? runErrors : [])
-  ];
-
   return (
     <div className={styles.container}>
+      {/* Header */}
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
         <EmpresaSelected />
       </div>
 
-      {/* Selector de campo + editor global si hay filas seleccionadas */}
+      {/* ====== FILTROS ====== */}
+      <div className={styles.card}>
+        <div className={styles.filtersHeader}>
+          <button
+            className={styles.filtersHeaderBtn}
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-expanded={filtersOpen}
+          >
+            FILTROS
+            <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
+          </button>
+          <button className={styles.smallBtn} onClick={limpiar}>Limpiar</button>
+        </div>
+
+        {filtersOpen && (
+          <div className={styles.filtersBar}>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>IdCheque</label>
+              <input className={styles.input} value={fId} onChange={(e) => setFId(e.target.value)} placeholder="Ej: 10234" />
+            </div>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Nro. Cheque</label>
+              <input className={styles.input} value={fNro} onChange={(e) => setFNro(e.target.value)} placeholder="Buscar por número..." />
+            </div>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Fecha Vto. (Desde)</label>
+              <input type="date" className={styles.input} value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
+            </div>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Fecha Vto. (Hasta)</label>
+              <input type="date" className={styles.input} value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
+            </div>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Importe Mín.</label>
+              <input className={styles.input} value={fMin} onChange={(e) => setFMin(e.target.value)} placeholder="0.00" />
+            </div>
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Importe Máx.</label>
+              <input className={styles.input} value={fMax} onChange={(e) => setFMax(e.target.value)} placeholder="999999.99" />
+            </div>
+            <div className={styles.filterFull}>
+              <span className={styles.summaryLine}>Total: {chequesRechazados.length} | Filtrados: <b>{filtered.length}</b></span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ====== BARRA CAMPO / VALOR GLOBAL ====== */}
       <div className={styles.massBar}>
         <div className={styles.massLeft}>
           <label className={styles.label}>Campo a Actualizar:</label>
-          <select
-            className={styles.select}
-            value={fieldMode}
-            onChange={(e) => onFieldModeChange(e.target.value)}
-          >
+          <select className={styles.select} value={fieldMode} onChange={(e) => onFieldModeChange(e.target.value)}>
             <option value="situacion">Situación</option>
             <option value="fvto">Fecha de Vencimiento</option>
             <option value="numero">Número de Cheque</option>
           </select>
         </div>
-        {selectedCount > 0 && (
-          <div className={styles.massRight}>
-            <label className={styles.label}>
-              {newValueHeader} (para {allSelected ? 'todos' : 'seleccionados'}):
-            </label>
-            {renderGlobalEditor()}
-          </div>
-        )}
+        <div className={styles.massRight}>
+          {selectedIds.length > 0 && (
+            <>
+              <label className={styles.label}>
+                {fieldMode === "situacion" ? "Nueva Situación" : fieldMode === "fvto" ? "Nueva Fecha Vto." : "Nuevo Número"}:
+              </label>
+              {renderGlobalEditor()}
+            </>
+          )}
+        </div>
       </div>
 
+      {/* ====== TABLA ====== */}
       <div className={styles.tableContainer}>
         <table className={styles.table}>
           <thead>
             <tr className={styles.headerRow}>
-              <th>Empresa</th>
-              <th onClick={() => handleSort('idCheque')} className={styles.sortableHeader}>
-                ID Cheque {renderSortArrow('idCheque')}
-              </th>
-              <th onClick={() => handleSort('nroDefinitivo')} className={styles.sortableHeader}>
-                Número {renderSortArrow('nroDefinitivo')}
-              </th>
-              <th onClick={() => handleSort('fvto')} className={styles.sortableHeader}>
-                Fecha Vencimiento {renderSortArrow('fvto')}
-              </th>
-              <th onClick={() => handleSort('importe')} className={styles.sortableHeader}>
-                Importe {renderSortArrow('importe')}
-              </th>
-              <th>Estado</th>
-              <th>Fecha Modificación</th>
-              <th>Situación</th>
-              <th>{newValueHeader}</th>
               <th>
-                Actualizar&nbsp;
                 <input
                   type="checkbox"
                   checked={allSelected}
-                  onChange={(e) => handleHeaderSelectAll(e.target.checked)}
+                  onChange={(e) => toggleAll(e.target.checked)}
                   title="Seleccionar todos"
                 />
               </th>
+              <th>Empresa</th>
+              <th className={styles.sortableHeader} onClick={() => {
+                setSortCol("idCheque");
+                setSortDir((d) => (sortCol === "idCheque" ? (d === "asc" ? "desc" : "asc") : "asc"));
+              }}>
+                ID Cheque {sortArrow("idCheque")}
+              </th>
+              <th className={styles.sortableHeader} onClick={() => {
+                setSortCol("nroDefinitivo");
+                setSortDir((d) => (sortCol === "nroDefinitivo" ? (d === "asc" ? "desc" : "asc") : "asc"));
+              }}>
+                Número {sortArrow("nroDefinitivo")}
+              </th>
+              <th>Cliente</th>
+              <th className={styles.sortableHeader} onClick={() => {
+                setSortCol("fvto");
+                setSortDir((d) => (sortCol === "fvto" ? (d === "asc" ? "desc" : "asc") : "asc"));
+              }}>
+                Fecha Vencimiento {sortArrow("fvto")}
+              </th>
+              <th className={styles.sortableHeader} onClick={() => {
+                setSortCol("fMod");
+                setSortDir((d) => (sortCol === "fMod" ? (d === "asc" ? "desc" : "asc") : "asc"));
+              }}
+              >Fecha Modificación {sortArrow("fMod")}</th>
+              <th className={styles.sortableHeader} onClick={() => {
+                setSortCol("importe");
+                setSortDir((d) => (sortCol === "importe" ? (d === "asc" ? "desc" : "asc") : "asc"));
+              }}>
+                Importe {sortArrow("importe")}
+              </th>
+              <th>Estado</th>
+              <th>Situación</th>
+              <th>Editar</th>
             </tr>
           </thead>
           <tbody>
-            {!sortedCheques?.length ? (
-              <tr>
-                <td colSpan="10" className={styles.noResults}>No hay cheques para actualizar.</td>
-              </tr>
+            {!sorted.length ? (
+              <tr><td className={styles.noResults} colSpan="10">No hay cheques para mostrar</td></tr>
             ) : (
-              sortedCheques.map(cheque => {
-                const isSelected = !!selectedChequesData?.[cheque.idCheque]?.isSelected;
-                const chosenSit = selectedChequesData?.[cheque.idCheque]?.situacionId;
-                const currentSit = chosenSit || cheque.situacion || '';
-                const id = parseInt(cheque.idCheque, 10);
-
-                const fechaActualizacion = Array.isArray(updatedFechasById)
-                  ? updatedFechasById.find(item => item.c3sch3_ID === id)?.c3s_FCmbio
-                  : updatedFechasById?.[id]?.c3s_FCmbio;
-
-                const isUpdated = !!fechaActualizacion;
-
+              sorted.map((row) => {
+                const sel = !!selectedChequesData?.[row.idCheque]?.isSelected;
+                const sit = selectedChequesData?.[row.idCheque]?.situacionId || row.situacion || "";
                 return (
-                  <tr key={cheque.idCheque}>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.emp}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.idCheque}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.nroDefinitivo}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.fvto}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.importe}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>{cheque.estado}</td>
-                    <td className={isUpdated ? styles.boldText : ''}>
-                      {fechaActualizacion || 'Sin actualizar'}
-                    </td>
-
-                    {/* Situación actual (solo texto) */}
-                    <td className={styles.situacionCell}>
-                      <span className={styles.situacionText}>
-                        {getSitDesc(currentSit) || (isSelected ? 'Seleccioná arriba…' : '—')}
-                      </span>
-                    </td>
-
-                    {/* Editor por fila según campo */}
-                    <td className={styles.editCell}>
-                      {renderRowEditor(cheque)}
-                    </td>
-
-                    <td className={styles.actionCell}>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => onChequeToggle?.(cheque.idCheque)}
-                      />
-                    </td>
+                  <tr key={row.idCheque}>
+                    <td><input type="checkbox" checked={sel} onChange={() => onChequeToggle(row.idCheque)} /></td>
+                    <td>{row.emp}</td>
+                    <td>{row.idCheque}</td>
+                    <td>{row.nroDefinitivo}</td>
+                    <td>{row.cliente ?? ""}</td>
+                    <td>{row.fvto}</td>
+                    <td>{row.fMod || "Sin actualizar"}</td>
+                    <td>{row.importe}</td>
+                    <td>{row.estado}</td>
+                    <td><span className={styles.situacionText}>{getSitDesc(sit)}</span></td>
+                    <td className={styles.editCell}>{renderRowEditor(row)}</td>
                   </tr>
                 );
               })
@@ -368,45 +375,21 @@ const ChequesRechazados = ({
         </table>
       </div>
 
-      {/* Logs y Errores */}
-      {Array.isArray(runLogs) && runLogs.length > 0 && (
-        <div className={styles.logBox}>
-          <div className={styles.logTitle}>Resultado de la operación</div>
-          <ul className={styles.logList}>
-            {runLogs.map((line, idx) => (
-              <li key={idx} className={styles.logItem}>{line}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {Array.isArray(combinedErrors) && combinedErrors.length > 0 && (
-        <div className={styles.errorBox}>
-          <div className={styles.errorTitle}>Errores detectados</div>
-          <ul className={styles.errorList}>
-            {combinedErrors.map((e, idx) => (
-              <li key={idx} className={styles.errorItem}>{e}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
+      {/* ====== BOTONERA FINAL ====== */}
       <div className={styles.importButtonContainer}>
+        {/* Exportar ARRIBA del Actualizar */}
+  <button className={styles.btn} onClick={handleExport}>
+    Exportar a Excel (.xlsx)
+  </button>
         {importStatus && (
-          <p className={`${styles.statusMessage} ${styles[importStatus]}`}>
+          <p className={`${styles.footerMsg} ${importStatus === "error" ? styles.error : importStatus === "success" ? styles.ok : ""}`}>
             {importMessage}
           </p>
         )}
-        <button
-          className={styles.btn}
-          onClick={handleValidateAndImport}
-          disabled={!!isImportButtonDisabled}
-        >
+        <button className={styles.btn} disabled={!!isImportButtonDisabled} onClick={onImportarClick}>
           Actualizar Cheques Seleccionados
         </button>
       </div>
     </div>
   );
-};
-
-export default ChequesRechazados;
+}

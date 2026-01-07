@@ -84,6 +84,7 @@ contextBridge.exposeInMainWorld('api', {
   setRegistro: (emp, suc, IDCheque, sit, sitAnt) => ipcRenderer.invoke('registro-cheque3-sit', { emp, suc, IDCheque, sit, sitAnt }),
   obtenerCheque3Rechazado: () => ipcRenderer.invoke('cheque3-rechazado'),
   updateCheque3Field: (IDCheque, campo, valor) => ipcRenderer.invoke('cheque3-update-field', { IDCheque, campo, valor }),
+  exportChequesXLSX: (rows) => ipcRenderer.invoke('cheques3:export-xlsx', rows),
 
   // ======================
   // Artículos / catálogos

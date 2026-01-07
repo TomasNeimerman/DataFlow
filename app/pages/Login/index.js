@@ -233,16 +233,17 @@ export default function LoginPage() {
 
         {error && <p className={styles.error}>{error}</p>}
 
-        <button className={styles.btn} onClick={handleLogin} disabled={loading}>
+        <button className={styles.btn} onClick={handleLogin} disabled={loading}>Ingresar</button>
           {loading ? (
+ 
             <div className={styles.loadingWrapper}>
-              <div className={styles.loaderBar}></div>
               <span className={styles.loadingText}>Ingresando...</span>
+              <div className={styles.loaderBar}></div>
             </div>
           ) : (
-            "Ingresar"
+            ""
           )}
-        </button>
+        
       </div>
     </div>
   );
