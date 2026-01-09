@@ -3,8 +3,8 @@
 
 import { useEffect, useState } from "react";
 import styles from "./styles.module.css";        // 👈 usa tu .body y .img
-import ChequesPForm from "../../components/ChequesPForm";
-import ChequesPModificar from "../../components/ChequesPModificar";
+import ChequesPForm from "../../components/ChequesP/ChequesPForm";
+import ChequesPModificar from "../../components/ChequesP/ChequesPModificar";
 import useChequesError from "../../../public/hooks/chequesPError";
 import * as XLSX from "xlsx";
 import EmpresaSelected from "../../components/EmpresaSelected";

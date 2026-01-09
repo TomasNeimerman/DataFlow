@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import CuadroPrecios from "../../components/CuadroPrecios";
+import CuadroPrecios from "../../components/Precios/CuadroPrecios";
 import PreciosActualizados from "../../components/PreciosActualizados";
 import pageStyles from "./styles.module.css";
 

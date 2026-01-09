@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import styles from "./styles.module.css";
-import DownloadIcon from "../DownloadButton";
+import DownloadIcon from "../../DownloadButton";
 
 
 const Modal = ({ open, title, onClose, children }) => {

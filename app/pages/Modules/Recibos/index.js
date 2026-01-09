@@ -1,9 +1,14 @@
-// app/pages/RecibosPage.jsx
+// pages/Modules/Recibos/index.js
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./styles.module.css";
-import edit from "../../../public/icons/edit.png";
+
+// Módulos
+import FormHeader from "../../components/Recibos/FormHeader";
+import Tabs from "../../components/Recibos/Tabs";
+import FacturasSection from "../../components/Recibos/FacturasSection";
+import MediosSection from "../../components/Recibos/MediosSection";
 
 export default function RecibosPage() {
   /* ======================= Catálogos ======================= */
@@ -25,7 +30,6 @@ export default function RecibosPage() {
   // Saldo de BD + “valor facturas” aplicado (congelado)
   const [saldoBase, setSaldoBase] = useState(0);
   const [valorFacturas, setValorFacturas] = useState(0);
-  const [facturasPago, setFacturasPago] = useState([]);
 
   /* ======================= Facturas ======================= */
   const [facturas, setFacturas] = useState([]);
@@ -93,7 +97,6 @@ export default function RecibosPage() {
           window?.api?.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito: "V" }),
           window?.api?.recibos?.getMonedas?.(),
         ]);
-
         if (rTipos?.ok) setTipos(rTipos.data || []);
         const mm = (rMon?.ok ? rMon.data : []).map((x) => ({
           mon_codigo: String(x.mon_codigo),
@@ -240,20 +243,14 @@ export default function RecibosPage() {
     () => Object.values(aplicaFact).reduce((a, it) => a + (it?.checked ? Number(it.monto) || 0 : 0), 0),
     [aplicaFact]
   );
+  const aplicarFacturas = () => setValorFacturas(seleccionadoFacturas);
 
-  function aplicarFacturas() {
-    setValorFacturas(seleccionadoFacturas);
-  }
-
-  // saldo visible en pestaña Facturas (saldo cliente – valorFacturas aplicado)
-  const saldoMostrado = Math.max(0, saldoBase - valorFacturas);
-
-  function totalSeleccionadoExcept(index) {
-    return Object.entries(aplicaFact).reduce((acc, [k, v]) => {
+  // helper: total seleccionado menos una fila (para topear por saldo del cliente) -> lo usa el componente
+  const totalSeleccionadoExcept = (index) =>
+    Object.entries(aplicaFact).reduce((acc, [k, v]) => {
       if (Number(k) === Number(index)) return acc;
       return acc + (v?.checked ? (Number(v.monto) || 0) : 0);
     }, 0);
-  }
 
   /* ======================= Cheques ======================= */
   function onFileChange(e) {
@@ -261,30 +258,55 @@ export default function RecibosPage() {
     setImportMsg("");
   }
 
-  // >>> NUEVO mapeo de columnas específicas para Cheques
+  // columnas pedidas: Nro Echeq, Razón Social, Historial de Endosos, Fecha Vencimiento, Importe
   function mapRowToCheque(row) {
-    const nroEcheq =
-      row["Nro Echeq"] ??
-      row["Numero de ECHEQ"] ??
-      row["Nro ECHEQ"] ??
-      row["Número de ECHEQ"] ??
-      row["Numero Echeq"];
+  const pick = (keys) => {
+    for (const k of keys) if (row[k] != null && row[k] !== "") return row[k];
+    return null;
+  };
 
-    const razonSocial = row["Razón Social"] ?? row["Razon Social"];
-    const historialEndosos = row["Historial de Endosos"];
-    const fechaVencimiento = row["Fecha Vencimiento"] ?? row["Fec Vencimiento"];
-    const importe = row["Importe"];
+  const nroEcheq = pick([
+    "Nro Echeq",
+    "Numero de ECHEQ",
+    "Nro ECHEQ",
+    "Número de ECHEQ",
+    "Numero Echeq",
+  ]);
 
-    if (nroEcheq == null || importe == null) return null;
+  // En el XLS viene como “Nombre o Razón Social Emisor” (y a veces el del beneficiario)
+  const razonSocial = pick([
+    "Razón Social",
+    "Razon Social",
+    "Nombre o Razón Social",
+    "Nombre o Razón Social Emisor",
+    "Nombre o Razón Social Beneficiario Endoso",
+    "Nombre o Razon Social Emisor",
+    "Nombre o Razon Social Beneficiario Endoso",
+  ]);
 
-    return {
-      nroEcheq: String(nroEcheq || ""),
-      razonSocial: String(razonSocial || ""),
-      historialEndosos: String(historialEndosos || ""),
-      fechaVencimiento: fechaVencimiento ? String(fechaVencimiento) : "",
-      importe: Number(importe) || 0,
-    };
-  }
+  const historialEndosos = pick(["Historial de Endosos", "Historial Endosos"]);
+
+  // En el XLS la “Fecha Vencimiento” viene como “Fecha Pago”
+  const fechaVencimiento = pick([
+    "Fecha Vencimiento",
+    "Fec Vencimiento",
+    "Fecha Pago",
+    "Fecha de Pago",
+  ]);
+
+  const importe = pick(["Importe", "Monto"]);
+
+  if (nroEcheq == null && importe == null) return null;
+
+  return {
+    nroEcheq: String(nroEcheq || ""),
+    razonSocial: String(razonSocial || ""),
+    historialEndosos: String(historialEndosos || ""),
+    // lo dejo como string; tu dfmt ya lo muestra
+    fechaVencimiento: fechaVencimiento ? String(fechaVencimiento) : "",
+    importe: Number(importe) || 0,
+  };
+}
 
   async function cargarCheques() {
     try {
@@ -308,12 +330,10 @@ export default function RecibosPage() {
     }
   }
 
-  // >>> NUEVO: cancelar cheques importados
   function cancelarCheques() {
     setCheques([]);
     setSelCheques(new Set());
     setImportMsg("");
-    // opcional: limpiar archivo seleccionado
     setFile(null);
   }
 
@@ -322,17 +342,6 @@ export default function RecibosPage() {
     selCheques.forEach((i) => (sum += Number(cheques[i]?.importe) || 0));
     return sum;
   }, [selCheques, cheques]);
-
-  const allChequesChecked = cheques.length > 0 && selCheques.size === cheques.length;
-  function toggleAllCheques(e) {
-    if (!cheques.length) return;
-    if (e.target.checked) {
-      const all = new Set(cheques.map((_, i) => i));
-      setSelCheques(all);
-    } else {
-      setSelCheques(new Set());
-    }
-  }
 
   /* ======================= Medios totales ======================= */
   const aplicadoTransf = useMemo(
@@ -353,6 +362,7 @@ export default function RecibosPage() {
   // Restante contra valor de facturas (puede ser negativo => a favor)
   const restanteVsFact = valorFacturas - aplicadoMedios;
   const excedentePos = Math.max(0, aplicadoMedios - valorFacturas);
+  const facturasaplic = valorFacturas - aplicadoMedios;
 
   /* ======================= Add / Del medios ======================= */
   function addTransf() {
@@ -365,9 +375,7 @@ export default function RecibosPage() {
     setTransfSel("");
     setTransfMonto("");
   }
-  function delTransf(i) {
-    setAplicTransf((p) => p.filter((_, idx) => idx !== i));
-  }
+  function delTransf(i) { setAplicTransf((p) => p.filter((_, idx) => idx !== i)); }
 
   function addCaja() {
     if (!cajaSel || !cajaMonto) return;
@@ -379,9 +387,7 @@ export default function RecibosPage() {
     setCajaSel("");
     setCajaMonto("");
   }
-  function delCaja(i) {
-    setAplicCajas((p) => p.filter((_, idx) => idx !== i));
-  }
+  function delCaja(i) { setAplicCajas((p) => p.filter((_, idx) => idx !== i)); }
 
   function addAp() {
     if (!apSel || !apMonto) return;
@@ -393,25 +399,15 @@ export default function RecibosPage() {
     setApSel("");
     setApMonto("");
   }
-  function delAp(i) {
-    setAplicAps((p) => p.filter((_, idx) => idx !== i));
-  }
+  function delAp(i) { setAplicAps((p) => p.filter((_, idx) => idx !== i)); }
 
   /* ======================= Confirmar ======================= */
   const ready = !!(tipoComprobante && fecha && cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
   const canConfirm = valorFacturas > 0 && aplicadoMedios >= valorFacturas;
-  const facturasaplic = valorFacturas - aplicadoMedios;
   function onConfirmar() {
     if (!canConfirm) return;
     alert("Recibo listo para emitir (demo).");
   }
-
-  /* ======================= Helpers combos ======================= */
-  const comboValue = (m) => `${m.mon_codigo}||${m.mtca_codigo}`;
-  const parseCombo = (v) => {
-    const [mon_codigo = "", mtca_codigo = ""] = String(v || "").split("||");
-    return { mon_codigo, mtca_codigo };
-  };
 
   /* ======================= Render ======================= */
   return (
@@ -425,486 +421,97 @@ export default function RecibosPage() {
 
           {err && <div className={styles.errorBox}>{err}</div>}
 
-          <div className={styles.formGrid}>
-            <div className={styles.field}>
-              <label>Tipo de Comprobante</label>
-              <select
-                className={styles.selector}
-                value={tipoComprobante}
-                onChange={(e) => setTipoComprobante(e.target.value)}
-                disabled={loadingCore || !tipos.length}
-              >
-                <option value="">Seleccione tipo</option>
-                {tipos.map((t) => (
-                  <option key={t.tco_cod} value={t.tco_cod}>
-                    {t.tco_cod} - {t.tco_desc}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <FormHeader
+            tipos={tipos}
+            monMtca={monMtca}
+            clientes={clientes}
+            tipoComprobante={tipoComprobante}
+            setTipoComprobante={setTipoComprobante}
+            fecha={fecha}
+            setFecha={setFecha}
+            cliente={cliente}
+            setCliente={setCliente}
+            monSel={monSel}
+            setMonSel={setMonSel}
+            tc={tc}
+            setTc={setTc}
+            readySaldoFact={readySaldoFact}
+            monEditable={monEditable}
+            tcEditable={tcEditable}
+            toggleTcEdit={toggleTcEdit}
+            tcRef={tcRef}
+            saldoMostrado={Math.max(0, saldoBase - valorFacturas)}
+            nfmt={nfmt}
+          />
 
-            <div className={styles.field}>
-              <label>Fecha</label>
-              <input type="date" className={styles.input} value={fecha} onChange={(e) => setFecha(e.target.value)} />
-            </div>
-
-            <div className={styles.field}>
-              <label>Cliente</label>
-              <select
-                className={styles.selector}
-                value={cliente}
-                onChange={(e) => setCliente(e.target.value)}
-                disabled={loadingClientes || !clientes.length}
-              >
-                <option value="">{loadingClientes ? "Cargando..." : "Seleccione un cliente"}</option>
-                {clientes.map((c) => (
-                  <option key={c.CodCliente} value={c.CodCliente}>
-                    {c.CodCliente} - {c.RazonSocial}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={styles.field}>
-              <label>Moneda / Tipo de Cambio</label>
-              <select
-                className={styles.selector}
-                value={monSel.mon_codigo && monSel.mtca_codigo ? comboValue(monSel) : ""}
-                onChange={(e) => setMonSel(parseCombo(e.target.value))}
-                disabled={loadingCore || !monMtca.length}
-              >
-                <option value="">Seleccione moneda / tipo</option>
-                {monMtca.map((m, i) => (
-                  <option key={`${m.mon_codigo}-${m.mtca_codigo}-${i}`} value={comboValue(m)}>
-                    {m.mon_descrip} — {m.mtca_descrip}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className={`${styles.field} ${tcEditable ? styles.editing : ""}`}>
-              <label>Tipo de Cambio</label>
-              <div className={styles.tcWrapper}>
-                <input
-                  ref={tcRef}
-                  className={`${styles.input} ${tcEditable ? styles.tcEditable : ""}`}
-                  type="number"
-                  step="0.0001"
-                  min="0"
-                  value={tc}
-                  onChange={(e) => setTc(e.target.value)}
-                  disabled={!readySaldoFact || !monEditable}
-                />
-                <button
-                  type="button"
-                  className={`${styles.tcEditBtn} ${!readySaldoFact || !monEditable ? styles.tcEditBtnDisabled : ""}`}
-                  onClick={toggleTcEdit}
-                  title={monEditable ? (tcEditable ? "Bloquear" : "Editar TC") : "TC fijo"}
-                  disabled={!readySaldoFact || !monEditable}
-                >
-                  <img className={styles.tcEditImg} src={edit.src || edit} alt="edit" />
-                </button>
-              </div>
-              {monEditable && (
-                <span className={styles.tcHint}>{tcEditable ? "Modo edición activo" : "TC editable"}</span>
-              )}
-            </div>
-
-            <div className={styles.field}>
-              <label>Saldo del cliente</label>
-              <input className={styles.input} readOnly value={`$ ${nfmt(saldoMostrado)}`} />
-            </div>
-          </div>
-
-          <div className={styles.toggleContainer}>
-            <button
-              className={`${styles.toggleButton} ${activeTab === "facturas" ? styles.active : ""}`}
-              onClick={() => setActiveTab("facturas")}
-            >
-              Facturas
-            </button>
-            <button
-              className={`${styles.toggleButton} ${activeTab === "medios" ? styles.active : ""}`}
-              onClick={() => setActiveTab("medios")}
-            >
-              Medios de Cobro
-            </button>
-          </div>
+          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
         </div>
 
         {/* ======================= FACTURAS ======================= */}
         {activeTab === "facturas" && (
-          <div className={styles.tabInner}>
-            <div className={styles.saldoHeader}>
-              <div>
-                <strong>Saldo Disponible:</strong> $ {nfmt(saldoMostrado)}
-              </div>
-              <div className={styles.favorRow}>
-                <span>
-                  <strong>Valor Facturas:</strong> $ {nfmt(valorFacturas)} {" "}·{" "}
-                  Restante: <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>$ {nfmt(saldoMostrado)}</strong>
-                </span>
-              </div>
-            </div>
-
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardTitle}>Facturas</span>
-                <div className={styles.cardHeaderRight}>
-                  <span className={styles.muted}>
-                    Seleccionado: <strong>$ {nfmt(seleccionadoFacturas)}</strong>
-                  </span>
-                  <button
-                    className={styles.smallBtn}
-                    onClick={aplicarFacturas}
-                    disabled={seleccionadoFacturas <= 0}
-                  >
-                    Aplicar selección
-                  </button>
-                </div>
-              </div>
-
-              <div className={`${styles.cardBody} ${styles.tableContainer}`}>
-                <table className={styles.table}>
-                  <thead className={styles.headerRow}>
-                    <tr>
-                      <th className={styles.checkCell}>Sel</th>
-                      <th>Comprobante</th>
-                      <th>Emisión</th>
-                      <th className={styles.tdRight}>Importe Original</th>
-                      <th className={styles.tdRight}>Saldo</th>
-                      <th className={styles.tdRight}>Monto a aplicar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!facturas?.length ? (
-                      <tr>
-                        <td className={styles.noResults} colSpan={6}>
-                          No hay facturas con saldo.
-                        </td>
-                      </tr>
-                    ) : (
-                      facturas.map((f, idx) => {
-                        const st = aplicaFact[idx] || { checked: false, monto: 0 };
-                        return (
-                          <tr key={idx} className={styles.row}>
-                            <td className={styles.checkCell}>
-                              <input
-                                type="checkbox"
-                                checked={!!st.checked}
-                                onChange={(e) => {
-                                  const checked = e.target.checked;
-                                  if (!checked) {
-                                    setAplicaFact((p) => ({ ...p, [idx]: { checked: false, monto: 0 } }));
-                                    return;
-                                  }
-                                  const otros = totalSeleccionadoExcept(idx);
-                                  const restanteCliente = Math.max(0, saldoBase - otros);
-                                  const maxFila = Math.min(Number(f["Saldo"]) || 0, restanteCliente);
-                                  setAplicaFact((p) => ({ ...p, [idx]: { checked: true, monto: maxFila } }));
-                                }}
-                              />
-                            </td>
-                            <td>{f.Comprobante}</td>
-                            <td>{dfmt(f["Fecha Emision"])}</td>
-                            <td className={styles.tdRight}>$ {nfmt(f["Importe Original"])}</td>
-                            <td className={styles.tdRight}>$ {nfmt(f["Saldo"])}</td>
-                            <td className={styles.tdRight}>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                className={styles.input}
-                                disabled={!st.checked}
-                                value={st.monto ?? ""}
-                                onFocus={(e) => {
-                                  if ((e.target.value || "") === "0") e.target.select();
-                                }}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value) || 0;
-                                  const topeFactura = Number(f["Saldo"]) || 0;
-                                  const otros = totalSeleccionadoExcept(idx);
-                                  const restanteCliente = Math.max(0, saldoBase - otros);
-                                  const cap = Math.max(0, Math.min(val, topeFactura, restanteCliente));
-                                  setAplicaFact((prev) => ({ ...prev, [idx]: { checked: true, monto: cap } }));
-                                }}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <FacturasSection
+            facturas={facturas}
+            aplicaFact={aplicaFact}
+            setAplicaFact={setAplicaFact}
+            saldoBase={saldoBase}
+            valorFacturas={valorFacturas}
+            setValorFacturas={setValorFacturas}
+            seleccionadoFacturas={seleccionadoFacturas}
+            aplicarFacturas={aplicarFacturas}
+            restanteVsFact={restanteVsFact}
+            nfmt={nfmt}
+            dfmt={dfmt}
+            totalSeleccionadoExcept={totalSeleccionadoExcept}
+          />
         )}
 
         {/* ======================= MEDIOS DE COBRO ======================= */}
         {activeTab === "medios" && (
-          <div className={styles.tabInner}>
-            <div className={styles.saldoHeader}>
-              <div className={styles.favorRow}>
-                {facturasaplic >= 0 ? (
-                  <span>
-                    <strong>Facturas a pagar:</strong> $ {nfmt(facturasaplic)}
-                  </span>
-                ) : (
-                  <span className={styles.parenGreen}><strong>Facturas a pagar</strong> (a favor): {nfmt(excedentePos)} </span>
-                )}
-              </div>
-              <div>
-                Aplicado: <strong>$ {nfmt(aplicadoMedios)}</strong> ·{" "}
-                Restante:{" "}
-                <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>$ {nfmt(saldoMostrado)}</strong>
-              </div>
-            </div>
-
-            {/* Cheques */}
-            <div className={styles.card}>
-              <button className={styles.cardHeader}>
-                <span className={styles.cardTitle}>Cheques / ECheqs</span>
-              </button>
-              <div className={styles.cardBody}>
-                <div className={styles.filtersGrid}>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Archivo</label>
-                    <input type="file" className={styles.input} onChange={onFileChange} />
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>&nbsp;</label>
-                    <button className={styles.btn} onClick={cargarCheques} disabled={!file}>
-                      Cargar
-                    </button>
-                  </div>
-                  {/* NUEVO: botón Cancelar al lado */}
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>&nbsp;</label>
-                    <button className={styles.btn} onClick={cancelarCheques} disabled={!cheques.length}>
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-                {importMsg && <div className={styles.muted}>{importMsg}</div>}
-
-                <div className={styles.tableContainer} style={{ marginTop: 8 }}>
-                  <table className={styles.table}>
-                    <thead className={styles.headerRow}>
-                      <tr>
-                        <th className={styles.checkCell}>
-                          <input
-                            type="checkbox"
-                            checked={allChequesChecked}
-                            disabled={!cheques.length}
-                            onChange={toggleAllCheques}
-                          />
-                        </th>
-                        <th>Nro Echeq</th>
-                        <th>Razón Social</th>
-                        <th>Historial de Endosos</th>
-                        <th>Fecha Vencimiento</th>
-                        <th className={styles.tdRight}>Importe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {!cheques?.length ? (
-                        <tr>
-                          <td className={styles.noResults} colSpan={6}>
-                            No hay cheques importados todavía.
-                          </td>
-                        </tr>
-                      ) : (
-                        cheques.map((c, i) => (
-                          <tr key={`${c.nroEcheq || i}-${i}`} className={styles.row}>
-                            <td className={styles.checkCell}>
-                              <input
-                                type="checkbox"
-                                checked={selCheques.has(i)}
-                                onChange={(e) => {
-                                  const next = new Set(selCheques);
-                                  if (e.target.checked) next.add(i);
-                                  else next.delete(i);
-                                  setSelCheques(next);
-                                }}
-                              />
-                            </td>
-                            <td>{c.nroEcheq}</td>
-                            <td>{c.razonSocial}</td>
-                            <td>{c.historialEndosos}</td>
-                            <td>{c.fechaVencimiento ? dfmt(c.fechaVencimiento) : ""}</td>
-                            <td className={styles.tdRight}>$ {nfmt(c.importe)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* Transferencias */}
-            <div className={styles.card}>
-              <button className={styles.cardHeader}>
-                <span className={styles.cardTitle}>Transferencias bancarias</span>
-              </button>
-              <div className={styles.cardBody}>
-                <div className={styles.filtersGrid}>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Cuenta</label>
-                    <select className={styles.select} value={transfSel} onChange={(e) => setTransfSel(e.target.value)}>
-                      <option value="">(Seleccione)</option>
-                      {optsTransf.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Monto</label>
-                    <input
-                      className={styles.input}
-                      type="number"
-                      step="0.01"
-                      value={transfMonto}
-                      onFocus={(e) => {
-                        if ((e.target.value || "") === "0") e.target.select();
-                      }}
-                      onChange={(e) => setTransfMonto(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>&nbsp;</label>
-                    <button className={styles.btn} onClick={addTransf} disabled={!transfSel || !transfMonto}>
-                      Agregar
-                    </button>
-                  </div>
-                </div>
-
-                {aplicTransf.length > 0 && (
-                  <ul className={styles.listSimple}>
-                    {aplicTransf.map((t, i) => (
-                      <li key={i}>
-                        <span>{t.label}</span> <strong>$ {nfmt(t.monto)}</strong>{" "}
-                        <button className={styles.smallBtn} onClick={() => delTransf(i)}>
-                          Quitar
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            {/* Cajas */}
-            <div className={styles.card}>
-              <button className={styles.cardHeader}>
-                <span className={styles.cardTitle}>Cajas</span>
-              </button>
-              <div className={styles.cardBody}>
-                <div className={styles.filtersGrid}>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Caja</label>
-                    <select className={styles.select} value={cajaSel} onChange={(e) => setCajaSel(e.target.value)}>
-                      <option value="">(Seleccione)</option>
-                      {optsCajas.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Monto</label>
-                    <input
-                      className={styles.input}
-                      type="number"
-                      step="0.01"
-                      value={cajaMonto}
-                      onFocus={(e) => {
-                        if ((e.target.value || "") === "0") e.target.select();
-                      }}
-                      onChange={(e) => setCajaMonto(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>&nbsp;</label>
-                    <button className={styles.btn} onClick={addCaja} disabled={!cajaSel || !cajaMonto}>
-                      Agregar
-                    </button>
-                  </div>
-                </div>
-
-                {aplicCajas.length > 0 && (
-                  <ul className={styles.listSimple}>
-                    {aplicCajas.map((t, i) => (
-                      <li key={i}>
-                        <span>{t.label}</span> <strong>$ {nfmt(t.monto)}</strong>{" "}
-                        <button className={styles.smallBtn} onClick={() => delCaja(i)}>
-                          Quitar
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-
-            {/* Aplicaciones */}
-            <div className={styles.card}>
-              <button className={styles.cardHeader}>
-                <span className={styles.cardTitle}>Aplicaciones</span>
-              </button>
-              <div className={styles.cardBody}>
-                <div className={styles.filtersGrid}>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Aplicación</label>
-                    <select className={styles.select} value={apSel} onChange={(e) => setApSel(e.target.value)}>
-                      <option value="">(Seleccione)</option>
-                      {optsAp.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>Monto</label>
-                    <input
-                      className={styles.input}
-                      type="number"
-                      step="0.01"
-                      value={apMonto}
-                      onFocus={(e) => {
-                        if ((e.target.value || "") === "0") e.target.select();
-                      }}
-                      onChange={(e) => setApMonto(e.target.value)}
-                    />
-                  </div>
-                  <div className={styles.filterItem}>
-                    <label className={styles.label}>&nbsp;</label>
-                    <button className={styles.btn} onClick={addAp} disabled={!apSel || !apMonto}>
-                      Agregar
-                    </button>
-                  </div>
-                </div>
-
-                {aplicAps.length > 0 && (
-                  <ul className={styles.listSimple}>
-                    {aplicAps.map((t, i) => (
-                      <li key={i}>
-                        <span>{t.label}</span> <strong>$ {nfmt(t.monto)}</strong>{" "}
-                        <button className={styles.smallBtn} onClick={() => delAp(i)}>
-                          Quitar
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </div>
+          <MediosSection
+            // cheques
+            file={file}
+            onFileChange={onFileChange}
+            cargarCheques={cargarCheques}
+            cancelarCheques={cancelarCheques}
+            cheques={cheques}
+            selCheques={selCheques}
+            setSelCheques={setSelCheques}
+            importMsg={importMsg}
+            // totales / info
+            aplicadoMedios={aplicadoMedios}
+            restanteVsFact={restanteVsFact}
+            excedentePos={excedentePos}
+            facturasaplic={facturasaplic}
+            nfmt={nfmt}
+            dfmt={dfmt}
+            // transferencias
+            optsTransf={optsTransf}
+            transfSel={transfSel}
+            setTransfSel={setTransfSel}
+            transfMonto={transfMonto}
+            setTransfMonto={setTransfMonto}
+            aplicTransf={aplicTransf}
+            addTransf={addTransf}
+            delTransf={delTransf}
+            // cajas
+            optsCajas={optsCajas}
+            cajaSel={cajaSel}
+            setCajaSel={setCajaSel}
+            cajaMonto={cajaMonto}
+            setCajaMonto={setCajaMonto}
+            aplicCajas={aplicCajas}
+            addCaja={addCaja}
+            delCaja={delCaja}
+            // aplicaciones
+            optsAp={optsAp}
+            apSel={apSel}
+            setApSel={setApSel}
+            apMonto={apMonto}
+            setApMonto={setApMonto}
+            aplicAps={aplicAps}
+            addAp={addAp}
+            delAp={delAp}
+          />
         )}
 
         {/* ======= Submit Dock (dentro del contenedor) ======= */}
