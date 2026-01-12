@@ -1,8 +1,7 @@
 import React from "react";
-import local from "./styles.module.css";
+import styles from "../../../Modules/Recibos/styles.module.css"
 
 export default function TransferenciasSection({
-  styles,
   nfmt,
   optsTransf,
   transfSel,

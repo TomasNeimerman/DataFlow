@@ -10,6 +10,8 @@ import Tabs from "../../components/Recibos/Tabs";
 import FacturasSection from "../../components/Recibos/FacturasSection";
 import MediosSection from "../../components/Recibos/MediosSection";
 
+
+
 export default function RecibosPage() {
   /* ======================= Catálogos ======================= */
   const [tipos, setTipos] = useState([]);

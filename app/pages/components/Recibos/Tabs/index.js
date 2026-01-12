@@ -1,7 +1,7 @@
 // pages/components/Recibos/Tabs/index.js
 "use client";
 import React from "react";
-import styles from "../../../Modules/Recibos/styles.module.css"; // <<< IMPORT CORREGIDO
+import styles from "../../../Modules/Recibos/styles.module.css"
 
 export default function Tabs({ activeTab, setActiveTab }) {
   return (
