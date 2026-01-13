@@ -406,9 +406,120 @@ export default function RecibosPage() {
   /* ======================= Confirmar ======================= */
   const ready = !!(tipoComprobante && fecha && cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
   const canConfirm = valorFacturas > 0 && aplicadoMedios >= valorFacturas;
-  function onConfirmar() {
+
+  async function onConfirmar() {
     if (!canConfirm) return;
-    alert("Recibo listo para emitir (demo).");
+
+    try {
+      // Construir payload para el SDK
+      const payload = {
+        recibo: {
+          // Datos básicos
+          codigoCliente: cliente,
+          nombreCliente: clientes.find(c => c.cli_CodCli === cliente)?.cli_RazonSoc || "",
+          fecha: fecha,
+          moneda: monSel.mon_codigo,
+          tipoCambio: tc,
+          observaciones: `Recibo generado desde DataFlow`,
+
+          // Valores (medios de pago)
+          valores: construirValores(),
+
+          // Aplicaciones (facturas a cancelar)
+          aplicaciones: construirAplicaciones(),
+        }
+      };
+
+      // Llamar al SDK
+      const result = await window.api.sdk.finanzas.ingresarRecibo(payload);
+
+      // Manejar respuesta
+      if (result?.success) {
+        alert(`✓ Recibo registrado exitosamente en Bejerman ERP\n\n${result.message}`);
+        // TODO: Limpiar formulario o redirigir
+      } else {
+        const errores = (result.errors || []).join('\n');
+        alert(`✗ Error al registrar recibo:\n\n${errores || result.message}`);
+      }
+
+    } catch (error) {
+      alert(`✗ Error inesperado: ${error.message}`);
+    }
+  }
+
+  function construirValores() {
+    const valores = [];
+
+    // Cheques electrónicos seleccionados
+    Array.from(selCheques).forEach(idx => {
+      const cheque = cheques[idx];
+      valores.push({
+        tipo: 'ECH',
+        codigoBanco: '143', // TODO: Parsear del archivo si está disponible
+        numeroCheque: cheque.nroEcheq,
+        importe: cheque.importe,
+        fechaEmision: fecha,
+        fechaCobro: cheque.fechaVencimiento || fecha,
+        librador: cheque.razonSocial || "",
+        observaciones: cheque.historialEndosos || "",
+      });
+    });
+
+    // Transferencias
+    aplicTransf.forEach(tf => {
+      const [codBanco, nroCuenta] = (tf.value || '|').split('|');
+      valores.push({
+        tipo: 'TRF',
+        importe: tf.monto,
+        codigoBanco: codBanco || '',
+        numeroCuenta: nroCuenta || '',
+        fechaTransferencia: fecha,
+        observaciones: tf.label || '',
+      });
+    });
+
+    // Cajas (efectivo)
+    aplicCajas.forEach(caja => {
+      valores.push({
+        tipo: 'EFE',
+        importe: caja.monto,
+        observaciones: caja.label || '',
+      });
+    });
+
+    // Aplicaciones (otros valores)
+    aplicAps.forEach(ap => {
+      valores.push({
+        tipo: 'OTR',
+        importe: ap.monto,
+        observaciones: ap.label || '',
+      });
+    });
+
+    return valores;
+  }
+
+  function construirAplicaciones() {
+    const aplicaciones = [];
+
+    Object.entries(aplicaFact)
+      .filter(([_, v]) => v?.checked)
+      .forEach(([idx, v]) => {
+        const factura = facturas[idx];
+        const parts = (factura.Comprobante || '').split(' ');
+        const tipoComp = parts[0] || 'FA';
+        const numeroCompleto = parts[1] || '0001-00000000';
+        const [ptoVenta, numero] = numeroCompleto.split('-');
+
+        aplicaciones.push({
+          tipoComprobante: tipoComp,
+          puntoVenta: ptoVenta || '0001',
+          numeroComprobante: numero || '00000000',
+          importe: Number(v.monto) || 0,
+        });
+      });
+
+    return aplicaciones;
   }
 
   /* ======================= Render ======================= */

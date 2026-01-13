@@ -147,6 +147,16 @@ getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
     getAplicaciones: () => ipcRenderer.invoke("recibos:getAplicaciones"),
   },
   // ======================
+  // SDK Bejerman
+  // ======================
+  sdk: {
+    finanzas: {
+      ingresarRecibo: (params) => ipcRenderer.invoke('sdk:finanzas:ingresar-recibo', params),
+      ingresarRecibosMultiples: (params) => ipcRenderer.invoke('sdk:finanzas:ingresar-recibos-multiples', params),
+      listarRecibos: (params) => ipcRenderer.invoke('sdk:finanzas:listar-recibos', params),
+    },
+  },
+  // ======================
   // Store
   // ======================
   getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),

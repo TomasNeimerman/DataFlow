@@ -1354,6 +1354,40 @@ ipcMain.handle('recibos:get-saldo-cliente', async (_evt, payload) => {
 ipcMain.handle("recibos:getTransferencias", () => Recibos.getTransferencias());
 ipcMain.handle("recibos:getCajas",          () => Recibos.getCajas());
 ipcMain.handle("recibos:getAplicaciones",   () => Recibos.getAplicaciones());
+
+/* ────────────────────────────────────────────────────────────────────────────
+ *  IPC: SDK BEJERMAN
+ * ──────────────────────────────────────────────────────────────────────────── */
+const bejermanSDK = require('./bejermanSDK');
+
+ipcMain.handle('sdk:finanzas:ingresar-recibo', async (event, params) => {
+  try {
+    const result = await bejermanSDK.finanzas.ingresarRecibo(params);
+    return result;
+  } catch (error) {
+    writeToLog(`[SDK] Error ingresando recibo: ${error.message}`);
+    return { success: false, message: error.message };
+  }
+});
+
+ipcMain.handle('sdk:finanzas:ingresar-recibos-multiples', async (event, params) => {
+  try {
+    return await bejermanSDK.finanzas.ingresarRecibosMultiples(params);
+  } catch (error) {
+    writeToLog(`[SDK] Error ingresando múltiples recibos: ${error.message}`);
+    return { success: false, message: error.message };
+  }
+});
+
+ipcMain.handle('sdk:finanzas:listar-recibos', async (event, params) => {
+  try {
+    return await bejermanSDK.finanzas.listarRecibos(params);
+  } catch (error) {
+    writeToLog(`[SDK] Error listando recibos: ${error.message}`);
+    return { success: false, message: error.message };
+  }
+});
+
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: FILE / DOWNLOAD HELPERS
  * ──────────────────────────────────────────────────────────────────────────── */
