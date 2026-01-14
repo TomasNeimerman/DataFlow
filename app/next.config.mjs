@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
-  images:{
-    unoptimized: true,
-  },
-  pageExtensions: ['page.js', 'page.jsx', 'page.ts', 'page.tsx'],
+  images: { unoptimized: true },
   reactStrictMode: false,
   swcMinify: true,
 };
