@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import styles from "./styles.module.css";
 
 // Módulos
-import FormHeader from "../../components/Recibos/FormHeader";
-import Tabs from "../../components/Recibos/Tabs";
-import FacturasSection from "../../components/Recibos/FacturasSection";
-import MediosSection from "../../components/Recibos/MediosSection";
+import FormHeader from "../../../components/Recibos/FormHeader";
+import Tabs from "../../../components/Recibos/Tabs";
+import FacturasSection from "../../../components/Recibos/FacturasSection";
+import MediosSection from "../../../components/Recibos/MediosSection";
 
 
 

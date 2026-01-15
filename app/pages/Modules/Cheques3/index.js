@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import pageStyles from "./styles.module.css";
-import ChequesRechazados from "../../components/CuadroChequesEdoR";
+import ChequesRechazados from "../../../components/CuadroChequesEdoR";
 
 /* ================= Helpers robustos ================= */
 const pick = (o, keys, def = "") => {

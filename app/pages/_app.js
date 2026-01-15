@@ -1,9 +1,9 @@
 // pages/_app.js
 import { useEffect, useRef } from 'react';
 import '../public/styles/globals.css';
-import Imagen from './components/Image';
-import EmpresaSelected from './components/EmpresaSelected';
-import HamburgerButton from './components/HamburgerMenu';
+import Imagen from '../components/Image';
+import EmpresaSelected from '../components/EmpresaSelected';
+import HamburgerButton from '../components/HamburgerMenu';
 import { useRouter } from 'next/router';   // ⬅️ usamos el hook
 import logo_cone from '../public/logo_cone.png'
 import logo from '../public/logo.png'
