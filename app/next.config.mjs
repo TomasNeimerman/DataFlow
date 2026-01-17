@@ -4,7 +4,7 @@ const nextConfig = {
   images:{
     unoptimized: true,
   },
-  pageExtensions: ['page.js', 'page.jsx', 'page.ts', 'page.tsx'],
+  // pageExtensions: ['page.js', 'page.jsx', 'page.ts', 'page.tsx'],
   reactStrictMode: false,
   swcMinify: true,
 };

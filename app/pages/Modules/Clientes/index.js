@@ -1,6 +1,6 @@
 "use client";
 
-import Clientes from "../../components/ClientesContainer";
+import Clientes from "../../../components/ClientesContainer";
 import styles from "./styles.module.css";
 
 export default function ClientesPage() {

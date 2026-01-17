@@ -7,17 +7,17 @@
 
 module.exports = {
   // URL del Web Service SOAP de Bejerman
-  SDK_URL: 'http://localhost/BejermanSDK/EFlexSDK.asmx',
+  SDK_URL: 'http://localhost/Bejerman-SDK-WS/EFlexSDK_Service.svc',
 
   // Credenciales de autenticación
   SDK_USER: 'admin',
-  SDK_PASSWORD: '',  // TODO: Configurar según entorno
+  SDK_PASSWORD: 'sb',  // TODO: Configurar según entorno
 
   // Empresa en Bejerman
-  SDK_EMPRESA: '',   // TODO: Código de empresa en Bejerman (ej: 'SBDAMODE')
+  SDK_EMPRESA: 'MODE',   // TODO: Código de empresa en Bejerman (ej: 'SBDAMODE')
 
   // Punto de trabajo y sucursal (opcionales para autenticación)
-  SDK_PTO_TRABAJO: '',
+  SDK_PTO_TRABAJO: '1',
   SDK_SUCURSAL: '',
 
   // Timeouts y reintentos
@@ -32,6 +32,6 @@ module.exports = {
 
   // Configuración de logs
   LOG_ENABLED: true,         // Habilitar logging
-  LOG_REQUESTS: false,       // Log de requests SOAP (verbose)
-  LOG_RESPONSES: false,      // Log de responses SOAP (verbose)
+  LOG_REQUESTS: true,        // Log de requests SOAP (verbose)
+  LOG_RESPONSES: true,       // Log de responses SOAP (verbose)
 };

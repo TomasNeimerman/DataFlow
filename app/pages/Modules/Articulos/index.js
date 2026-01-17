@@ -2,7 +2,7 @@
 "use client";
 
 import styles from './styles.module.css';
-import ArticulosForm from '../../components/ArticulosForm';
+import ArticulosForm from '../../../components/ArticulosForm';
 import { useState, useEffect } from 'react';
 
 

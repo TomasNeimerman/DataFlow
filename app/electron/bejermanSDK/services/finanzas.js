@@ -107,11 +107,12 @@ async function ingresarRecibo({ recibo, numeraFlex, emiteReg }) {
     // Otros errores
     if (config.LOG_ENABLED) {
       console.error('[finanzas] Error al ingresar recibo:', error.message);
+      console.error('[finanzas] Stack:', error.stack);
     }
 
     return {
       success: false,
-      message: `Error al conectar con el SDK: ${error.message}`,
+      message: error.message || 'Error desconocido al conectar con el SDK',
       error,
     };
   }
@@ -207,11 +208,12 @@ async function ingresarRecibosMultiples({ recibos, numeraFlex, emiteReg }) {
 
     if (config.LOG_ENABLED) {
       console.error('[finanzas] Error al ingresar recibos:', error.message);
+      console.error('[finanzas] Stack:', error.stack);
     }
 
     return {
       success: false,
-      message: `Error al conectar con el SDK: ${error.message}`,
+      message: error.message || 'Error desconocido al conectar con el SDK',
       error,
     };
   }

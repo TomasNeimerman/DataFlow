@@ -54,7 +54,7 @@ function buildSOAPRequest(circuito, operacion, parametros) {
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:tem="http://tempuri.org/">
+                  xmlns:tem="http://localhost:57213/">
    <soapenv:Header/>
    <soapenv:Body>
       <tem:EFlexSDK_WSEjecutar>
@@ -79,7 +79,7 @@ async function callSOAP(soapRequest, timeout = 30000) {
     const response = await axios.post(config.SDK_URL, soapRequest, {
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://tempuri.org/EFlexSDK_WSEjecutar',
+        'SOAPAction': 'http://localhost:57213/IEFlexSDK_Service/EFlexSDK_WSEjecutar',
       },
       timeout,
     });

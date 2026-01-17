@@ -68,7 +68,7 @@ async function renewToken() {
     const response = await axios.post(config.SDK_URL, soapRequest, {
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': 'http://tempuri.org/EFlexSDK_WSRegistro',
+        'SOAPAction': 'http://localhost:57213/IEFlexSDK_Service/EFlexSDK_WSRegistro',
       },
       timeout: config.SDK_TIMEOUT,
     });
@@ -122,7 +122,20 @@ async function renewToken() {
     }
 
     if (error.response) {
-      throw new Error(`Error del servidor al autenticar: ${error.response.status}`);
+      const status = error.response.status;
+      const statusText = error.response.statusText;
+      
+      if (config.LOG_ENABLED && config.LOG_RESPONSES) {
+        console.error('[tokenManager] Respuesta de error:', error.response.data);
+      }
+      
+      throw new Error(
+        `Error del servidor al autenticar (${status} ${statusText}).\n` +
+        `Verifique:\n` +
+        `- Usuario: ${config.SDK_USER}\n` +
+        `- Empresa: ${config.SDK_EMPRESA}\n` +
+        `- URL: ${config.SDK_URL}`
+      );
     }
 
     throw error;
@@ -152,7 +165,7 @@ function clearToken() {
 function buildAuthRequest(usuario, clave, empresa = '', ptoTrabajo = '', sucursal = '') {
   return `<?xml version="1.0" encoding="utf-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:tem="http://tempuri.org/">
+                  xmlns:tem="http://localhost:57213/">
    <soapenv:Header/>
    <soapenv:Body>
       <tem:EFlexSDK_WSRegistro>
