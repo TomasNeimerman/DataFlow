@@ -1,11 +1,10 @@
-// app/Cheques3/page.js
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
 import pageStyles from "./styles.module.css";
 import ChequesRechazados from "../../../components/CuadroChequesEdoR";
 
-/* ================= Helpers robustos ================= */
+/* ================= Helpers ================= */
 const pick = (o, keys, def = "") => {
   for (const k of keys) {
     const v = o?.[k];
@@ -62,54 +61,38 @@ const mapChequeRecord = (ch) => {
   const idCheque = String(
     pick(ch, ["ch3_ID", "idCheque", "IDCheque", "chequeId", "id", "c3sch3_ID"])
   );
-
   const emp = pick(ch, ["ch3emp_Codigo", "emp", "Empresa", "emp_codigo"]);
-
-  const cliente = pick(ch, ["Cliente", "cliente", "cli_RazSoc", "cl_RazSoc", "cli_RazSoc."]);
-
-  const nroDefinitivo = String(
-    pick(ch, ["ch3_NroCheq", "NroCheque", "NroCheq", "ch3_Nro", "numero", "Numero"])
-  );
-
-  const fvtoRaw = parseDateLoose(
-    pick(ch, ["ch3_FVto", "fvto", "FecVto", "FechaVencimiento", "fechaVto", "fecha_vto"])
-  );
-
-  // ⬇ NUEVO: soporta FecMod del back, y variantes
-  const fModRaw = parseDateLoose(
-    pick(ch, ["FecMod", "ch3_FCmbio", "FechaModificacion", "fMod", "c3s_FCmbio"])
-  );
-
+  const nroDefinitivo = String(pick(ch, ["ch3_NroCheq", "NroCheq", "ch3_Nro", "numero", "Numero"]));
+  const fvtoRaw = parseDateLoose(pick(ch, ["ch3_FVto", "fvto", "FecVto", "FechaVencimiento", "fechaVto", "fecha_vto"]));
   const importeRaw = numFromAny(pick(ch, ["ch3_Importe", "Importe", "importe", "monto"]));
-
   const estado = pick(ch, ["ch3_Edo", "Estado", "estado"]);
-
   const situacion = pick(ch, ["ch3sit_Cod", "Situacion", "situacion", "sit_Cod"]);
+  const fModRaw = parseDateLoose(pick(ch, ["FecMod", "fMod", "FechaModificacion", "c3s_FCmbio"]));
+  const cliente = pick(ch, ["cliente", "Cliente", "cli_RazonSocial", "RazonSocial"]);
 
   return {
     idCheque,
     emp,
-    cliente,
     nroDefinitivo,
     fvtoRaw,
     fvto: fvtoRaw ? fvtoRaw.toLocaleDateString() : "",
-    // ⬇ fecha/hora legible (si trae hora)
     fModRaw,
-    fMod: fModRaw
-      ? `${fModRaw.toLocaleDateString()} ${fModRaw.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-      : "",
+    fMod: fModRaw ? fModRaw.toLocaleDateString() : "",
     importeRaw,
     importe: importeRaw.toLocaleString(undefined, { style: "currency", currency: "ARS" }),
     estado,
     situacion,
+    cliente,
   };
 };
-/* ===================================================== */
+/* ============================================ */
 
 export default function Cheques3() {
   const [idCliente, setIdCliente] = useState(null);
   const [chequesRechazados, setChequesRechazados] = useState([]);
   const [situaciones, setSituaciones] = useState([]);
+  const [estados, setEstados] = useState([]); // ⬅ NUEVO catálogo de estados
+
   const [selectedChequesData, setSelectedChequesData] = useState({});
   const [importStatus, setImportStatus] = useState(null);
   const [importMessage, setImportMessage] = useState("");
@@ -118,66 +101,119 @@ export default function Cheques3() {
   const [runLogs, setRunLogs] = useState([]);
   const [runErrors, setRunErrors] = useState([]);
 
-  const [fieldMode, setFieldMode] = useState("situacion"); // 'situacion' | 'fvto' | 'numero'
+  const [fieldMode, setFieldMode] = useState("situacion");
 
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // idCliente
   useEffect(() => {
-    const fetchIdCliente = async () => {
+    (async () => {
       if (window.api) {
         const storedId = await window.api.getStoreValue("idCliente");
         setIdCliente(storedId);
       }
-    };
-    fetchIdCliente();
+    })();
   }, []);
 
+  // catálogos: Situación + Estado
   useEffect(() => {
-    const fetchData = async () => {
-      if (!idCliente) return;
-
-      setImportStatus("loading");
-      setImportMessage("Cargando datos...");
-
+    (async () => {
       try {
         if (window.api?.getSituacion) {
-          const response = await window.api.getSituacion();
-          setSituaciones(response?.success ? response.data || [] : []);
+          const r = await window.api.getSituacion();
+          setSituaciones(r?.success ? r.data || [] : []);
         }
+      } catch {
+        setSituaciones([]);
+      }
+      try {
+        // Intentá traer catálogo de Estados (nombre flexible)
+        const res =
+          (await window.api?.obtenerCheque3Rechazado?.()) ||
+          (await window.api?.cheques3?.obtenerCheque3Rechazado?.()) ||
+          null;
+        
+        if (res?.success && Array.isArray(res.cheque)) {
+          // Normalizo a {edo_Cod, edo_Desc}
+            const norm = Array.from(
+            new Set(
+              res.cheque
+              .map((e) => String(e?.Estado || "").trim())
+              .filter((code) => code !== "")
+            )
+            ).map((code) => ({ edo_Cod: code, edo_Desc: code }));
+            
+          console.log("Catálogo de Estados normalizado:", norm);
+          setEstados(norm);
+        } else {
+          setEstados([]); // fallback desde el front
+        }
+      } catch {
+        setEstados([]);
+      }
+    })();
+  }, []);
 
-        if (window.api?.obtenerCheque3Rechazado) {
+  // BUSCAR (lazy)
+  const handleBuscar = useCallback(
+    async (filters) => {
+      if (!idCliente) return;
+      setImportStatus("loading");
+      setImportMessage("Buscando cheques...");
+      setHasSearched(true);
+
+      try {
+        let arr = [];
+        if (window.api?.obtenerCheque3RechazadoFiltrado) {
+          const r = await window.api.obtenerCheque3RechazadoFiltrado(idCliente, filters);
+          arr = extractArray(r);
+        } else if (window.api?.cheques3?.buscar) {
+          const r = await window.api.cheques3.buscar(idCliente, filters);
+          arr = extractArray(r);
+        } else if (window.api?.obtenerCheque3Rechazado) {
           const r = await window.api.obtenerCheque3Rechazado(idCliente);
-          const arr = extractArray(r);
-          const mapped = arr.map(mapChequeRecord);
-
-          setChequesRechazados(mapped);
-
-          const initial = {};
-          mapped.forEach((row) => {
-            initial[row.idCheque] = {
-              isSelected: false,
-              situacionId: "",
-              situacionLabel: "",
-              newValue: "",
-              newValueLabel: "",
-            };
-          });
-          setSelectedChequesData(initial);
+          const all = extractArray(r);
+          arr = all
+            .filter((ch) => {
+              const idOk =
+                !filters.idCheque ||
+                String(ch.ch3_ID ?? ch.idCheque ?? "").includes(String(filters.idCheque));
+              const nroOk =
+                !filters.nroCheque ||
+                String(ch.ch3_NroCheq ?? ch.NroCheq ?? "").includes(String(filters.nroCheque));
+              return idOk && nroOk;
+            })
+            .slice(0, 3000);
         }
 
+        const mapped = arr.map(mapChequeRecord);
+        setChequesRechazados(mapped);
+
+        const initial = {};
+        mapped.forEach((row) => {
+          initial[row.idCheque] = {
+            isSelected: false,
+            situacionId: "",
+            situacionLabel: "",
+            newValue: "",
+            newValueLabel: "",
+          };
+        });
+        setSelectedChequesData(initial);
         setImportStatus(null);
         setImportMessage("");
-      } catch (error) {
-        console.error("Error en la carga inicial de datos:", error);
-        setImportStatus("error");
-        setImportMessage("Error general al cargar los datos.");
+      } catch (e) {
+        console.error(e);
         setChequesRechazados([]);
-        setSituaciones([]);
         setSelectedChequesData({});
+        setImportStatus("error");
+        setImportMessage("Error al buscar cheques.");
       }
-    };
+    },
+    [idCliente]
+  );
 
-    fetchData();
-  }, [idCliente]);
-
+  /* ------- selección / edición helpers ------- */
   const primeDefaultsForField = useCallback(
     (row, mode) => {
       if (!row) return { value: "", label: "" };
@@ -186,12 +222,8 @@ export default function Cheques3() {
         const s = (situaciones || []).find((x) => String(x.sit_Cod) === code);
         return { value: code, label: s ? s.sit_Desc : "" };
       }
-      if (mode === "fvto") {
-        return { value: fmtYYYYMMDD(row.fvtoRaw), label: "" };
-      }
-      if (mode === "numero") {
-        return { value: row.nroDefinitivo ? String(row.nroDefinitivo) : "", label: "" };
-      }
+      if (mode === "fvto") return { value: fmtYYYYMMDD(row.fvtoRaw), label: "" };
+      if (mode === "numero") return { value: row.nroDefinitivo ? String(row.nroDefinitivo) : "", label: "" };
       return { value: "", label: "" };
     },
     [situaciones]
@@ -272,7 +304,6 @@ export default function Cheques3() {
       const nv = String(value || "");
       const s = fieldMode === "situacion" ? (situaciones || []).find((x) => String(x.sit_Cod) === nv) : null;
       const nvl = s ? s.sit_Desc : "";
-
       setSelectedChequesData((prev) => {
         const out = {};
         Object.keys(prev).forEach((id) => {
@@ -299,7 +330,9 @@ export default function Cheques3() {
           const defaults = checked ? primeDefaultsForField(ch, fieldMode) : { value: "", label: "" };
           newData[ch.idCheque] = {
             isSelected: checked,
-            situacionId: checked ? prev[ch.idCheque]?.situacionId || (ch.situacion ? String(ch.situacion) : "") : "",
+            situacionId: checked
+              ? prev[ch.idCheque]?.situacionId || (ch.situacion ? String(ch.situacion) : "")
+              : "",
             situacionLabel: checked ? prev[ch.idCheque]?.situacionLabel || "" : "",
             newValue: defaults.value,
             newValueLabel: defaults.label,
@@ -311,45 +344,51 @@ export default function Cheques3() {
     [chequesRechazados, fieldMode, primeDefaultsForField]
   );
 
-  const reloadAfterUpdate = useCallback(async () => {
-    try {
-      if (window.api?.obtenerCheque3Rechazado && idCliente) {
-        const r = await window.api.obtenerCheque3Rechazado(idCliente);
-        const arr = extractArray(r);
-        const mapped = arr.map(mapChequeRecord);
+  /* ------- comparación para “sin cambios” ------- */
+  const isRowChanged = useCallback((row, mode, newVal) => {
+    if (!row) return false;
+    if (mode === "situacion") return String(row.situacion ?? "") !== String(newVal ?? "");
+    if (mode === "fvto") return String(fmtYYYYMMDD(row.fvtoRaw)) !== String(newVal ?? "");
+    if (mode === "numero") return String(row.nroDefinitivo ?? "") !== String(newVal ?? "");
+    return false;
+  }, []);
 
-        setChequesRechazados(mapped);
-
-        const initialSelected = {};
-        mapped.forEach((row) => {
-          initialSelected[row.idCheque] = {
-            isSelected: false,
-            situacionId: "",
-            situacionLabel: "",
-            newValue: "",
-            newValueLabel: "",
-          };
-        });
-        setSelectedChequesData(initialSelected);
-        setRefreshKey((k) => k + 1);
-      }
-    } catch (e) {
-      console.error("Error al recargar datos:", e);
-    }
-  }, [idCliente]);
-
+  /* ------- actualizar ------- */
   const handleImportarClick = async () => {
     setRunLogs([]);
     setRunErrors([]);
 
-    const items = Object.keys(selectedChequesData)
-      .filter((id) => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.newValue !== "")
-      .map((id) => ({ idCheque: parseInt(id, 10), value: selectedChequesData[id].newValue }));
+    const selected = Object.keys(selectedChequesData)
+      .filter((id) => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.newValue !== "");
 
-    if (items.length === 0) {
+    const changedItems = [];
+    const unchangedIds = [];
+    selected.forEach((id) => {
+      const row = chequesRechazados.find((r) => String(r.idCheque) === String(id));
+      const nv = selectedChequesData[id].newValue;
+      if (isRowChanged(row, fieldMode, nv)) {
+        changedItems.push({ idCheque: parseInt(id, 10), value: nv, row });
+      } else {
+        unchangedIds.push(id);
+      }
+    });
+
+    if (selected.length === 1 && changedItems.length === 0) {
       setImportStatus("info");
-      setImportMessage("Seleccioná al menos un cheque y cargá el valor para actualizar.");
-      setTimeout(() => { setImportStatus(null); setImportMessage(""); }, 2500);
+      setImportMessage("No hay cambios detectados.");
+      setTimeout(() => {
+        setImportStatus(null);
+        setImportMessage("");
+      }, 2500);
+      return;
+    }
+    if (changedItems.length === 0) {
+      setImportStatus("info");
+      setImportMessage("No hay cambios para aplicar.");
+      setTimeout(() => {
+        setImportStatus(null);
+        setImportMessage("");
+      }, 2500);
       return;
     }
 
@@ -362,13 +401,27 @@ export default function Cheques3() {
         const errs = [];
 
         await Promise.all(
-          items.map(async (it) => {
+          changedItems.map(async (it) => {
             try {
               const res = await window.api.updateCheque3Field(it.idCheque, fieldMode, it.value);
               if (!res?.success) {
                 errs.push(`Cheque ${it.idCheque}: ${res?.message || "Fallo al actualizar."}`);
               } else {
                 logs.push(`Cheque ${it.idCheque}: ${res.message || "Actualizado."}`);
+                if (fieldMode === "situacion") {
+                  const reg = await window.api.setRegistro(
+                    it.row?.emp,
+                    it.row?.suc,
+                    it.idCheque,
+                    it.value,
+                    it.row?.situacion
+                  );
+                  if (reg?.success === false) {
+                    errs.push(`Registro situación ${it.idCheque}: ${reg?.message || "Fallo registrando."}`);
+                  } else if (reg?.message) {
+                    logs.push(`Registro situación ${it.idCheque}: ${reg.message}`);
+                  }
+                }
               }
             } catch (e) {
               errs.push(`Cheque ${it.idCheque}: ${e?.message || "Error inesperado."}`);
@@ -376,12 +429,16 @@ export default function Cheques3() {
           })
         );
 
+        if (unchangedIds.length > 0) {
+          logs.push(`Ignorados sin cambio: ${unchangedIds.length}`);
+        }
+
         setRunLogs(logs);
         setRunErrors(errs);
         if (errs.length === 0) {
           setImportStatus("success");
           setImportMessage("Actualización completada.");
-        } else if (errs.length < items.length) {
+        } else if (errs.length < changedItems.length) {
           setImportStatus("info");
           setImportMessage(`Con advertencias: ${errs.length} error(es).`);
         } else {
@@ -389,7 +446,7 @@ export default function Cheques3() {
           setImportMessage("No se pudo actualizar ninguno.");
         }
 
-        await reloadAfterUpdate();
+        setRefreshKey((k) => k + 1);
       } else {
         setImportStatus("error");
         setImportMessage("API no disponible.");
@@ -399,7 +456,10 @@ export default function Cheques3() {
       setImportStatus("error");
       setImportMessage("Error inesperado al actualizar.");
     } finally {
-      setTimeout(() => { setImportStatus(null); setImportMessage(""); }, 3000);
+      setTimeout(() => {
+        setImportStatus(null);
+        setImportMessage("");
+      }, 3000);
     }
   };
 
@@ -410,6 +470,7 @@ export default function Cheques3() {
       <ChequesRechazados
         chequesRechazados={chequesRechazados}
         situaciones={situaciones}
+        estados={estados}          
         onChequeToggle={handleChequeToggle}
         selectedChequesData={selectedChequesData}
         onImportarClick={handleImportarClick}
@@ -424,6 +485,8 @@ export default function Cheques3() {
         onFieldModeChange={handleFieldModeChange}
         onRowValueChange={handleRowValueChange}
         onGlobalValueChange={handleGlobalValueChange}
+        onBuscar={handleBuscar}
+        lazyMode={true}
       />
     </div>
   );

@@ -240,7 +240,7 @@ const openDemo = (m) => {
               key={m.id || m.nombre}
               className={`${styles.card} ${!m.habilitado ? styles.cardDisabled : ""}`}
               onClick={() => goTo(m)}
-              title={m.texto || m.nombre}
+              title={!m.habilitado ? `No habilitado` : m.texto || m.nombre}
               aria-label={`Abrir módulo ${m.nombre}`}
             >
               <div className={styles.circle}>

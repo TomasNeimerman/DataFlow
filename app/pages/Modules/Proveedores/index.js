@@ -1,13 +1,12 @@
-"use client"
-import styles from './styles.module.css'
+"use client";
 
-export default function Proveedores(){
+import Proveedores from "../../../components/Proveedores";
+import styles from "./styles.module.css";
 
-    return(
-      <div className={styles.body}>
-       <div className={styles.container}>
-        EN CONSTRUCCIÓN
-        </div>
-      </div>
-    )
+export default function ProveedoresPage() {
+  return (
+    <div className={styles.body}>
+      <Proveedores />
+    </div>
+  );
 }

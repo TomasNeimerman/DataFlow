@@ -28,7 +28,7 @@
 
 /* ===== Card compacta y estable ===== */
 .card {
-  background: #fff;
+  background: #f1f1f1;
   border: 1px solid #e8e8e8;
   border-radius: 12px;
   padding: 8px 8px 22px;         /* reserva para el badge */
@@ -52,7 +52,7 @@
   box-shadow: 0 6px 14px rgba(0,0,0,0.08);
   border-color: #dcdcdc;
 }
-.card:active { box-shadow: none; }
+.card:active { box-shadow: none;}
 
 /* Deshabilitados: mismo tamaño, borde dashed y menos énfasis */
 .cardDisabled {
@@ -68,7 +68,8 @@
   gap: 6px;
   position: relative;
   overflow: hidden;
-  background-color: #f0f0f0;
+  background-color: #c3c2c2;
+  cursor: help;
 }
 
 /* ===== Círculo/ícono ===== */

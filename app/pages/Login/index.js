@@ -6,11 +6,15 @@ import { useRouter } from "next/router";
 import styles from "./styles.module.css";
 
 export default function Login() {
+  const router = useRouter();
+
   const [usuario, setUsuario] = useState("");
   const [contraseña, setContraseña] = useState("");
+  const [remember, setRemember] = useState(true);        // ✅ toggle local
+  const [rememberPersisted, setRememberPersisted] = useState(false);
+  const [autoTrying, setAutoTrying] = useState(false);   // ✅ loader autologin
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const hardRefresh = () => {
     try {
@@ -32,17 +36,47 @@ export default function Login() {
     }
   }, []);
 
-  // Si ya hay sesión, ir a /Index
+  // 🚀 Arranque: sincroniza remember + intenta autologin si corresponde
   useEffect(() => {
     (async () => {
       try {
+        // ✅ Preferí el IPC remember:status (cae a store si no existe)
+        let status = null;
+        try { status = await window.api?.['remember:status']?.(); } catch {}
+        if (!status) {
+          const enabled = await window.api?.getStoreValue?.("remember.enabled");
+          status = { enabled: !!enabled, user: "" };
+        }
+
+        setRemember(!!status.enabled);
+        setRememberPersisted(!!status.enabled);
+        // Prefill de usuario si lo tenemos (nice UX)
+        if (status?.user) setUsuario(status.user);
+
+        if (status?.enabled) {
+          setAutoTrying(true);
+          const r = await window.api?.attemptAutoLogin?.();
+          setAutoTrying(false);
+          if (r?.success) {
+            router.replace("/Index");
+            setTimeout(hardRefresh, 60);
+            return;
+          }
+        }
+      } catch {}
+
+      // fallback: si ya hay idCliente, redirige igual
+      try {
         const idCliente = await window.api?.getStoreValue?.("idCliente");
-        if (idCliente) router.replace("/Index");
+        if (idCliente) {
+          router.replace("/Index");
+          setTimeout(hardRefresh, 60);
+        }
       } catch {}
     })();
   }, [router]);
 
-  // Redirigir/aplicar refresh cuando el main confirma login
+  // Redirigir cuando el main confirma login
   useEffect(() => {
     const unsub = subscribe("session:state", async (s) => {
       if (s?.status === "logged-in") {
@@ -70,7 +104,9 @@ export default function Login() {
         return;
       }
 
-      // ───────── PASO ODBC (getServer + save + connect) ─────────
+      // ────────────────────────────────────────────────
+      // PASO ODBC (getServer + save + connect) + DEBUG
+      // ────────────────────────────────────────────────
       try {
         console.log("[LOGIN] Paso ODBC: getServerForLogin...");
         const srv = await window.api.getServerForLogin(usuario, contraseña);
@@ -80,11 +116,8 @@ export default function Login() {
         if (srv?.ok && srv?.server) {
           serverToUse = srv.server;
         } else {
-          const msg =
-            srv?.message || "No se pudo determinar el servidor del cliente.";
-          alert(
-            `Atención\n\n${msg}\n\nSe usará "localhost" de manera automática.`
-          );
+          const msg = srv?.message || "No se pudo determinar el servidor del cliente.";
+          alert(`Atención\n\n${msg}\n\nSe usará "localhost" de manera automática.`);
           serverToUse = "localhost";
         }
 
@@ -101,7 +134,7 @@ export default function Login() {
         const pre = await window.api.odbcConnectAndSave();
         console.log("[LOGIN] odbcConnectAndSave resp:", pre);
 
-        // 🔦 Diagnóstico ODBC (usa el debug que devuelve el helper)
+        // 🔦 Diagnóstico ODBC ——— (restaurado)
         if (pre?.debug) {
           const d = pre.debug || {};
           const lines = [
@@ -113,29 +146,13 @@ export default function Login() {
               ? `Variante: server=${d.usedVariant.server} db=${d.usedVariant.database} enc=${d.usedVariant.encrypt} trust=${d.usedVariant.trust}`
               : "",
             d.connStrPreview ? `Conn: ${d.connStrPreview}` : "",
-            d.drivers?.length
-              ? `Drivers (x64): ${d.drivers.join(" | ")}`
-              : "(no se detectaron drivers)",
-            d.dsn64
-              ? `DSN64: exists=${d.dsn64.exists} server=${
-                  d.dsn64.server || "-"
-                } driver=${d.dsn64.driverPath || "-"}`
-              : "",
-            d.dsn32
-              ? `DSN32: exists=${d.dsn32.exists} server=${
-                  d.dsn32.server || "-"
-                } driver=${d.dsn32.driverPath || "-"}`
-              : "",
-            typeof d.managerDbExists === "boolean"
-              ? `BD manager existe: ${d.managerDbExists ? "sí" : "no"}`
-              : "",
-            d.connPropsError
-              ? `ConnProps error: ${d.connPropsError}`
-              : "",
+            d.drivers?.length ? `Drivers (x64): ${d.drivers.join(" | ")}` : "(no se detectaron drivers)",
+            d.dsn64 ? `DSN64: exists=${d.dsn64.exists} server=${d.dsn64.server || "-"} driver=${d.dsn64.driverPath || "-"}` : "",
+            d.dsn32 ? `DSN32: exists=${d.dsn32.exists} server=${d.dsn32.server || "-"} driver=${d.dsn32.driverPath || "-"}` : "",
+            typeof d.managerDbExists === "boolean" ? `BD manager existe: ${d.managerDbExists ? "sí" : "no"}` : "",
+            d.connPropsError ? `ConnProps error: ${d.connPropsError}` : "",
             d.persistError ? `Persist error: ${d.persistError}` : "",
-            d.managerCheckError
-              ? `Manager check error: ${d.managerCheckError?.message || d.managerCheckError}`
-              : "",
+            d.managerCheckError ? `Manager check error: ${d.managerCheckError?.message || d.managerCheckError}` : "",
             d.timings ? `Timings: ${JSON.stringify(d.timings)}` : "",
           ].filter(Boolean);
 
@@ -147,9 +164,7 @@ export default function Login() {
         }
 
         if (!pre?.success) {
-          setError(
-            pre?.message || "No se pudo conectar con la configuración del ODBC"
-          );
+          setError(pre?.message || "No se pudo conectar con la configuración del ODBC");
           setLoading(false);
           return;
         }
@@ -160,9 +175,11 @@ export default function Login() {
         return;
       }
 
-      // ───────── PASO LOGIN contra el main/DB ─────────
+      // ────────────────────────────────
+      // PASO LOGIN contra el main/DB
+      // ────────────────────────────────
       console.log("[LOGIN] llamando window.api.login...");
-      const response = await window.api?.login?.(usuario, contraseña);
+      const response = await window.api?.login?.({ usuario, contraseña, remember }); // ✅ remember via payload
       console.log("[LOGIN] respuesta login:", response);
 
       if (!response?.success) {
@@ -175,15 +192,15 @@ export default function Login() {
       localStorage.setItem("fechaInicio", new Date().toISOString());
       localStorage.setItem("jwtToken", response.token || "");
 
-      // por las dudas, logueamos idCliente
+      // Refresca el badge (lee remember:status)
       try {
-        const idCliente = await window.api?.getStoreValue?.("idCliente");
-        console.log("[LOGIN] idCliente post-login:", idCliente);
-      } catch (e) {
-        console.warn("[LOGIN] No se pudo leer idCliente:", e);
+        const st = await window.api?.['remember:status']?.();
+        setRememberPersisted(!!st?.enabled);
+      } catch {
+        const enabled = await window.api?.getStoreValue?.("remember.enabled");
+        setRememberPersisted(!!enabled);
       }
 
-      // Redirección
       console.log("[LOGIN] router.push('/Index')");
       router.push("/Index");
     } catch (err) {
@@ -198,15 +215,32 @@ export default function Login() {
     if (e.key === "Enter") handleLogin();
   };
 
+  // 🧹 Olvidar este dispositivo (deshabilita auto-login y borra credenciales seguras)
+  const handleForgetThisDevice = async () => {
+    try {
+      if (window.api?.['remember:disable']) {
+        await window.api['remember:disable']();                 // ✅ borra keytar + flags
+      } else {
+        // fallback viejo
+        await window.api?.setStoreValue?.({ key: "remember.enabled", value: false });
+        await window.api?.setStoreValue?.({ key: "remember.user", value: "" });
+        await window.api?.setStoreValue?.({ key: "remember.deviceId", value: "" });
+      }
+      setRemember(false);
+      setRememberPersisted(false);
+      alert("Listo. Este dispositivo no auto-iniciará sesión.");
+    } catch (e) {
+      console.warn("No se pudo desactivar 'Recordar' local:", e);
+    }
+  };
+
   return (
     <div className={styles.body}>
       <div className={styles.container} onKeyDown={onKeyDown}>
         <h1 className={styles.title}>Ingresar</h1>
 
         <div className={styles.inputgroup}>
-          <label htmlFor="usuario" className={styles.label}>
-            Usuario
-          </label>
+          <label htmlFor="usuario" className={styles.label}>Usuario</label>
           <input
             type="text"
             id="usuario"
@@ -214,13 +248,12 @@ export default function Login() {
             value={usuario}
             onChange={(e) => setUsuario(e.target.value)}
             required
+            autoFocus
           />
         </div>
 
         <div className={styles.inputgroup}>
-          <label htmlFor="contraseña" className={styles.label}>
-            Contraseña
-          </label>
+          <label htmlFor="contraseña" className={styles.label}>Contraseña</label>
           <input
             className={styles.input}
             type="password"
@@ -231,19 +264,32 @@ export default function Login() {
           />
         </div>
 
+        {/* ✅ Recordar contraseña (auto-login) */}
+        <div className={styles.inputgroup} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            id="remember"
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          <label htmlFor="remember" className={styles.label} style={{ margin: 0 }}>
+            Recordar contraseña
+          </label>
+        </div>
+
+
         {error && <p className={styles.error}>{error}</p>}
 
-        <button className={styles.btn} onClick={handleLogin} disabled={loading}>Ingresar</button>
-          {loading ? (
- 
-            <div className={styles.loadingWrapper}>
-              <span className={styles.loadingText}>Ingresando...</span>
-              <div className={styles.loaderBar}></div>
-            </div>
-          ) : (
-            ""
-          )}
-        
+        <button className={styles.btn} onClick={handleLogin} disabled={loading || autoTrying}>
+          {autoTrying ? "Verificando..." : "Ingresar"}
+        </button>
+
+        {(loading || autoTrying) ? (
+          <div className={styles.loadingWrapper}>
+            <span className={styles.loadingText}>{autoTrying ? "Verificando..." : "Ingresando..."}</span>
+            <div className={styles.loaderBar}></div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

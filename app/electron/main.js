@@ -28,6 +28,18 @@ const { startSessionHeartbeat, stopSessionHeartbeat } = require('./helpers/sessi
 const { odbcConnectAndSave, getServerForLogin, saveServerForOdbc } =require('./helpers/ODBCConnection.js');
 let __adminPool = null;
 
+const APP_NAME = 'DataFlow';
+try { if (app.getName() !== APP_NAME) app.setName(APP_NAME); } catch {}
+try {
+  const fixed = path.join(app.getPath('appData'), APP_NAME);
+  app.setPath('userData', fixed);
+} catch {}
+const RESET_POLICY = (process.env.APP_RESET_POLICY || 'NONE').toUpperCase(); // 'NONE' | 'BOUND_ONLY' | 'FULL'
+const RESET_ON_BOOT = process.argv.includes('--reset-store') || RESET_POLICY === 'FULL';
+if (RESET_ON_BOOT) {
+  writeToLog('RESET_ON_BOOT=TRUE -> limpiando store COMPLETO');
+  clearStoreForLogin({ preserveRemember: false });  // solo si querés wipe total
+}
 /* ────────────────────────────────────────────────────────────────────────────
  *  OS / RUNTIME SAFETY FLAGS
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -131,6 +143,275 @@ process.on('unhandledRejection', async (reason) => {
 process.on('SIGINT',  async () => { await finalizeActiveSession('SIGINT',  { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
 process.on('SIGTERM', async () => { await finalizeActiveSession('SIGTERM', { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
 process.on('SIGHUP',  async () => { await finalizeActiveSession('SIGHUP',  { releaseLock: RELEASE_SESSION_ON_EXIT }); app.exit(0); process.exit(0); });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * REMEMBER PASSWORD (keytar + fallback cifrado) 
+ * ──────────────────────────────────────────────────────────────────────────── */
+const crypto = require('crypto');
+let keytar = null;
+try { keytar = require('keytar'); } catch { /* sin keytar => fallback */ }
+
+const KEYTAR_SERVICE = 'DataFlow-Login';
+const normalizeDevice = (d) => String(d || '').trim().toUpperCase();
+const kAccount = (usuario, deviceId) => `${String(usuario||'').trim()}::${normalizeDevice(deviceId)}`;
+
+// Fallback AES-256-CBC (clave = hash del deviceId)
+function encFallback(secret, plain) {
+  const key = crypto.createHash('sha256').update(String(secret)).digest();
+  const iv  = crypto.randomBytes(16);
+  const c   = crypto.createCipheriv('aes-256-cbc', key, iv);
+  const out = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+  return `${iv.toString('hex')}:${out.toString('hex')}`;
+}
+function decFallback(secret, blob) {
+  try {
+    const [ivHex, dataHex] = String(blob).split(':');
+    const key = crypto.createHash('sha256').update(String(secret)).digest();
+    const iv  = Buffer.from(ivHex, 'hex');
+    const d   = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    const out = Buffer.concat([d.update(Buffer.from(dataHex, 'hex')), d.final()]);
+    return out.toString('utf8');
+  } catch { return null; }
+}
+async function autoLoginIfRememberedAndGotoIndex() {
+  try {
+    // 1) Leer credenciales recordadas (keytar o fallback)
+    const creds = await readRememberedCredentials(); // { usuario, contraseña, deviceId } | null
+    if (!creds) return; // nada que hacer
+
+    const { usuario, contraseña, deviceId } = creds;
+
+    // 2) Autenticar
+    const auth = await iniciarSesionService({ usuario, contraseña, deviceId });
+    if (!(auth?.success && auth.user && auth.token && auth.user.IdCliente)) {
+      writeToLog('AutoLogin: credenciales inválidas o user sin IdCliente'); 
+      return;
+    }
+    const isAdmin = !!auth.user.admin;
+
+    // 3) Chequear lock (bypass si admin)
+    const check = await verificarSesionActivaService({ usuario, deviceId, isAdmin });
+    if (!check?.success) {
+      writeToLog(`AutoLogin: lock rechazado (${check?.code || '???'})`);
+      return;
+    }
+
+    // 4) Persistencia mínima
+    store.set('idCliente', auth.user.IdCliente);
+    store.set('user', usuario);
+    store.set('jwtToken', auth.token);
+    store.set('fechaInicio', new Date().toISOString());
+    store.set('deviceId', deviceId);
+    store.set('isAdmin', isAdmin ? 1 : 0);
+
+    // 5) Guardar snapshot de store en la fila de SesionesActivas
+    const storeBlob = buildSessionStoreBlob({ userObj: auth.user, deviceId });
+    const lock = await registrarSesionActivaService({ usuario, deviceId, token: auth.token, storeBlob, isAdmin });
+    if (!lock?.success) {
+      writeToLog(`AutoLogin: no se pudo registrar/activar la sesión (${lock?.code || '???'})`);
+      return;
+    }
+
+    // 6) Heartbeat + watchers
+    activeSession = { usuario, deviceId, token: auth.token, isAdmin };
+    stopSessionHeartbeat?.();
+    startSessionHeartbeat({
+      usuario, deviceId,
+      onTick: async ({ usuario, deviceId }) => {
+        try { await heartbeatSesionActivaService({ usuario, deviceId }); } catch {}
+      }
+    });
+    stopSessionWatchdog?.();
+    stopSessionRealtimeWatcher?.();
+    startSessionRealtimeWatcher({ usuario, deviceId });
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 250, isAdmin });
+
+    // 7) Módulos (para el menú)
+    const modulesResult = await obtenerModulosService(auth.user.IdCliente);
+    if (modulesResult?.success) {
+      modulosCache = modulesResult.modulos.map(m => ({
+        id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
+        link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
+      }));
+    } else {
+      modulosCache = [];
+    }
+
+    // 8) Navegar directo a /Index y avisar al renderer
+    const base = getBaseOrigin();
+    await mainWindow?.loadURL(`${base}/Index`);
+    mainWindow?.webContents.send('session:state', { status: 'logged-in', auto: true });
+    writeToLog('AutoLogin: OK → /Index');
+  } catch (e) {
+    writeToLog(`AutoLogin error: ${e.message}`);
+  }
+}
+
+async function saveRememberedCredentials({ usuario, password, deviceId }) {
+  const account = kAccount(usuario, deviceId);
+  if (keytar) {
+    await keytar.setPassword(KEYTAR_SERVICE, account, password);
+  } else {
+    const blob = encFallback(deviceId, password);
+    store.set(`remember.blob.${account}`, blob);
+  }
+  store.set('remember.enabled', true);
+  store.set('remember.user', usuario);
+  store.set('remember.deviceId', normalizeDevice(deviceId));
+}
+
+async function clearRememberedCredentials() {
+  const usuario  = store.get('remember.user') || '';
+  const deviceId = (store.get('remember.deviceId') || getDeviceId(store) || '').toString().trim().toUpperCase();
+  const account  = `${String(usuario).trim()}::${deviceId}`;
+
+  if (keytar) {
+    try { await keytar.deletePassword('DataFlow-Login', account); } catch {}
+  } else {
+    try { store.delete(`remember.blob.${account}`); } catch {}
+  }
+
+  // limpiar flags del store
+  try { store.delete('remember.enabled'); } catch {}
+  try { store.delete('remember.user'); } catch {}
+  try { store.delete('remember.deviceId'); } catch {}
+}
+
+async function readRememberedCredentials() {
+  const enabled = !!store.get('remember.enabled');
+  if (!enabled) return null;
+
+  const usuario  = store.get('remember.user');
+  const deviceId = normalizeDevice(store.get('remember.deviceId') || getDeviceId(store));
+  if (!usuario || !deviceId) return null;
+
+  const account = kAccount(usuario, deviceId);
+  if (keytar) {
+    const pass = await keytar.getPassword(KEYTAR_SERVICE, account);
+    if (!pass) return null;
+    return { usuario, contraseña: pass, deviceId };
+  } else {
+    const blob = store.get(`remember.blob.${account}`);
+    if (!blob) return null;
+    const pass = decFallback(deviceId, blob);
+    if (!pass) return null;
+    return { usuario, contraseña: pass, deviceId };
+  }
+}
+
+// (debug mínimo)
+writeToLog(`Remember creds: ${keytar ? 'keytar OK' : 'fallback crypto'}`);
+/* ────────────────────────────────────────────────────────────────────────────
+ *  NAV & STORE UTILITIES
+ * ──────────────────────────────────────────────────────────────────────────── */
+function clearStoreForLogin({ preserveRemember = true } = {}) {
+  if (!store) return;
+
+  // 🔧 NUEVO: solo preservamos remember.* si remember.enabled === true
+  const rememberEnabledNow = !!store.get('remember.enabled');
+  const effectivePreserveRemember = preserveRemember && rememberEnabledNow;
+
+  const prev = { ...store.store };
+  const keep = {
+    deviceId: prev.deviceId,
+    rememberEnabled:    effectivePreserveRemember ? prev['remember.enabled']   : undefined,
+    rememberUser:       effectivePreserveRemember ? prev['remember.user']      : undefined,
+    rememberDeviceId:   effectivePreserveRemember ? prev['remember.deviceId']  : undefined,
+    rememberBlobs:      effectivePreserveRemember
+                         ? Object.fromEntries(Object.entries(prev).filter(([k]) => k.startsWith('remember.blob.')))
+                         : {},
+  };
+
+  if(!store.get('remember.enabled')){
+    store.clear()
+  }
+
+  // Siempre conservamos deviceId
+  if (keep.deviceId) store.set('deviceId', keep.deviceId);
+
+  // Solo si se pidió y corresponde preservar remember.*
+  if (effectivePreserveRemember) {
+    if (keep.rememberEnabled)  store.set('remember.enabled', true);
+    if (keep.rememberUser)     store.set('remember.user', keep.rememberUser);
+    if (keep.rememberDeviceId) store.set('remember.deviceId', keep.rememberDeviceId);
+    for (const [k, v] of Object.entries(keep.rememberBlobs)) {
+      store.set(k, v);
+    }
+  }
+
+  writeToLog(`electron-store limpiado (preserveRemember=${effectivePreserveRemember})`);
+
+  try {
+    const next = { ...store.store };
+    const delta = pickWhitelistedDelta(next, prev);
+    if (Object.keys(delta).length) broadcast('store:any-change', delta);
+  } catch {}
+}
+
+
+function getBaseOrigin() {
+  try {
+    if (isDev) return 'http://localhost:3000';
+    const current = mainWindow?.webContents?.getURL();
+    if (current && current.startsWith('http')) {
+      const { origin } = new URL(current);
+      return origin;
+    }
+  } catch {}
+  return 'http://localhost:3000';
+}
+
+function navigateTo(pathname) {
+  try {
+    const base = getBaseOrigin();
+    const target = `${base}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+    if (target.endsWith('/Login')) clearStoreForLogin();
+    writeToLog(`Navegando a: ${target}`);
+    mainWindow?.loadURL(target);
+  } catch (e) {
+    writeToLog(`navigateTo error: ${e.message}`);
+  }
+}
+
+async function refreshModulosCache() {
+  try {
+    const idCliente = store?.get('idCliente');
+    if (!idCliente) {
+      modulosCache = [];
+      broadcast('menu:modules-updated', { modulos: [] });
+      return;
+    }
+    const allRes = await obtenerModulosService(idCliente);         // 1) Todos (con Video)
+    const refRes = await obtenerModulosXClienteService(idCliente);  // 2) Ids habilitados
+
+    if (allRes?.success) {
+      const idsHabilitados =
+        (refRes && refRes.success && Array.isArray(refRes.idsHabilitados))
+          ? new Set(refRes.idsHabilitados)
+          : (refRes?.modulosXCliente ? new Set(refRes.modulosXCliente.map(r => r.IdModulo)) : new Set());
+
+      modulosCache = (allRes.modulos || []).map(m => ({
+        id: m.id,
+        nombre: m.nombre,
+        texto: m.texto,
+        icono: m.icono,
+        link: m.link,
+        pathExcel: m.pathExcel,
+        video: m.video || null,
+        habilitado: idsHabilitados.has(m.id),
+        countClientesPorModulo: m.countClientesPorModulo
+      }));
+      broadcast('menu:modules-updated', { modulos: modulosCache });
+    } else {
+      modulosCache = [];
+      broadcast('menu:modules-updated', { modulos: [] });
+    }
+  } catch (e) {
+    writeToLog(`refreshModulosCache error: ${e.message}`);
+    modulosCache = [];
+    broadcast('menu:modules-updated', { modulos: [] });
+  }
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  SESSION WATCHDOG / HEARTBEAT
@@ -325,89 +606,6 @@ async function finalizeActiveSession(reason = 'unknown', { releaseLock = RELEASE
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- *  NAV & STORE UTILITIES
- * ──────────────────────────────────────────────────────────────────────────── */
-function clearStoreForLogin() {
-  if (!store) return;
-  const keep = { deviceId: store.get('deviceId') };
-  try {
-    const prev = { ...store.store };
-    store.clear();
-    if (keep.deviceId) store.set('deviceId', keep.deviceId);
-    writeToLog('electron-store limpiado por navegación a /Login');
-
-    const next = { ...store.store };
-    const delta = pickWhitelistedDelta(next, prev);
-    if (Object.keys(delta).length) broadcast('store:any-change', delta);
-  } catch (e) {
-    writeToLog(`Error limpiando store: ${e.message}`);
-  }
-}
-
-function getBaseOrigin() {
-  try {
-    if (isDev) return 'http://localhost:3000';
-    const current = mainWindow?.webContents?.getURL();
-    if (current && current.startsWith('http')) {
-      const { origin } = new URL(current);
-      return origin;
-    }
-  } catch {}
-  return 'http://localhost:3000';
-}
-
-function navigateTo(pathname) {
-  try {
-    const base = getBaseOrigin();
-    const target = `${base}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
-    if (target.endsWith('/Login')) clearStoreForLogin();
-    writeToLog(`Navegando a: ${target}`);
-    mainWindow?.loadURL(target);
-  } catch (e) {
-    writeToLog(`navigateTo error: ${e.message}`);
-  }
-}
-
-async function refreshModulosCache() {
-  try {
-    const idCliente = store?.get('idCliente');
-    if (!idCliente) {
-      modulosCache = [];
-      broadcast('menu:modules-updated', { modulos: [] });
-      return;
-    }
-    const allRes = await obtenerModulosService(idCliente);         // 1) Todos (con Video)
-    const refRes = await obtenerModulosXClienteService(idCliente);  // 2) Ids habilitados
-
-    if (allRes?.success) {
-      const idsHabilitados =
-        (refRes && refRes.success && Array.isArray(refRes.idsHabilitados))
-          ? new Set(refRes.idsHabilitados)
-          : (refRes?.modulosXCliente ? new Set(refRes.modulosXCliente.map(r => r.IdModulo)) : new Set());
-
-      modulosCache = (allRes.modulos || []).map(m => ({
-        id: m.id,
-        nombre: m.nombre,
-        texto: m.texto,
-        icono: m.icono,
-        link: m.link,
-        pathExcel: m.pathExcel,
-        video: m.video || null,
-        habilitado: idsHabilitados.has(m.id),
-        countClientesPorModulo: m.countClientesPorModulo
-      }));
-      broadcast('menu:modules-updated', { modulos: modulosCache });
-    } else {
-      modulosCache = [];
-      broadcast('menu:modules-updated', { modulos: [] });
-    }
-  } catch (e) {
-    writeToLog(`refreshModulosCache error: ${e.message}`);
-    modulosCache = [];
-    broadcast('menu:modules-updated', { modulos: [] });
-  }
-}
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  SERVICES (require después de helpers para evitar hoisting raro)
@@ -464,7 +662,7 @@ const {
 } = require('./modulesService/Local/GeneradorPrecios.js');
 const ActualizadorPrecios = require('./modulesService/Local/ActualizadorPrecios.js');
 const ClientesSvc = require('./modulesService/Local/ListaPrecClientes');
-
+const Proveedores = require('./modulesService/Local/Proveedores');
 const ClientesService = require('./modulesService/Local/Clientes');
 const Recibos = require('./modulesService/Local/Recibos');
 /* ────────────────────────────────────────────────────────────────────────────
@@ -472,7 +670,7 @@ const Recibos = require('./modulesService/Local/Recibos');
  * ──────────────────────────────────────────────────────────────────────────── */
 async function loadLoginOnly(base) {
   const target = `${base}/Login`;
-  clearStoreForLogin();     // deja deviceId
+  clearStoreForLogin();     // deja deviceId y (si enabled) remember.*
   modulosCache = [];
   activeSession = null;
   stopSessionHeartbeat();
@@ -583,11 +781,12 @@ async function createMainWindow() {
       await waitForUrl(DEV_BASE, 30000, 500);
 
       if (FORCE_LOGIN_ON_START) {
-        clearStoreForLogin();
+        clearStoreForLogin({ preserveRemember: true });
         modulosCache = [];
         activeSession = null;
         stopSessionHeartbeat();
         await mainWindow.loadURL(`${DEV_BASE}/Login`);
+        setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
       } else {
         await loadLoginOnly(DEV_BASE);
       }
@@ -636,11 +835,12 @@ async function createMainWindow() {
 
       const BASE = `http://localhost:${currentPort}`;
       if (FORCE_LOGIN_ON_START) {
-        clearStoreForLogin();
+        clearStoreForLogin({ preserveRemember: true });
         modulosCache = [];
         activeSession = null;
         stopSessionHeartbeat();
         await mainWindow.loadURL(`${BASE}/Login`);
+        setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
       } else {
         await loadLoginOnly(BASE);
       }
@@ -842,23 +1042,26 @@ safeIpc('get-modulos-x-cliente', obtenerModulosXClienteService);
 
 ipcMain.handle('logout', async () => {
   try {
-    const usuario  = activeSession?.usuario || store.get('user');
-    const deviceId = activeSession?.deviceId || getDeviceId(store);
-    if (usuario && deviceId) {
-      await finalizarSesionActivaService({ usuario, deviceId }); // ← libera lock manual
-    }
+    await finalizeActiveSession('renderer-logout'); // Activa=0 en SesionesActivas
   } catch (e) {
-    writeToLog(`logout error: ${e.message}`);
-  } finally {
-    try { stopSessionHeartbeat?.(); } catch {}
-    try { stopSessionWatchdog?.(); } catch {}
-    activeSession = null;
-    modulosCache = [];
-    clearStoreForLogin?.();
-    const base = getBaseOrigin?.();
-    if (base && mainWindow) await mainWindow.loadURL(`${base}/Login`);
+    writeToLog(`logout finalize error: ${e.message}`);
   }
-  broadcast('session:state', { status: 'logged-out', reason: 'manual', at: Date.now() });
+
+  // ⬇️ borrar SIEMPRE las credenciales recordadas en logout manual
+  try { await clearRememberedCredentials(); } catch (e) { writeToLog(`clearRememberedCredentials err: ${e.message}`); }
+
+  // ⬇️ limpiar store dejando solo deviceId, sin preservar remember.*
+  try { clearStoreForLogin({ preserveRemember: false }); } catch {}
+
+  // notificar al renderer
+  try { mainWindow?.webContents.send('session:state', { status: 'logged-out', reason: 'user-logout' }); } catch {}
+  return { success: true };
+});
+ipcMain.handle('force-logout', async (_e, { reason }) => {
+  try { await finalizeActiveSession(reason || 'force-logout'); } catch {}
+  // ⛔ NO borrar remember.* en force-logout
+  try { clearStoreForLogin({ preserveRemember: true }); } catch {}
+  try { mainWindow?.webContents.send('session:state', { status: 'logged-out', reason: reason || '' }); } catch {}
   return { success: true };
 });
 function buildSessionStoreBlob({ userObj, deviceId }) {
@@ -889,36 +1092,21 @@ function buildSessionStoreBlob({ userObj, deviceId }) {
   }
 }
 
-ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
-  writeToLog(`Login intento: ${usuario}`);
+ipcMain.handle('attempt-auto-login', async () => {
   try {
-    // 0) DeviceId normalizado (evita duplicados por mayúsculas/minúsculas)
-    const rawDeviceId = getDeviceId(store);
-    const deviceId    = String(rawDeviceId || '').trim().toUpperCase();
+    const creds = await readRememberedCredentials();     // { usuario, contraseña, deviceId } | null
+    if (!creds) return { success: false, code: 'NO_REMEMBERED' };
 
-    // 1) Autenticación (trae user.admin, IdCliente y token)
+    const { usuario, contraseña, deviceId } = creds;
     const auth = await iniciarSesionService({ usuario, contraseña, deviceId });
     if (!(auth?.success && auth.user && auth.token && auth.user.IdCliente)) {
-      return {
-        success: false,
-        code: auth?.code || 'BAD_CREDENTIALS',
-        message: auth?.message || 'Credenciales inválidas.'
-      };
+      return { success:false, code:auth?.code || 'BAD_CREDENTIALS', message:auth?.message || 'Credenciales inválidas.' };
     }
     const isAdmin = !!auth.user.admin;
 
-    // 2) Lock por device (solo NO-admin). Admin tiene bypass.
     const check = await verificarSesionActivaService({ usuario, deviceId, isAdmin });
-    if (!check?.success) {
-      const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
-      return {
-        success: false,
-        code: check?.code || 'ACTIVE_OTHER_DEVICE',
-        message: check?.message || `Usuario activo en otra máquina${dev}.`
-      };
-    }
+    if (!check?.success) return { success:false, code:check?.code, message:check?.message };
 
-    // 3) Persistencia local mínima (antes del snapshot)
     store.set('idCliente', auth.user.IdCliente);
     store.set('user', usuario);
     store.set('jwtToken', auth.token);
@@ -926,93 +1114,122 @@ ipcMain.handle('login', async (_event, { usuario, contraseña }) => {
     store.set('deviceId', deviceId);
     store.set('isAdmin', isAdmin ? 1 : 0);
 
-    // 4) Snapshot StoreData (base64) para SesionesActivas.StoreData
     const storeBlob = buildSessionStoreBlob({ userObj: auth.user, deviceId });
+    const lock = await registrarSesionActivaService({ usuario, deviceId, token: auth.token, storeBlob, isAdmin });
+    if (!lock?.success) return { success:false, code:lock?.code || 'SESSION_LOCK_FAILED', message:lock?.message };
 
-    // 5) Registrar/activar ESTA máquina (el servicio aplica las reglas del diagrama)
-    const lock = await registrarSesionActivaService({
-      usuario,
-      deviceId,
-      token: auth.token,
-      storeBlob,
-      isAdmin, // <- MUY importante para multi-device admin
-    });
-    if (!lock?.success) {
-      return {
-        success: false,
-        code: lock?.code || 'SESSION_LOCK_FAILED',
-        message: lock?.message || 'No se pudo registrar/activar la sesión.'
-      };
-    }
-
-    // 6) (opcional) aplicar StoreData previo si existía algo guardado para este device
-    try {
-      const ses = await obtenerSesionPorDeviceService({ usuario, deviceId });
-      if (ses?.success && ses.row?.StoreData) {
-        const decoded = decodeStoreBlobService(ses.row.StoreData);
-        if (decoded && typeof decoded === 'object') {
-          Object.entries(decoded).forEach(([k, v]) => { try { store.set(k, v); } catch {} });
-          writeToLog('StoreData decodificado y aplicado.');
-        }
-      }
-    } catch (e) {
-      writeToLog(`decode StoreData error (no bloqueante): ${e.message}`);
-    }
-
-    // 7) Heartbeat (refresca LastSeen mientras la sesión esté activa)
     activeSession = { usuario, deviceId, token: auth.token, isAdmin };
     stopSessionHeartbeat?.();
-    startSessionHeartbeat({
-      usuario,
-      deviceId,
-      onTick: async ({ usuario, deviceId }) => {
-        try { await heartbeatSesionActivaService({ usuario, deviceId }); } catch {}
-      }
-    });
-
-    // 8) Monitores de sesión:
-    //    - realtime con ZongJi (UPDATE/DELETE en SesionesActivas)
-    //    - fallback polling rápido (250ms) para entorno sin binlog
+    startSessionHeartbeat({ usuario, deviceId, onTick: async ({ usuario, deviceId }) => { try { await heartbeatSesionActivaService({ usuario, deviceId }); } catch {} }});
     stopSessionWatchdog?.();
     stopSessionRealtimeWatcher?.();
     startSessionRealtimeWatcher({ usuario, deviceId });
-    startSessionWatchdog({ usuario, deviceId, intervalMs: 250 });
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 250, isAdmin });
 
-    // 9) Cargar módulos (cache para el popup / home)
+    return { success: true, user: auth.user };
+  } catch (e) {
+    writeToLog(`attempt-auto-login error: ${e.message}`);
+    return { success:false, code:'AUTOLOGIN_ERR', message:e.message };
+  }
+});
+// === Diagnóstico Remember ===
+ipcMain.handle('remember:status', async () => {
+  const enabled  = !!store.get('remember.enabled');
+  const user     = store.get('remember.user') || null;
+  const deviceId = store.get('remember.deviceId') || null;
+  const usingKeytar = !!keytar;
+  return { enabled, user, deviceId, usingKeytar };
+});
+
+ipcMain.handle('remember:force-save', async (_e, { usuario, contraseña }) => {
+  const deviceId = normalizeDevice(getDeviceId(store));
+  await saveRememberedCredentials({ usuario, password: contraseña, deviceId });
+  return { ok: true };
+});
+
+ipcMain.handle('remember:force-read', async () => {
+  const creds = await readRememberedCredentials();
+  return { ok: !!creds, creds };
+});
+// ⬇️ único handler de login (incluye remember)
+ipcMain.handle('login', async (_event, { usuario, contraseña, remember = false }) => {
+  writeToLog(`Login intento: ${usuario} ${remember ? '[remember]' : ''}`);
+  try {
+    const deviceId = normalizeDevice(getDeviceId(store));
+
+    // 1) Autenticación (trae user.admin, IdCliente y token)
+    const auth = await iniciarSesionService({ usuario, contraseña, deviceId });
+    if (!(auth?.success && auth.user && auth.token && auth.user.IdCliente)) {
+      return { success: false, code: auth?.code || 'BAD_CREDENTIALS', message: auth?.message || 'Credenciales inválidas.' };
+    }
+    const isAdmin = !!auth.user.admin;
+
+    // 2) Lock por device (bypass admin)
+    const check = await verificarSesionActivaService({ usuario, deviceId, isAdmin });
+    if (!check?.success) {
+      const dev = check?.deviceId ? ` ("${check.deviceId}")` : '';
+      return { success: false, code: check?.code || 'ACTIVE_OTHER_DEVICE', message: check?.message || `Usuario activo en otra máquina${dev}.` };
+    }
+
+    // 3) Persistencia mínima
+    store.set('idCliente', auth.user.IdCliente);
+    store.set('user', usuario);
+    store.set('jwtToken', auth.token);
+    store.set('fechaInicio', new Date().toISOString());
+    store.set('deviceId', deviceId);
+    store.set('isAdmin', isAdmin ? 1 : 0);
+
+    // 4) Recordar / Olvidar
+    if (remember) {
+      await saveRememberedCredentials({ usuario, password: contraseña, deviceId });
+    } else {
+      await clearRememberedCredentials();
+    }
+
+    // 5) StoreData snap
+    const storeBlob = buildSessionStoreBlob({ userObj: auth.user, deviceId });
+
+    // 6) Registrar/activar este device (reglas admin/no-admin)
+    const lock = await registrarSesionActivaService({ usuario, deviceId, token: auth.token, storeBlob, isAdmin });
+    if (!lock?.success) {
+      return { success: false, code: lock?.code || 'SESSION_LOCK_FAILED', message: lock?.message || 'No se pudo registrar/activar la sesión.' };
+    }
+
+    // 7) Heartbeat + watchers
+    activeSession = { usuario, deviceId, token: auth.token, isAdmin };
+    stopSessionHeartbeat?.();
+    startSessionHeartbeat({
+      usuario, deviceId,
+      onTick: async ({ usuario, deviceId }) => { try { await heartbeatSesionActivaService({ usuario, deviceId }); } catch {} }
+    });
+    stopSessionWatchdog?.();
+    stopSessionRealtimeWatcher?.();
+    startSessionRealtimeWatcher({ usuario, deviceId });
+    startSessionWatchdog({ usuario, deviceId, intervalMs: 250, isAdmin });
+
+    // 8) Módulos
     const modulesResult = await obtenerModulosService(auth.user.IdCliente);
     if (!modulesResult?.success) {
       try { await finalizarSesionActivaService({ usuario, deviceId }); } catch {}
-      stopSessionHeartbeat?.();
-      stopSessionWatchdog?.();
-      stopSessionRealtimeWatcher?.();
+      stopSessionHeartbeat?.(); stopSessionWatchdog?.(); stopSessionRealtimeWatcher?.();
       activeSession = null;
-      return {
-        success: false,
-        code: 'MODULES_FAIL',
-        message: modulesResult?.message || 'No se pudieron cargar los módulos.'
-      };
+      return { success: false, code: 'MODULES_FAIL', message: modulesResult?.message || 'No se pudieron cargar los módulos.' };
     }
     modulosCache = modulesResult.modulos.map(m => ({
       id: m.id, nombre: m.nombre, texto: m.texto, icono: m.icono,
       link: m.link, pathExcel: m.pathExcel, countClientesPorModulo: m.countClientesPorModulo
     }));
 
-    writeToLog(`Login OK: ${usuario} @ ${deviceId} ${isAdmin ? '(admin)' : ''}`);
     return { success: true, user: auth.user, modulos: modulosCache, token: auth.token };
   } catch (e) {
     writeToLog(`login IPC error: ${e.message}`);
-    try {
-      if (activeSession?.usuario && activeSession?.deviceId) {
-        await finalizarSesionActivaService({ usuario: activeSession.usuario, deviceId: activeSession.deviceId });
-      }
-    } catch {}
-    stopSessionHeartbeat?.();
-    stopSessionWatchdog?.();
-    stopSessionRealtimeWatcher?.();
+    stopSessionHeartbeat?.(); stopSessionWatchdog?.(); stopSessionRealtimeWatcher?.();
     activeSession = null;
     return { success: false, code: 'INTERNAL', message: `Error interno al iniciar sesión: ${e.message}` };
   }
 });
+
+
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: EMPRESAS
@@ -1296,6 +1513,41 @@ ipcMain.handle('clientesForm:actualizarCampos', async (_e, payload) => {
   return await Clientes.actualizarCampos(payload);
 });
 
+// Proveedores
+ipcMain.handle('proveedoresForm:traerTodos', async () => {
+  return await Proveedores.traerTodos();
+});
+
+ipcMain.handle('proveedoresForm:getCatalogos', async () => {
+  return await Proveedores.getCatalogos();
+});
+
+// Catálogos por solapa
+ipcMain.handle('proveedoresForm:getCatalogosGeneral', async () => {
+  return await Proveedores.getCatalogosGeneral();
+});
+
+ipcMain.handle('proveedoresForm:getCatalogosImpositivos', async () => {
+  return await Proveedores.getCatalogosImpositivos();
+});
+
+ipcMain.handle('proveedoresForm:getCatalogosOtros', async () => {
+  return await Proveedores.getCatalogosOtros();
+});
+
+// Legacy (no aplica en Proveedores)
+ipcMain.handle('proveedoresForm:traerCodigosLista', async () => {
+  return await Proveedores.traerCodigosLista();
+});
+
+ipcMain.handle('proveedoresForm:actualizarLista', async (_e, payload) => {
+  return await Proveedores.actualizarLista(payload);
+});
+
+// Updates (campos)
+ipcMain.handle('proveedoresForm:actualizarCampos', async (_e, payload) => {
+  return await Proveedores.actualizarCampos(payload);
+});
 // Recibos
 // Tipos de Comprobante (RC/V)
 ipcMain.handle('recibos:getTiposComprobante', async (event, payload = {}) => {

@@ -1,0 +1,333 @@
+.container{
+  background:#fff;
+  width: clamp(320px, 92vw, 1080px);
+  min-height: clamp(520px, 80vh, 720px);
+  max-height: 720px;
+  padding: 24px;
+  border-radius: 10px;
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+  overflow: auto;
+  margin: 20px auto;
+  display:flex;
+  flex-direction:column;
+  z-index:2;
+}
+@media (max-width:1024px){ .container{ width:80%; } }
+@media (max-width:768px){ .container{ width:95%; padding:24px; } }
+
+.headerContainer{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.title{ font-size:2rem; font-weight:700; color:#111; }
+
+/* ───────────────── Card/Acordeón ───────────────── */
+
+.card{ border:1px solid #e7e7e7; border-radius:12px; background:#fff; margin:10px 0; overflow:hidden; flex: 0 0 auto; overflow: hidden; min-height: 0; min-width: 0; }
+.cardHeader{
+  /* fija, no se achica */
+  height: 56px;
+  min-height: 56px;
+  max-height: 56px;
+  width: 100%;
+  flex: 0 0 56px;
+  /* layout */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;          /* sin padding vertical para que no varíe */
+  box-sizing: border-box;   /* asegura la altura exacta */
+  background: #f8f8f8;
+  position: relative;
+  border: none;
+  cursor: pointer;
+}
+.cardTitle{
+  color: black;
+  font-weight: bold;
+}
+.cardBody{ padding:14px 16px;
+    max-height: none;
+  overflow: visible;
+ }
+
+.cardHeaderRight{
+
+  gap: 8px;
+}
+.chev{ transition:transform .18s ease; }
+.chevOpen{ transform:rotate(180deg); }
+
+.smallBtn{
+  border:1px solid #ddd; background:#e82c02; color:#fff; font-weight:bold;
+  border-radius:8px; padding:6px 10px; cursor:pointer;
+}
+.smallBtn:hover{ opacity:.9; }
+
+/* ───────────────── Alturas + scroll por sección ───────────────── */
+/* FILTROS → scroll en el contenedor interno (.filtersBar) */
+.card:has(.filtersBar) .cardBody{
+  max-height: 28vh;
+  overflow: hidden;           /* el scroll lo hace el hijo */
+  padding: 10px 12px;
+}
+.filtersBar{
+max-height: 200px; overflow: auto;
+}
+
+/* CONTENEDOR (tabla) → scroll en .tableContainer */
+.card:has(.tableContainer) .cardBody{
+  max-height: 48vh;
+  overflow: hidden;           /* el scroll lo hace el hijo */
+  padding: 0;                 /* la tabla ya tiene padding en celdas */
+}
+.tableContainer{
+   max-height: clamp(360px, 52vh, 560px);
+    overflow: auto;
+
+}
+.resizableY{
+  flex: 0 1 auto;
+  overflow: auto;
+  min-height: 220px;
+  max-height: 65vh;
+  height: 440px;
+  resize: vertical;
+  border-radius: 8px;
+}
+
+/* CAMPOS A ACTUALIZAR → scroll en el body del card (contenido vertical) */
+.card:has(.fieldCard) .cardBody{
+  max-height: 34vh;
+  overflow:auto;
+  padding: 8px 12px;
+}
+
+/* Scrollbars consistentes para contenedores scrolleables */
+.cardBody::-webkit-scrollbar,
+.filtersBar::-webkit-scrollbar,
+.tableContainer::-webkit-scrollbar,
+.container::-webkit-scrollbar{ width:10px; height:10px; }
+.cardBody::-webkit-scrollbar-track,
+.filtersBar::-webkit-scrollbar-track,
+.tableContainer::-webkit-scrollbar-track,
+.container::-webkit-scrollbar{ background:#f1f1f1; }
+.cardBody::-webkit-scrollbar-thumb,
+.filtersBar::-webkit-scrollbar-thumb,
+.tableContainer::-webkit-scrollbar-thumb,
+.container::-webkit-scrollbar{
+  background:#888; border-radius:8px; border:2px solid #f1f1f1;
+}
+.cardBody::-webkit-scrollbar-thumb:hover,
+.filtersBar::-webkit-scrollbar-thumb:hover,
+.tableContainer::-webkit-scrollbar-thumb:hover,
+.container::-webkit-scrollbar{ background:#555; }
+
+/* ───────────────── Filtros (horizontal) ───────────────── */
+.filtersBar{
+  display:grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap:12px;
+}
+.filterItem{ grid-column: span 3; display:flex; flex-direction:column; gap:6px; }
+.filterFull{ grid-column: 1 / -1; }
+.label{ font-weight:600; }
+.select{ padding:6px 8px; border:1px solid #ddd; border-radius:6px;     max-width: inherit;}
+
+.summaryLine{ margin-top:10px; color:#444; }
+.errorText{ color:#c00; }
+
+/* ───────────────── Tabla ───────────────── */
+.table{ width:100%; border-collapse:collapse; font-size:.95rem; min-width: 1200px; }
+.table th, .table td{ text-align:left; padding:10px; border-bottom:1px solid #eee; white-space: normal; word-wrap: break-word; overflow: hidden; }
+.headerRow{ background:#fff; }
+.noResults{ text-align:center; color:#999; padding:16px; }
+.row:hover{ background:#fafafa; }
+
+/* ── Campo inline en header (sin dropdown) ─────────────── */
+.fieldHeaderInline{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:12px 14px;
+  background:#f9f9f9;
+  border:none;
+}
+
+.fieldCheckWrap{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.fieldSelectInline{
+  min-width: 260px;
+  flex: 0 0 320px;           /* ancho estable en desktop */
+  padding:8px 10px;
+  border:1px solid #ddd;
+  border-radius:6px;
+  background:#fff;
+}
+
+/* Borde lateral/realce cuando el campo está habilitado */
+.fieldEnabled{
+  box-shadow: inset 3px 0 0 0 #00ff44;   /* mismo color del borde de tus cards */
+}
+
+/* Fila de hint debajo del header */
+.fieldHintRow{
+  padding:10px 14px;
+  color:#666;
+  font-size:.9rem;
+  background:#fff;
+  border-top:1px solid #eee;
+}
+
+/* Responsive: el select baja a la siguiente línea */
+@media (max-width: 720px){
+  .fieldHeaderInline{ flex-wrap: wrap; }
+  .fieldSelectInline{ flex:1 1 100%; min-width: 0; }
+}
+
+
+/* ───────────────── Footer / Botón ───────────────── */
+.footerBar{ display:flex; align-items:center; gap:12px; margin-top:12px; }
+.footerMsg{ margin:0; font-weight:600; }
+.ok{ color:#007700; }
+.error{ color:#d00; font-weight:700; }
+
+.btnAccentFull{
+  width:100%; border:none; border-radius:6px; padding:12px 18px; font-weight:800; cursor:pointer;
+  background:#e82c02; color:#fff; box-shadow:0 6px 14px rgba(232,44,2,.28);
+  transition:transform .06s ease, box-shadow .12s ease, opacity .12s ease;
+}
+.btnAccentFull:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(232,44,2,.34); }
+.btnAccentFull:active{ transform:translateY(0); box-shadow:0 5px 12px rgba(232,44,2,.24); }
+.btnAccentFull:disabled{ opacity:.6; cursor:not-allowed; }
+/* ───────── Solapas internas (sub-tabs) ───────── */
+.subTabs{
+  display:flex; width:100%; gap:0; margin-bottom:12px; border-bottom:none;
+}
+.subTab{
+  flex:1; background:none; border:none; padding:10px 0; cursor:pointer;
+  font-size:15px; color:#666; position:relative; text-align:center; transition:color .2s ease;
+}
+.subTab::after{
+  content:""; position:absolute; left:0; right:0; bottom:-1px; height:3px; background:#000; opacity:.25;
+}
+.subTab:hover{ color:#333; }
+.subTabActive{ color:#111; font-weight:600; }
+.subTabActive::after{ background:#e82c02; opacity:1; height:4px; }
+
+/* ───────── Filtros / Campos: grids ───────── */
+.filtersGrid, .updateGrid{
+  display:grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px 14px;
+  align-items:flex-end;
+}
+.filterItem{ display:flex; flex-direction:column; gap:6px; }
+.label{ font-weight:600; }
+.fieldRow{
+  /* antes: grid-template-columns: 1fr 2fr;  */
+  background-color: #f0f0f0;
+  border-radius: 5px;
+  padding: 8px 6px;
+  grid-template-columns: minmax(140px,1fr) minmax(0,2fr);
+}
+
+/* === Select base unificado (usa uno solo, eliminá duplicados previos) === */
+.select{
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+
+  min-height: 38px;
+  height: 38px;
+  padding: 8px 36px 8px 10px;
+
+  border: 1px solid #dcdcdc;
+  border-radius: 8px;
+  background: #fff;
+
+  font: inherit;
+  color: #111;
+  outline: none;
+
+  /* flechita consistente y centrada */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px 16px;
+}
+
+.select:focus{
+  border-color: #e82c02;
+  box-shadow: 0 0 0 3px rgba(232,44,2,.15);
+}
+
+/* Evita que navegadores bajen opacidad del control deshabilitado */
+.select:disabled{
+  background-color: #b0b0b0;
+  border-color: #b0b0b0;
+  color: #8a8a8a;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Quita el “expand” viejo de IE/Edge clásico */
+.select::-ms-expand{ display:none; }
+
+/* Dentro de la sección de actualización, forzamos background blanco (sobre fondo gris de la fila) */
+.updateGrid .select{ background:#fff; }
+
+/* Por si algún estilo previo quedaba peleando */
+.fieldRow .select{
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.fieldLabel{ display:flex; align-items:center; gap:8px; font-weight:700; }
+
+/* Resumen y mensajes */
+.summaryLine{ margin-top:10px; color:#444; }
+.errorText{ color:#c00; }
+.footerBar{ display:flex; align-items:center; gap:12px; margin-top:12px; }
+.footerMsg{ margin:0; font-weight:600; }
+.ok{ color:#007700; }
+.error{ color:#d00; font-weight:700; }
+.btnAccentFull{
+  width:100%; border:none; border-radius:6px; padding:12px 18px; font-weight:800; cursor:pointer;
+  background:#e82c02; color:#fff; box-shadow:0 6px 14px rgba(232,44,2,.28);
+}
+.btnAccentFull:disabled{ opacity:.6; cursor:not-allowed; }
+
+/* ───────── Tabla + contenedor redimensionable ───────── */
+.resizableArea{
+  display:flex; flex-direction:column; gap:8px;
+}
+.tableContainer{
+  width:100%; overflow:auto; max-height:420px; /* altura inicial */
+  border:1px solid #eee; border-radius:12px; background:#fff;
+  resize: vertical; /* permite redimensionar la altura */
+}
+.resizeHandle{
+  height:6px; border-radius:999px; background:#e5e5e5;
+  align-self:center; width:80px;
+}
+
+/* Tabla */
+.table{ width:100%; border-collapse:collapse; font-size:.95rem; }
+.table th, .table td{ text-align:left; padding:10px; border-bottom:1px solid #eee; }
+.headerRow{ background:#fff; }
+.noResults{ text-align:center; color:#999; padding:16px; }
+.checkCell{ width:36px; text-align:center; vertical-align:middle; }
+
+/* Responsive */
+@media (max-width:1200px){
+  .filtersGrid, .updateGrid{ grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+}
+@media (max-width:900px){
+  .filtersGrid, .updateGrid{ grid-template-columns: 1fr; }
+}
