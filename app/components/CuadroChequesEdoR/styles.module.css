@@ -1,7 +1,7 @@
 /* =========================
    CONTENEDOR PRINCIPAL
-   - Scroll interno (vertical)
-   - Scrollbar OVERLAY (por encima)
+   - Scroll interno (vertical) SIEMPRE
+   - Scrollbar overlay (por encima)
    ========================= */
 .container{
   background:#fff;
@@ -16,32 +16,18 @@
   font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
 
   overflow-x: hidden;
-  overflow-y: overlay;      /* ✅ overlay (Chromium/Electron). Fallback abajo */
+  overflow-y: overlay; /* Chromium/Electron */
 }
 @supports not (overflow-y: overlay){
-  .container{ overflow-y: auto; } /* ✅ fallback */
+  .container{ overflow-y: auto; }
 }
 
-/* ✅ Scrollbar del CONTENEDOR (Chrome/Edge/Electron) */
-.container::-webkit-scrollbar{
-  width: 10px;
-}
-.container::-webkit-scrollbar-track{
-  background: transparent;          /* ✅ no “canal” visible */
-}
-.container::-webkit-scrollbar-thumb{
-  background: rgba(0,0,0,.35);
-  border-radius: 8px;
-}
-.container:hover::-webkit-scrollbar-thumb{
-  background: rgba(0,0,0,.55);
-}
-
-/* Firefox */
-.container{
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0,0,0,.45) transparent;
-}
+/* Scrollbar del CONTENEDOR */
+.container::-webkit-scrollbar{ width: 10px; }
+.container::-webkit-scrollbar-track{ background: transparent; }
+.container::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.35); border-radius: 8px; }
+.container:hover::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.55); }
+.container{ scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.45) transparent; }
 
 /* =========================
    TITULOS / HEADER
@@ -127,7 +113,6 @@
   border-color:#e82c02;
   box-shadow:0 0 0 3px rgba(232,44,2,.15);
 }
-
 .summaryLine{ margin-top:10px; color:#444; }
 
 /* =========================
@@ -150,38 +135,24 @@
 
 /* =========================
    TABLA
-   - Scroll horizontal/vertical DENTRO
+   - height se controla por inline style (JS)
+   - transición suave
    ========================= */
 .tableContainer{
   overflow: auto;
-  margin-bottom: 1rem;
-  height: clamp(260px, 62vh, 520px);
+  margin-bottom: 0.5rem;
   border: 1px solid #eee;
   border-radius: 12px;
   background: #fff;
+  transition: height .04s ease;
 }
 
-/* Scrollbars tabla (Chrome/Edge/Electron) */
-.tableContainer::-webkit-scrollbar{
-  width: 10px;
-  height: 10px;
-}
-.tableContainer::-webkit-scrollbar-track{
-  background: transparent;
-}
-.tableContainer::-webkit-scrollbar-thumb{
-  background: rgba(0,0,0,.20);
-  border-radius: 8px;
-}
-.tableContainer:hover::-webkit-scrollbar-thumb{
-  background: rgba(0,0,0,.40);
-}
-
-/* Firefox */
-.tableContainer{
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0,0,0,.30) transparent;
-}
+/* Scrollbars tabla */
+.tableContainer::-webkit-scrollbar{ width: 10px; height: 10px; }
+.tableContainer::-webkit-scrollbar-track{ background: transparent; }
+.tableContainer::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.20); border-radius: 8px; }
+.tableContainer:hover::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.40); }
+.tableContainer{ scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.30) transparent; }
 
 .table{
   width:100%;
@@ -199,18 +170,6 @@
 .noResults{ text-align:center; color:#999; padding:16px; }
 .sortableHeader{ cursor:pointer; user-select:none; }
 
-.checkCell{
-  width: 42px;
-  text-align: center;
-  vertical-align: middle;
-  white-space: nowrap;
-}
-.checkCell input[type="checkbox"]{
-  transform: scale(1.1);
-  cursor: pointer;
-}
-
-/* PILL Situación */
 .situacionText{
   display:inline-block;
   padding:2px 8px;
@@ -220,34 +179,7 @@
 }
 
 /* =========================
-   LOGS / ERRORES
-   ========================= */
-.logBox{
-  border:1px solid #bcd;
-  background:#cdffcd;
-  color:#007a14;
-  border-radius:8px;
-  padding:10px 12px;
-  margin:8px 0 10px;
-}
-.logTitle{ font-weight:600; margin-bottom:6px; }
-.logList{ margin:0; padding-left:20px; }
-.logItem{ margin:2px 0; }
-
-.errorBox{
-  border:1px solid #ffb3b3;
-  background:#ffe6e6;
-  color:#990000;
-  border-radius:8px;
-  padding:10px 12px;
-  margin:8px 0 10px;
-}
-.errorTitle{ font-weight:600; margin-bottom:6px; }
-.errorList{ margin:0; padding-left:20px; }
-.errorItem{ margin:2px 0; }
-
-/* =========================
-   BOTONERA FINAL (normal)
+   BOTONERA FINAL
    ========================= */
 .importButtonContainer{ margin-top:.25rem; }
 
@@ -264,14 +196,8 @@
   box-shadow:0 6px 14px rgba(232,44,2,.28);
   transition:transform .06s ease, box-shadow .12s ease, opacity .12s ease;
 }
-.btn:hover{
-  transform:translateY(-1px);
-  box-shadow:0 8px 18px rgba(232,44,2,.34);
-}
-.btn:active{
-  transform:translateY(0);
-  box-shadow:0 5px 12px rgba(232,44,2,.24);
-}
+.btn:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(232,44,2,.34); }
+.btn:active{ transform:translateY(0); box-shadow:0 5px 12px rgba(232,44,2,.24); }
 .btn:disabled{ opacity:.6; cursor:not-allowed; }
 
 /* =========================

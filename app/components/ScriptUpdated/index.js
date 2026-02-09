@@ -1,9 +1,9 @@
 "use client";
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import styles from "./styles.module.css";
 
-const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
+const ScriptUpdated = ({ precios, onVolver, successMessage, error }) => {
   const data = Array.isArray(precios) ? precios : [];
 
   const money = (v) => {
@@ -16,21 +16,42 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
       maximumFractionDigits: 2,
     });
   };
+
   const num = (v) => {
     const n = Number(v);
     if (!isFinite(n)) return "0,00";
     return n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
+
   const pct = (v) => {
     const n = Number(v);
     if (!isFinite(n)) return "0,00 %";
     return `${n.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %`;
   };
+
   const fdt = (v) => {
-    try { return new Date(v).toLocaleString("es-AR"); } catch { return "-"; }
+    try {
+      return new Date(v).toLocaleString("es-AR");
+    } catch {
+      return "-";
+    }
   };
 
-  // 👉 Exportar a Excel
+  // ✅ Paginación para NO scrollear y ver todo sin deformar
+  const [page, setPage] = useState(1);
+  const pageSize = 12;
+
+  const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+  const pageData = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return data.slice(start, start + pageSize);
+  }, [data, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [data.length]);
+
+  // 👉 Exportar a Excel (exporta TODO, no solo la página)
   const handleExportExcel = () => {
     if (!data.length) return;
 
@@ -51,7 +72,7 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
       "Actualizar",
     ];
 
-    const rows = data.map((p) => ([
+    const rows = data.map((p) => [
       p.FechaEjecucion ? new Date(p.FechaEjecucion) : "",
       p.ListaPrecioCod ?? "",
       p.CodArticulo ?? "",
@@ -66,15 +87,15 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
       p.art_InclEnLisP ?? "",
       p.art_CircVta ?? "",
       p.Dart_ActualizarListaPrec ?? "",
-    ]));
+    ]);
 
     const aoa = [header, ...rows];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
     ws["!cols"] = [
-      { wch: 18 }, { wch: 6  }, { wch: 24 }, { wch: 50 }, { wch: 8  },
+      { wch: 18 }, { wch: 6 }, { wch: 24 }, { wch: 50 }, { wch: 8 },
       { wch: 14 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
-      { wch: 16 }, { wch: 10 }, { wch: 8  }, { wch: 10 },
+      { wch: 16 }, { wch: 10 }, { wch: 8 }, { wch: 10 },
     ];
 
     const wb = XLSX.utils.book_new();
@@ -82,10 +103,11 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
 
     const now = new Date();
     const pad = (n) => `${n}`.padStart(2, "0");
-    const stamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = `PreciosActualizados_${stamp}.xlsx`;
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(
+      now.getHours()
+    )}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
 
-    XLSX.writeFile(wb, filename);
+    XLSX.writeFile(wb, `PreciosActualizados_${stamp}.xlsx`);
   };
 
   if (!data.length) return null;
@@ -95,28 +117,16 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>
           Resultados de la Última Actualización
-          <span className={styles.titleCount}>
-            ({data.length} ítems)
-          </span>
+          <span className={styles.titleCount}>({data.length} ítems)</span>
         </h2>
 
         <div className={styles.headerActions}>
           {typeof onVolver === "function" && (
-            <button
-              className={styles.btn}
-              onClick={onVolver}
-              title="Volver"
-              aria-label="Volver"
-            >
+            <button className={styles.btn} onClick={onVolver} title="Volver" aria-label="Volver">
               ← Volver
             </button>
           )}
-          <button
-            className={styles.btn}
-            onClick={handleExportExcel}
-            title="Exportar a Excel"
-            aria-label="Exportar a Excel"
-          >
+          <button className={styles.exportBtn} onClick={handleExportExcel} title="Exportar a Excel" aria-label="Exportar a Excel">
             ⇩
           </button>
         </div>
@@ -143,8 +153,9 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
               <th>Flags</th>
             </tr>
           </thead>
+
           <tbody>
-            {data.map((p, i) => (
+            {pageData.map((p, i) => (
               <tr key={`${p.CodArticulo ?? i}`} className={styles.row}>
                 <td>{fdt(p.FechaEjecucion)}</td>
                 <td>{p.ListaPrecioCod ?? "-"}</td>
@@ -158,17 +169,32 @@ const PreciosActualizados = ({ precios, onVolver, successMessage, error }) => {
                 <td className={styles.num}>{money(p.PrecioAnterior)}</td>
                 <td className={styles.num}>{money(p.PrecioNuevo)}</td>
                 <td>
-                  <span className={`${styles.badge} ${ (p.art_InclEnLisP==='1' || (p.art_InclEnLisP||'')) ? styles.badgeOk : styles.badgeWarn }`}>InclEnLisP</span>
-                  <span className={`${styles.badge} ${ (p.art_CircVta==='1' || (p.art_CircVta||'')) ? styles.badgeOk : styles.badgeWarn }`}>CircVta</span>
-                  <span className={`${styles.badge} ${ ((p.Dart_ActualizarListaPrec||'').toString().toUpperCase()==='S') ? styles.badgeOk : styles.badgeWarn }`}>Actualizar</span>
+                  <span className={`${styles.badge} ${(p.art_InclEnLisP === "1" || (p.art_InclEnLisP || "")) ? styles.badgeOk : styles.badgeWarn}`}>
+                    InclEnLisP
+                  </span>
+                  <span className={`${styles.badge} ${(p.art_CircVta === "1" || (p.art_CircVta || "")) ? styles.badgeOk : styles.badgeWarn}`}>
+                    CircVta
+                  </span>
+                  <span className={`${styles.badge} ${((p.Dart_ActualizarListaPrec || "").toString().toUpperCase() === "S") ? styles.badgeOk : styles.badgeWarn}`}>
+                    Actualizar
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* ✅ Pager (sin scroll, sin micro-letra) */}
+      <div className={styles.pager}>
+        <button className={styles.pagerBtn} onClick={() => setPage(1)} disabled={page === 1}>⏮</button>
+        <button className={styles.pagerBtn} onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>◀</button>
+        <div className={styles.pagerInfo}>Página {page} / {totalPages}</div>
+        <button className={styles.pagerBtn} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>▶</button>
+        <button className={styles.pagerBtn} onClick={() => setPage(totalPages)} disabled={page === totalPages}>⏭</button>
+      </div>
     </div>
   );
 };
 
-export default PreciosActualizados;
+export default ScriptUpdated;

@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld('api', {
   /* ======================
      Precios
      ====================== */
+     getPreciosScriptInfo: () => ipcRenderer.invoke('precios:get-script-info'),
   getPrecios: () => ipcRenderer.invoke('get-precios'),
   actualizarPrecios: (opts) => ipcRenderer.invoke('precios:actualizar', opts),
   onPreciosProgress: (cb) => {
@@ -164,6 +165,7 @@ contextBridge.exposeInMainWorld('api', {
   clientesActualizarFiltrado: (payload) => ipcRenderer.invoke('clientes:actualizar-filtrado', payload),
   getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
   clientesForm,
+  
 
   /* ======================
      Proveedores

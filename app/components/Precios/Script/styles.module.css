@@ -1,0 +1,128 @@
+.container {
+  background: #fff;
+  width: clamp(320px, 92vw, 980px);
+  min-height: auto;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,.1);
+  margin: 0 auto;
+  z-index: 2;
+}
+
+.headerContainer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin: 0;
+  color: #111;
+}
+
+/* ✅ Doc */
+.docBox{
+  border: 1px solid #eee;
+  background: #fafafa;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 10px 0 12px 0;
+}
+.docTitle{
+  font-weight: 800;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.docText{
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: .9;
+  white-space: pre-wrap;
+}
+
+/* ✅ Layout compacto (no se deforma al ejecutar) */
+.actionsRow{
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.btnPrimary {
+  background-color: #e82c02;
+  color: white;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 700;
+  min-width: 59.1rem;
+}
+.btnPrimary:hover { background-color: #d42602; }
+.btnPrimary:disabled {
+  opacity: .7;
+  cursor: not-allowed;
+}
+
+/* ✅ Progreso */
+.progressWrap{
+  flex: 1;
+  min-width: 240px;
+  margin-top: 2px;
+}
+
+.progressTop{
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+  opacity: .85;
+}
+.progressStage{ font-weight: 700; }
+.progressPct{ font-weight: 800; }
+
+.progressBar{
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.progressFill{
+  height: 100%;
+  background: #3b82f6;
+  transition: width .25s ease;
+}
+
+.progressMsg{
+  font-size: 12px;
+  opacity: .8;
+  margin-top: 6px;
+}
+
+.statusMessages {
+  margin-top: 10px;
+}
+
+.successBox {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eefbf0;
+  border: 1px solid #d6f5db;
+  color: #0f6b2e;
+  font-size: 13px;
+}
+
+.errorBox {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff3f3;
+  border: 1px solid #ffd4d4;
+  color: #a11515;
+  font-size: 13px;
+}

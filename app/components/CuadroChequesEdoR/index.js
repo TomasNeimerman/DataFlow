@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
 
@@ -29,6 +29,61 @@ export default function ChequesRechazados(props) {
     lazyMode = true,
   } = props;
 
+  /* =====================================================
+     TABLA: altura gradual según scroll del contenedor general
+     - En el tope: tabla chica (apenas aparece)
+     - Mientras bajás: va creciendo hasta max
+     ===================================================== */
+  const containerRef = useRef(null);
+  const rafRef = useRef(null);
+  const lastHeightRef = useRef(null);
+
+  // Ajustá estos 3 valores a gusto
+  const TABLE_MIN_H = 180;   // altura mínima (cuando estás arriba)
+  const TABLE_MAX_H = 520;   // altura máxima
+  const EXPAND_RANGE = 260;  // cuántos px de scroll tarda en ir de min->max
+
+  const [tableHeight, setTableHeight] = useState(TABLE_MIN_H);
+
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const compute = () => {
+      const y = el.scrollTop || 0;
+
+      // y=0 => min
+      // y=EXPAND_RANGE => max
+      const t = clamp(y / EXPAND_RANGE, 0, 1);
+      const h = Math.round(TABLE_MIN_H + t * (TABLE_MAX_H - TABLE_MIN_H));
+
+      // evitamos renders por 1px
+      if (lastHeightRef.current === null || Math.abs(h - lastHeightRef.current) >= 3) {
+        lastHeightRef.current = h;
+        setTableHeight(h);
+      }
+    };
+
+    // inicial
+    compute();
+
+    const onScroll = () => {
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        compute();
+      });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [refreshKey]);
+
   // ====== FILTROS ======
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [fId, setFId] = useState("");
@@ -37,23 +92,23 @@ export default function ChequesRechazados(props) {
   const [fHasta, setFHasta] = useState("");
   const [fMin, setFMin] = useState("");
   const [fMax, setFMax] = useState("");
-  const [fEdo, setFEdo] = useState("");      // "" (vacío), "*" (Todos) o código
-  const [fSit, setFSit] = useState("");      // "" (vacío), "*" (Todos) o código
+  const [fEdo, setFEdo] = useState(""); // "" (vacío), "*" (Todos) o código
+  const [fSit, setFSit] = useState(""); // "" (vacío), "*" (Todos) o código
   const [hasSearched, setHasSearched] = useState(false);
 
   const limpiar = () => {
-    setFId(""); setFNro(""); setFDesde(""); setFHasta("");
-    setFMin(""); setFMax(""); setFEdo(""); setFSit("");
+    setFId("");
+    setFNro("");
+    setFDesde("");
+    setFHasta("");
+    setFMin("");
+    setFMax("");
+    setFEdo("");
+    setFSit("");
     setHasSearched(false);
   };
 
-  const toNum = (v) =>
-    typeof v === "number"
-      ? v
-      : Number(String(v ?? "").replace(/\./g, "").replace(/[^0-9,-]+/g, "").replace(",", ".")) || 0;
-
   const hasAnyFilter = useMemo(() => {
-    // si hay algo escrito o selects con algo distinto de vacío ("")
     return (
       (fId?.trim() || "") !== "" ||
       (fNro?.trim() || "") !== "" ||
@@ -98,7 +153,7 @@ export default function ChequesRechazados(props) {
   // EXPORT
   const handleExport = async () => {
     try {
-      const payload = (chequesRechazados || []).map(r => ({
+      const payload = (chequesRechazados || []).map((r) => ({
         emp: r.emp,
         idCheque: r.idCheque,
         cliente: r.cliente ?? "",
@@ -106,7 +161,7 @@ export default function ChequesRechazados(props) {
         importeRaw: r.importeRaw,
         estado: r.estado,
         fvto: r.fvto,
-        fMod: r.fMod
+        fMod: r.fMod,
       }));
       const res = await window.api?.exportChequesXLSX?.(payload);
       if (!res?.success) {
@@ -151,11 +206,7 @@ export default function ChequesRechazados(props) {
 
     if (fieldMode === "situacion") {
       return (
-        <select
-          className={styles.select}
-          value={val}
-          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
-        >
+        <select className={styles.select} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}>
           <option value=""></option>
           <option value="*">Todos</option>
           {(situaciones || []).map((s) => (
@@ -189,7 +240,7 @@ export default function ChequesRechazados(props) {
     return null;
   };
 
-  // BUSCAR (solo si hay onBuscar y hay algún filtro seleccionado)
+  // BUSCAR
   const doBuscar = async () => {
     if (!onBuscar) return;
     if (!hasAnyFilter) return;
@@ -202,14 +253,26 @@ export default function ChequesRechazados(props) {
       hasta: fHasta || null,
       min: fMin?.trim() || null,
       max: fMax?.trim() || null,
-      estado: fEdo === "*" ? null : (fEdo || null),         // "*" => “Todos” (sin filtrar)
-      situacion: fSit === "*" ? null : (fSit || null),      // "*" => “Todos” (sin filtrar)
+      estado: fEdo === "*" ? null : (fEdo || null),
+      situacion: fSit === "*" ? null : (fSit || null),
     };
     await onBuscar(filters);
+
+    // cuando buscás, “reseteo” altura para que arranque desde arriba prolijo
+    setTimeout(() => {
+      const el = containerRef.current;
+      if (!el) return;
+      // si estás arriba, mantiene el efecto desde el tope
+      lastHeightRef.current = null;
+      const y = el.scrollTop || 0;
+      const t = clamp(y / EXPAND_RANGE, 0, 1);
+      const h = Math.round(TABLE_MIN_H + t * (TABLE_MAX_H - TABLE_MIN_H));
+      setTableHeight(h);
+    }, 0);
   };
 
   return (
-    <div className={styles.container} data-key={refreshKey}>
+    <div ref={containerRef} className={styles.container} data-key={refreshKey}>
       {/* Header */}
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
@@ -224,10 +287,10 @@ export default function ChequesRechazados(props) {
             onClick={() => setFiltersOpen((o) => !o)}
             aria-expanded={filtersOpen}
           >
-            FILTROS
-            <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
+            FILTROS <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
           </button>
-          <div style={{display:"flex", gap:8}}>
+
+          <div style={{ display: "flex", gap: 8 }}>
             <button className={styles.smallBtn} onClick={limpiar}>Limpiar</button>
             <button
               className={styles.smallBtn}
@@ -267,25 +330,23 @@ export default function ChequesRechazados(props) {
               <input className={styles.input} value={fMax} onChange={(e) => setFMax(e.target.value)} placeholder="999999.99" />
             </div>
 
-            {/* Estado */}
             <div className={styles.filterItem}>
               <label className={styles.label}>Estado</label>
-              <select className={styles.select} value={fEdo} onChange={(e)=>setFEdo(e.target.value)}>
+              <select className={styles.select} value={fEdo} onChange={(e) => setFEdo(e.target.value)}>
                 <option value=""></option>
                 <option value="*">Todos</option>
-                {(estados || []).map(e => (
+                {(estados || []).map((e) => (
                   <option key={e.edo_Cod} value={e.edo_Cod}>{e.edo_Desc}</option>
                 ))}
               </select>
             </div>
 
-            {/* Situación */}
             <div className={styles.filterItem}>
               <label className={styles.label}>Situación</label>
-              <select className={styles.select} value={fSit} onChange={(e)=>setFSit(e.target.value)}>
+              <select className={styles.select} value={fSit} onChange={(e) => setFSit(e.target.value)}>
                 <option value=""></option>
                 <option value="*">Todos</option>
-                {(situaciones || []).map(s => (
+                {(situaciones || []).map((s) => (
                   <option key={s.sit_Cod} value={String(s.sit_Cod)}>{s.sit_Desc}</option>
                 ))}
               </select>
@@ -326,9 +387,12 @@ export default function ChequesRechazados(props) {
         </div>
       </div>
 
-      {/* ====== TABLA (se oculta si no hay filtros o no se buscó) ====== */}
+      {/* ====== TABLA (altura gradual) ====== */}
       {(hasAnyFilter && hasSearched) && (
-        <div className={styles.tableContainer}>
+        <div
+          className={styles.tableContainer}
+          style={{ height: `${tableHeight}px` }}   // 👈 acá está la magia
+        >
           <table className={styles.table}>
             <thead>
               <tr className={styles.headerRow}>
@@ -392,6 +456,7 @@ export default function ChequesRechazados(props) {
                 <th>Editar</th>
               </tr>
             </thead>
+
             <tbody>
               {!chequesRechazados.length ? (
                 <tr><td className={styles.noResults} colSpan="11">No hay cheques para mostrar</td></tr>
@@ -432,6 +497,7 @@ export default function ChequesRechazados(props) {
             {importMessage}
           </p>
         )}
+
         <button className={styles.btn} disabled={!!isImportButtonDisabled} onClick={onImportarClick}>
           Actualizar Cheques Seleccionados
         </button>

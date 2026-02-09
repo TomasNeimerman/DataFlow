@@ -659,7 +659,8 @@ const {
   obtenerPrecios: obtenerPreciosService,
   actualizarListaDePrecios: actualizarPreciosService,
   obtenerPreciosActualizados: obtenerPreciosActualizadosService,
-} = require('./modulesService/Local/GeneradorPrecios.js');
+  obtenerScriptInfo: obtenerScriptInfoService,
+} = require('./modulesService/Local/EjecutarScript.js');
 const ActualizadorPrecios = require('./modulesService/Local/ActualizadorPrecios.js');
 const ClientesSvc = require('./modulesService/Local/ListaPrecClientes');
 const Proveedores = require('./modulesService/Local/Proveedores');
@@ -1398,6 +1399,13 @@ safeIpc('get-tasa-iva-details', getTasaIVADetails);
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: PRECIOS (Generador / Actualizador)
  * ──────────────────────────────────────────────────────────────────────────── */
+ipcMain.handle('precios:get-script-info', async () => {
+  try {
+    return obtenerScriptInfoService();
+  } catch (e) {
+    return { success: false, message: e?.message || 'No se pudo leer la info del script.' };
+  }
+});
 ipcMain.handle('get-precios', async () => {
   writeToLog('[IPC] get-precios');
   return obtenerPreciosService();

@@ -1,108 +1,111 @@
-/* ===== Container (tal como pediste) ===== */
 .container {
- background: #fff;
-      width: clamp(320px, 92vw, 1080px);
-    min-height: clamp(520px, 80vh, 720px);
-    max-height: 720px;
-    padding: 24px;          /* 32px -> 24px */
-  border-radius: 10px;
+  background: #fff;
+  width: clamp(320px, 94vw, 1200px);
+  padding: 16px;
+  border-radius: 12px;
   box-shadow: 0 0 10px rgba(0,0,0,.1);
   margin: 0 auto;
   z-index: 2;
 }
-.container::-webkit-scrollbar { display: none; }
 
-/* ===== Header ===== */
+/* Header */
 .headerContainer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
-  
+  gap: 12px;
+  margin-bottom: 10px;
 }
+
 .title {
-  font-size: 1.6rem;
-  font-weight: bold;
+  font-size: 1.25rem;
+  font-weight: 800;
   margin: 0;
   color: #111;
 }
+
+.titleCount {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: .7;
+  margin-left: 8px;
+}
+
 .headerActions {
   display: inline-flex;
   gap: 8px;
 }
 
-/* Botón volver (color pedido) */
 .btn {
   padding: 8px 12px;
   border: none;
-  border-radius: 5px;
+  border-radius: 10px;
   background-color: #e82c02;
   color: white;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: background-color 0.3s ease;
+  font-weight: 700;
 }
 .btn:hover { background-color: #d42602; }
 
-/* Botón exportar (simple y consistente) */
 .exportBtn {
   padding: 8px 12px;
   border: 1px solid #ddd;
-  border-radius: 5px;
+  border-radius: 10px;
   background: #f7f7f7;
   cursor: pointer;
   font-size: 1rem;
   line-height: 1;
-  transition: background-color .2s ease, border-color .2s ease;
 }
 .exportBtn:hover {
   background: #efefef;
   border-color: #d5d5d5;
 }
 
-/* ===== Mensajes ===== */
+/* Mensajes */
 .successBox {
   margin: 8px 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #eefbf0;
   border: 1px solid #d6f5db;
   color: #0f6b2e;
-  font-size: 14px;
+  font-size: 13px;
 }
 .errorBox {
   margin: 8px 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #fff3f3;
   border: 1px solid #ffd4d4;
   color: #a11515;
-  font-size: 14px;
+  font-size: 13px;
 }
 
-/* ===== Tabla (tal como pediste) ===== */
-.tableContainer { width: 100%; }
+/* Tabla: SIN scroll */
+.tableContainer { width: 100%; overflow: hidden; }
+
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
-  min-width: 720px; /* para que no se amontone en pantallas chicas */
+  font-size: 12px;
+  min-width: 0;
 }
+
 .table th,
 .table td {
   text-align: left;
-  padding: 0.5rem;
+  padding: 6px 8px;
   border-bottom: 1px solid #ddd;
+  vertical-align: top;
 }
-.headerRow { background-color: #f0f0f0; }
 
-/* Fila hover sutil */
+.headerRow { background-color: #f0f0f0; }
 .row:hover td { background: #fafafa; }
 
-/* Números alineados a la derecha y sin corte */
 .num { text-align: right !important; white-space: nowrap; }
 
-/* ===== Badges (tu JSX los usa) ===== */
+/* Badges */
 .badge {
   display: inline-block;
   font-size: 11px;
@@ -123,10 +126,31 @@
   color: #9a3412;
 }
 
-/* ===== Extras que pediste ===== */
-.ok { color: #007700; }
-.error { color: #d00; font-weight: bold; }
-.noResults { text-align: center; color: #6c757d; font-style: italic; }
-
-/* Clase custom que pasaste */
-.tractualizado { background-color: #d8ffd8; }
+/* ✅ Pager */
+.pager{
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+}
+.pagerBtn{
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #f7f7f7;
+  cursor: pointer;
+  font-weight: 700;
+}
+.pagerBtn:hover{
+  background: #efefef;
+}
+.pagerBtn:disabled{
+  opacity: .5;
+  cursor: not-allowed;
+}
+.pagerInfo{
+  font-size: 12px;
+  opacity: .8;
+  font-weight: 700;
+}
