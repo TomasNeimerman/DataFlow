@@ -21,9 +21,9 @@ module.exports = {
   config: require('./config'),
 
   // Servicios por circuito
-  finanzas: require('./services/finanzas'),
+  ventas: require('./services/ventas'),
+  finanzas: require('./services/finanzas'), // Legacy - usar ventas para recibos
   // Futuros circuitos:
-  // ventas: require('./services/ventas'),
   // compras: require('./services/compras'),
   // stock: require('./services/stock'),
   // tablas: require('./services/tablas'),

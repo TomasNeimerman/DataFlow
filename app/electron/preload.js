@@ -150,10 +150,10 @@ getOrdenamientos: () => ipcRenderer.invoke('paramgen:get-ordenamientos'),
   // SDK Bejerman
   // ======================
   sdk: {
-    finanzas: {
-      ingresarRecibo: (params) => ipcRenderer.invoke('sdk:finanzas:ingresar-recibo', params),
-      ingresarRecibosMultiples: (params) => ipcRenderer.invoke('sdk:finanzas:ingresar-recibos-multiples', params),
-      listarRecibos: (params) => ipcRenderer.invoke('sdk:finanzas:listar-recibos', params),
+    ventas: {
+      ingresarRecibo: (params) => ipcRenderer.invoke('sdk:ventas:ingresar-recibo', params),
+      ingresarRecibosMultiples: (params) => ipcRenderer.invoke('sdk:ventas:ingresar-recibos-multiples', params),
+      listarRecibos: (params) => ipcRenderer.invoke('sdk:ventas:listar-recibos', params),
     },
   },
   // ======================

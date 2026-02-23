@@ -51,8 +51,9 @@ if (isLegacyWindows) {
 /* ────────────────────────────────────────────────────────────────────────────
  *  LOGGING
  * ──────────────────────────────────────────────────────────────────────────── */
-const userDataPath = app.getPath('userData');
-const logFilePath  = path.join(userDataPath, 'app_error.log');
+const logDir = 'C:/Dataflow';
+const logFilePath = path.join(logDir, 'error.log');
+if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
 function writeToLog(message) {
   const timestamp = new Date().toISOString();
   try { fs.appendFileSync(logFilePath, `[${timestamp}] ${message}\n`); }
@@ -1360,28 +1361,30 @@ ipcMain.handle("recibos:getAplicaciones",   () => Recibos.getAplicaciones());
  * ──────────────────────────────────────────────────────────────────────────── */
 const bejermanSDK = require('./bejermanSDK');
 
-ipcMain.handle('sdk:finanzas:ingresar-recibo', async (event, params) => {
+ipcMain.handle('sdk:ventas:ingresar-recibo', async (event, params) => {
+  writeToLog(`[SDK] ingresarRecibo llamado con params: ${JSON.stringify(params)}`);
   try {
-    const result = await bejermanSDK.finanzas.ingresarRecibo(params);
+    const result = await bejermanSDK.ventas.ingresarRecibo(params);
+    writeToLog(`[SDK] ingresarRecibo resultado: ${JSON.stringify(result)}`);
     return result;
   } catch (error) {
-    writeToLog(`[SDK] Error ingresando recibo: ${error.message}`);
+    writeToLog(`[SDK] Error ingresando recibo: ${error.message} | Stack: ${error.stack}`);
     return { success: false, message: error.message };
   }
 });
 
-ipcMain.handle('sdk:finanzas:ingresar-recibos-multiples', async (event, params) => {
+ipcMain.handle('sdk:ventas:ingresar-recibos-multiples', async (event, params) => {
   try {
-    return await bejermanSDK.finanzas.ingresarRecibosMultiples(params);
+    return await bejermanSDK.ventas.ingresarRecibosMultiples(params);
   } catch (error) {
     writeToLog(`[SDK] Error ingresando múltiples recibos: ${error.message}`);
     return { success: false, message: error.message };
   }
 });
 
-ipcMain.handle('sdk:finanzas:listar-recibos', async (event, params) => {
+ipcMain.handle('sdk:ventas:listar-recibos', async (event, params) => {
   try {
-    return await bejermanSDK.finanzas.listarRecibos(params);
+    return await bejermanSDK.ventas.listarRecibos(params);
   } catch (error) {
     writeToLog(`[SDK] Error listando recibos: ${error.message}`);
     return { success: false, message: error.message };

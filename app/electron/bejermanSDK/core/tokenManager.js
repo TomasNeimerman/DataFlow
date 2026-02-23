@@ -2,10 +2,26 @@
  * Gestor de autenticación y tokens del SDK de Bejerman
  */
 
+const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const xml2js = require('xml2js');
 const config = require('../config');
 const { escapeXml } = require('./xmlParser');
+
+// Crear directorio de logs si no existe
+const LOG_DIR = 'C:/Dataflow';
+const LOG_FILE = path.join(LOG_DIR, 'error.log');
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+// Logging directo al archivo
+function logToFile(msg) {
+  const ts = new Date().toISOString();
+  fs.appendFileSync(LOG_FILE, `[${ts}] ${msg}\n`);
+}
 
 // Cache de token en memoria
 let tokenCache = null;
@@ -21,18 +37,19 @@ async function getToken() {
 
   // Si hay token en cache y no expiró, retornarlo
   if (tokenCache && tokenExpiry && now < tokenExpiry) {
-    if (config.LOG_ENABLED) {
-      const remainingMs = tokenExpiry - now;
-      const remainingMin = Math.floor(remainingMs / 60000);
-      console.log(`[tokenManager] Usando token en cache (válido por ${remainingMin} min)`);
+    // Verificar que el token no sea un objeto (error anterior)
+    if (typeof tokenCache !== 'string' || tokenCache === '[object Object]') {
+      logToFile('[tokenManager] Token cacheado inválido, forzando renovación');
+      tokenCache = null;
+      tokenExpiry = null;
+    } else {
+      logToFile(`[tokenManager] Usando token en cache: ${tokenCache.substring(0, 20)}...`);
+      return tokenCache;
     }
-    return tokenCache;
   }
 
   // Token expirado o inexistente, renovar
-  if (config.LOG_ENABLED) {
-    console.log('[tokenManager] Token expirado o inexistente, renovando...');
-  }
+  logToFile('[tokenManager] Token expirado o inexistente, renovando...');
 
   return await renewToken();
 }
@@ -51,6 +68,15 @@ async function renewToken() {
       );
     }
 
+    // Log de credenciales que se van a enviar
+    logToFile(`[tokenManager] Intentando autenticar con:`);
+    logToFile(`  - URL: ${config.SDK_URL}`);
+    logToFile(`  - Usuario: ${config.SDK_USER}`);
+    logToFile(`  - Password: "${config.SDK_PASSWORD}" (largo: ${config.SDK_PASSWORD ? config.SDK_PASSWORD.length : 0})`);
+    logToFile(`  - Empresa: ${config.SDK_EMPRESA}`);
+    logToFile(`  - PtoTrabajo: ${config.SDK_PTO_TRABAJO}`);
+    logToFile(`  - Sucursal: ${config.SDK_SUCURSAL || '(vacío)'}`);
+
     // Construir request SOAP para autenticación
     const soapRequest = buildAuthRequest(
       config.SDK_USER,
@@ -60,9 +86,8 @@ async function renewToken() {
       config.SDK_SUCURSAL
     );
 
-    if (config.LOG_ENABLED && config.LOG_REQUESTS) {
-      console.log('[tokenManager] Auth request:', soapRequest);
-    }
+    // Log del request SOAP completo
+    logToFile(`[tokenManager] SOAP Request:\n${soapRequest}`);
 
     // Llamar al Web Service
     const response = await axios.post(config.SDK_URL, soapRequest, {
@@ -89,16 +114,55 @@ async function renewToken() {
       throw new Error('Respuesta SOAP inválida: no se encontró EFlexSDK_WSRegistroResponse');
     }
 
-    const token = registroResponse['EFlexSDK_WSRegistroResult'];
+    const tokenRaw = registroResponse['EFlexSDK_WSRegistroResult'];
+    logToFile(`[tokenManager] tokenRaw type=${typeof tokenRaw}, value=${JSON.stringify(tokenRaw)}`);
 
-    if (!token || token === '' || token.toString().toUpperCase() === 'ERROR') {
+    // Verificar si la respuesta es un objeto con campos del SDK
+    if (tokenRaw && typeof tokenRaw === 'object') {
+      // Buscar campos en la respuesta
+      const errorMsgRaw = tokenRaw['a:ErrorMsg'] || tokenRaw['ErrorMsg'];
+      const resultado = tokenRaw['a:Resultado'] || tokenRaw['Resultado'];
+      const tokenValue = tokenRaw['a:Token'] || tokenRaw['Token'];
+
+      // Extraer errorMsg solo si es un string real (no un objeto nil)
+      const errorMsg = (typeof errorMsgRaw === 'string') ? errorMsgRaw : null;
+
+      logToFile(`[tokenManager] Resultado: ${resultado}, Token: ${tokenValue ? 'presente' : 'ausente'}, ErrorMsg: ${errorMsg || '(vacío)'}`);
+
+      // Si resultado es OK y hay token, éxito
+      if (resultado === 'OK' && tokenValue && typeof tokenValue === 'string') {
+        logToFile(`[tokenManager] Token extraído: ${tokenValue.substring(0, 20)}...`);
+        tokenCache = tokenValue;
+        tokenExpiry = Date.now() + config.SDK_TOKEN_TTL;
+        return tokenCache;
+      }
+
+      // Si hay error, falló la autenticación
+      if (resultado === 'ERR' || errorMsg) {
+        const errText = errorMsg || 'Error desconocido';
+        logToFile(`[tokenManager] Error de autenticación SDK: ${errText}`);
+        throw new Error(`Error de autenticación SDK: ${errText}`);
+      }
+    }
+
+    // Extraer el string del token (puede venir como string directamente)
+    let token;
+    if (typeof tokenRaw === 'string') {
+      token = tokenRaw;
+    } else {
+      token = tokenRaw ? String(tokenRaw) : '';
+    }
+
+    logToFile(`[tokenManager] token extraído: ${token}`);
+
+    if (!token || token === '' || token.toUpperCase() === 'ERROR') {
       throw new Error(
         `Autenticación fallida. Verifique credenciales en config/index.js. Resultado: ${token || 'vacío'}`
       );
     }
 
     // Cachear token
-    tokenCache = token.toString();
+    tokenCache = token;
     tokenExpiry = Date.now() + config.SDK_TOKEN_TTL;
 
     if (config.LOG_ENABLED) {
@@ -165,16 +229,16 @@ function clearToken() {
 function buildAuthRequest(usuario, clave, empresa = '', ptoTrabajo = '', sucursal = '') {
   return `<?xml version="1.0" encoding="utf-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:tem="http://localhost:57213/">
+                  xmlns:loc="http://localhost:57213/">
    <soapenv:Header/>
    <soapenv:Body>
-      <tem:EFlexSDK_WSRegistro>
-         <tem:Usuario>${escapeXml(usuario)}</tem:Usuario>
-         <tem:Clave>${escapeXml(clave)}</tem:Clave>
-         <tem:Empresa>${escapeXml(empresa)}</tem:Empresa>
-         <tem:PtoTrabajo>${escapeXml(ptoTrabajo)}</tem:PtoTrabajo>
-         <tem:Sucursal>${escapeXml(sucursal)}</tem:Sucursal>
-      </tem:EFlexSDK_WSRegistro>
+      <loc:EFlexSDK_WSRegistro>
+         <loc:xUsuario>${escapeXml(usuario)}</loc:xUsuario>
+         <loc:xClave>${escapeXml(clave)}</loc:xClave>
+         <loc:xCodEmpresa>${escapeXml(empresa)}</loc:xCodEmpresa>
+         <loc:xPtoTrabajo>${escapeXml(ptoTrabajo)}</loc:xPtoTrabajo>
+         <loc:xCodSucursal>${escapeXml(sucursal)}</loc:xCodSucursal>
+      </loc:EFlexSDK_WSRegistro>
    </soapenv:Body>
 </soapenv:Envelope>`;
 }

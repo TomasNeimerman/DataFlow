@@ -431,15 +431,21 @@ export default function RecibosPage() {
       };
 
       // Llamar al SDK
-      const result = await window.api.sdk.finanzas.ingresarRecibo(payload);
+      const result = await window.api.sdk.ventas.ingresarRecibo(payload);
 
       // Manejar respuesta
       if (result?.success) {
         alert(`✓ Recibo registrado exitosamente en Bejerman ERP\n\n${result.message}`);
         // TODO: Limpiar formulario o redirigir
       } else {
-        const errores = (result.errors || []).join('\n');
-        alert(`✗ Error al registrar recibo:\n\n${errores || result.message}`);
+        // Convertir errores a string (pueden ser objetos o strings)
+        const errores = (result.errors || [])
+          .map(e => typeof e === 'object' ? JSON.stringify(e) : e)
+          .join('\n');
+        const mensaje = typeof result.message === 'object'
+          ? JSON.stringify(result.message)
+          : result.message;
+        alert(`✗ Error al registrar recibo:\n\n${errores || mensaje}`);
       }
 
     } catch (error) {

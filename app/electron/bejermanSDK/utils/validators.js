@@ -1,5 +1,5 @@
 /**
- * Validadores de datos para el SDK de Bejerman
+ * Validadores de datos para el SDK de Bejerman (Circuito VENTAS)
  */
 
 /**
@@ -15,29 +15,33 @@ function validateRecibo(recibo) {
     return { valid: false, errors: ['Recibo es requerido'] };
   }
 
+  // Código de cliente es requerido
   if (!recibo.codigoCliente || recibo.codigoCliente.toString().trim() === '') {
     errors.push('Código de cliente es requerido');
   }
 
+  // Fecha es requerida
   if (!recibo.fecha || recibo.fecha.toString().trim() === '') {
     errors.push('Fecha es requerida');
   } else {
-    // Validar formato de fecha
     if (!isValidFecha(recibo.fecha)) {
       errors.push('Fecha debe estar en formato DD/MM/YYYY o YYYY-MM-DD');
     }
   }
 
-  if (!recibo.moneda || recibo.moneda.toString().trim() === '') {
-    errors.push('Moneda es requerida');
+  // Punto de venta - opcional pero si se provee debe ser válido
+  if (recibo.puntoVenta) {
+    const pv = recibo.puntoVenta.toString().trim();
+    if (!/^\d+$/.test(pv)) {
+      errors.push('Punto de venta debe ser numérico');
+    }
   }
 
-  if (!recibo.tipoCambio) {
-    errors.push('Tipo de cambio es requerido');
-  } else {
-    const tc = parseFloat(recibo.tipoCambio);
-    if (isNaN(tc) || tc <= 0) {
-      errors.push('Tipo de cambio debe ser un número mayor a 0');
+  // Número de comprobante - opcional (puede usar autonumeración)
+  if (recibo.numero) {
+    const num = recibo.numero.toString().trim();
+    if (!/^\d+$/.test(num)) {
+      errors.push('Número de comprobante debe ser numérico');
     }
   }
 
@@ -52,29 +56,15 @@ function validateRecibo(recibo) {
       const valorErrors = validateValor(valor, index);
       errors.push(...valorErrors);
     });
-  }
 
-  // Validar aplicaciones (facturas) si existen
-  if (recibo.aplicaciones && Array.isArray(recibo.aplicaciones)) {
-    recibo.aplicaciones.forEach((aplicacion, index) => {
-      const aplicacionErrors = validateAplicacion(aplicacion, index);
-      errors.push(...aplicacionErrors);
-    });
-
-    // Validar que el total de valores >= total de aplicaciones
+    // Validar que el total de valores sea mayor a cero
     const totalValores = recibo.valores.reduce(
-      (sum, v) => sum + parseFloat(v.importe || 0),
-      0
-    );
-    const totalAplicaciones = recibo.aplicaciones.reduce(
-      (sum, a) => sum + parseFloat(a.importe || 0),
+      (sum, v) => sum + (parseFloat(v.importe) || 0),
       0
     );
 
-    if (totalAplicaciones > totalValores) {
-      errors.push(
-        `Total aplicado (${totalAplicaciones.toFixed(2)}) excede total de valores (${totalValores.toFixed(2)})`
-      );
+    if (totalValores <= 0) {
+      errors.push('El total de valores debe ser mayor a cero');
     }
   }
 
@@ -94,32 +84,33 @@ function validateValor(valor, index) {
   const errors = [];
   const prefix = `Valor[${index}]`;
 
-  if (!valor.tipo || valor.tipo.toString().trim() === '') {
-    errors.push(`${prefix}: Tipo de valor es requerido (CHE, ECH, TRF, EFE, etc.)`);
+  // Tipo de valor - opcional, default a EFE (efectivo)
+  if (valor.tipo) {
+    const tiposValidos = ['EFE', 'CHE', 'ECH', 'TRF', 'TAR', 'DEP', 'RET'];
+    const tipoUpper = valor.tipo.toString().toUpperCase();
+    if (!tiposValidos.includes(tipoUpper)) {
+      errors.push(`${prefix}: Tipo de valor inválido. Valores permitidos: ${tiposValidos.join(', ')}`);
+    }
   }
 
-  if (!valor.importe) {
+  // Importe es requerido
+  if (valor.importe === undefined || valor.importe === null || valor.importe === '') {
     errors.push(`${prefix}: Importe es requerido`);
   } else {
     const importe = parseFloat(valor.importe);
-    if (isNaN(importe) || importe <= 0) {
-      errors.push(`${prefix}: Importe debe ser un número mayor a 0`);
+    if (isNaN(importe)) {
+      errors.push(`${prefix}: Importe debe ser un número válido`);
+    } else if (importe <= 0) {
+      errors.push(`${prefix}: Importe debe ser mayor a 0`);
     }
   }
 
   // Validaciones específicas por tipo
-  const tipo = (valor.tipo || '').toString().toUpperCase();
+  const tipo = (valor.tipo || 'EFE').toString().toUpperCase();
 
   if (tipo === 'CHE' || tipo === 'ECH') {
-    // Cheques requieren banco y número
-    if (!valor.codigoBanco || valor.codigoBanco.toString().trim() === '') {
-      errors.push(`${prefix}: Código de banco es requerido para cheques`);
-    }
-
-    if (!valor.numeroCheque || valor.numeroCheque.toString().trim() === '') {
-      errors.push(`${prefix}: Número de cheque es requerido`);
-    }
-
+    // Cheques pueden requerir banco y número, pero lo hacemos opcional
+    // ya que algunos sistemas permiten cheques sin estos datos
     if (valor.fechaCobro && !isValidFecha(valor.fechaCobro)) {
       errors.push(`${prefix}: Fecha de cobro debe estar en formato DD/MM/YYYY o YYYY-MM-DD`);
     }
@@ -130,43 +121,8 @@ function validateValor(valor, index) {
   }
 
   if (tipo === 'TRF') {
-    // Transferencias
     if (valor.fechaTransferencia && !isValidFecha(valor.fechaTransferencia)) {
       errors.push(`${prefix}: Fecha de transferencia debe estar en formato DD/MM/YYYY o YYYY-MM-DD`);
-    }
-  }
-
-  return errors;
-}
-
-/**
- * Valida una aplicación (factura a cancelar)
- * @param {Object} aplicacion - Objeto aplicación
- * @param {number} index - Índice en el array
- * @returns {Array<string>} - Array de errores
- */
-function validateAplicacion(aplicacion, index) {
-  const errors = [];
-  const prefix = `Aplicación[${index}]`;
-
-  if (!aplicacion.tipoComprobante || aplicacion.tipoComprobante.toString().trim() === '') {
-    errors.push(`${prefix}: Tipo de comprobante es requerido (FA, FB, FC, etc.)`);
-  }
-
-  if (!aplicacion.puntoVenta || aplicacion.puntoVenta.toString().trim() === '') {
-    errors.push(`${prefix}: Punto de venta es requerido`);
-  }
-
-  if (!aplicacion.numeroComprobante || aplicacion.numeroComprobante.toString().trim() === '') {
-    errors.push(`${prefix}: Número de comprobante es requerido`);
-  }
-
-  if (!aplicacion.importe) {
-    errors.push(`${prefix}: Importe es requerido`);
-  } else {
-    const importe = parseFloat(aplicacion.importe);
-    if (isNaN(importe) || importe <= 0) {
-      errors.push(`${prefix}: Importe debe ser un número mayor a 0`);
     }
   }
 
@@ -192,6 +148,13 @@ function isValidFecha(fecha) {
   // Formato YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
     const [yyyy, mm, dd] = fechaStr.split('-').map(Number);
+    return isValidDate(dd, mm, yyyy);
+  }
+
+  // Formato ISO YYYY-MM-DDTHH:MM:SS
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(fechaStr)) {
+    const datePart = fechaStr.substring(0, 10);
+    const [yyyy, mm, dd] = datePart.split('-').map(Number);
     return isValidDate(dd, mm, yyyy);
   }
 
@@ -233,6 +196,5 @@ function isLeapYear(year) {
 module.exports = {
   validateRecibo,
   validateValor,
-  validateAplicacion,
   isValidFecha,
 };

@@ -1,184 +1,276 @@
 /**
- * Serializers - Mapeo de datos DataFlow → formato SDK Bejerman
+ * Serializers - Mapeo de datos DataFlow → formato SDK Bejerman (Circuito VENTAS)
+ *
+ * Este módulo mapea los datos de recibos de DataFlow al formato esperado por
+ * el SDK de Bejerman para la operación IngresarComprobanteJSON del circuito VENTAS.
+ *
+ * IMPORTANTE: El orden de los campos debe coincidir exactamente con el esperado por el SDK.
  */
 
 /**
- * Mapea un recibo de DataFlow al formato del SDK de Bejerman
+ * Mapea un recibo de DataFlow al formato del SDK de Bejerman (Circuito VENTAS)
+ * El orden de los campos es crítico y debe coincidir con el ejemplo de la documentación.
  * @param {Object} recibo - Recibo en formato DataFlow
- * @returns {Object} - Recibo en formato EFlexSDK_ComprobanteFinanzas
+ * @returns {Object} - Comprobante en formato SDK Bejerman
  */
 function mapReciboToSDK(recibo) {
+  const fechaEmision = convertirFechaToISO(recibo.fecha);
+  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
+  const numero = formatNumeroComprobante(recibo.numero);
+
+  // IMPORTANTE: El orden de los campos debe ser exactamente este
   return {
-    TipoComprobante: 'RC', // Recibo (fijo)
-    Fecha: convertirFechaToSDK(recibo.fecha),
-    Moneda: recibo.moneda || 'ARS',
-    TipoCambio: formatTipoCambio(recibo.tipoCambio),
-    CodigoCliente: recibo.codigoCliente?.toString() || '',
-    NombreCliente: recibo.nombreCliente || '',
-    Observaciones: recibo.observaciones || 'Recibo generado desde DataFlow',
-    Valores: mapValores(recibo.valores || []),
-    Aplicaciones: mapAplicaciones(recibo.aplicaciones || []),
+    Comprobante_Tipo: 'RC',
+    Comprobante_Letra: recibo.letra || ' ',
+    Comprobante_PtoVenta: ptoVenta,
+    Comprobante_Numero: numero,
+    Comprobante_LoteHasta: ' ',
+    Comprobante_FechaEmision: fechaEmision,
+    Cliente_Codigo: formatCodigoCliente(recibo.codigoCliente),
+    Cliente_RazonSocial: recibo.nombreCliente || recibo.razonSocial || '',
+    Cliente_TipoDocumento: recibo.tipoDocumento || 1,
+    Cliente_Provincia: formatProvincia(recibo.provincia),
+    Cliente_SitIVA: recibo.situacionIVA || '1',
+    Cliente_NroDocumento: recibo.cuit || recibo.nroDocumento || '',
+    Cliente_NumeroIIBB: recibo.numeroIIBB || '',
+    Vendedor_Codigo: recibo.codigoVendedor || ' ',
+    Vendedor_CodigoZona: recibo.codigoZona || '',
+    Cliente_CodigoClase: recibo.codigoClase || '',
+    Comprobante_CondVenta: recibo.condicionVenta || '1', // 1=Contado, 2=Cuenta corriente
+    Comprobante_CodigoCausaEmision: recibo.causaEmision || null,
+    Comprobante_FechaVencimiento: fechaEmision,
+    Comprobante_ImporteTotal: calcularImporteTotal(recibo),
+    Comprobante_CodigoDescComercial: recibo.codigoDescComercial || null,
+    Comprobante_CodigoDescFinanciero: recibo.codigoDescFinanciero || null,
+    Comprobante_CodigoDescGeneral: recibo.codigoDescGeneral || null,
+    Comprobante_AperturaContable: recibo.aperturaContable || ' ',
+    Cliente_Tipo: recibo.tipoCliente || '',
+    Cliente_Direccion: recibo.direccion || '',
+    Cliente_CodigoPostal: recibo.codigoPostal || '',
+    Cliente_Localidad: recibo.localidad || '',
+    Cliente_CodigoClase2: recibo.codigoClase2 || '',
+    Comprobante_Mensaje: recibo.mensaje || null,
+    Comprobante_Anulado: '',
+    Comprobante_ActualizaStock: 'N',
+    Comprobante_DescripClaseAdicional1: recibo.descripClaseAdicional1 || '',
+    Comprobante_DescripClaseAdicional2: recibo.descripClaseAdicional2 || ' ',
+    Cliente_DescripTipo: recibo.descripTipoCliente || '',
+    Vendedor_DescZona: recibo.descripZona || '',
+    Vendedor_Descripcion: recibo.descripVendedor || '',
+    Comprobante_NoDisponible: null,
+    Comprobante_TasaDescComercial1: null,
+    Comprobante_TasaDescComercial2: null,
+    Comprobante_TasaDescComercial3: null,
+    Comprobante_TasaDescFinanciero: null,
+    Comprobante_TasaDescGeneral: null,
+    Comprobante_NumeroCAI: null,
+    Comprobante_FechaVencimientoCAI: fechaEmision,
+    Comprobante_ControladorFiscal: null,
+    Cliente_Email: recibo.email || '',
+    Cliente_Telefono: recibo.telefono || '',
+    Cliente_Fax: recibo.fax || '',
+    Cliente_ContactoObs: recibo.contactoObs || ' ',
+    Comprobante_TipoOperacion: null,
+    Comprobante_NumeroCuota: ' ',
+    Comprobante_ImporteCuota: 0,
+    Comprobante_EnCuotas: '',
+    Comprobante_Moneda: '',  // Vacío según ejemplo
+    Comprobante_TipoCambio: '',
+    Comprobante_CotizacionCambio: null,
+    Comprobante_FechaEntrega: null,
+    Comprobante_Grupo: null,
+    Comprobante_Proyecto: null,
+    Comprobante_ListaPrecios: null,
+    Comprobante_LugarEntrega: null,
+    Comprobante_MarcaAutorizacion: null,
+    Comprobante_Transporte: null,
+    Comprobante_FechaContabilizacion: fechaEmision,
+    Comprobante_FechaDDJJ: null,
+    Comprobante_Empresa: null,
+    Comprobante_Sucursal: null,
+    Comprobante_ID: recibo.id || 0,
+    Comprobante_IDMediosPago: recibo.idMediosPago || 0,
+    Comprobante_Items: [],
+    Comprobante_MediosPago: mapMediosPago(recibo),
+    Comprobante_RegEspeciales: [],
+    Comprobante_DatosAdicionales: null,
+    Comprobante_Cuotas: null,
   };
 }
 
 /**
- * Mapea valores (medios de pago) al formato del SDK
- * @param {Array<Object>} valores - Array de valores
- * @returns {Array<Object>} - Array de valores en formato SDK
+ * Mapea los medios de pago al formato del SDK
+ * @param {Object} recibo - Recibo con valores (medios de pago)
+ * @returns {Array} - Array de medios de pago en formato SDK
  */
-function mapValores(valores) {
-  if (!valores || !Array.isArray(valores)) return [];
+function mapMediosPago(recibo) {
+  const valores = recibo.valores || [];
+  if (valores.length === 0) return [];
+
+  const fechaEmision = convertirFechaToISO(recibo.fecha);
+  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
+  const numero = formatNumeroComprobante(recibo.numero);
 
   return valores.map((valor) => {
-    const base = {
-      TipoValor: (valor.tipo || '').toString().toUpperCase(),
-      Importe: formatImporte(valor.importe),
-      Observaciones: valor.observaciones || '',
+    const medioPago = mapTipoValorToMedioPago(valor.tipo);
+    const importe = parseFloat(valor.importe) || 0;
+
+    return {
+      Comprobante_Tipo: 'RC',
+      Comprobante_Letra: recibo.letra || ' ',
+      Comprobante_PtoVenta: ptoVenta,
+      Comprobante_Numero: numero,
+      Comprobante_LoteHasta: ' ',
+      Comprobante_FechaEmision: fechaEmision,
+      Cliente_Codigo: formatCodigoCliente(recibo.codigoCliente),
+      MedioPago: medioPago,
+      MedioPago_Moneda: '1',
+      MedioPago_TipoCambio: 'UNI',
+      MedioPago_CajaOrigen: valor.cajaOrigen || '1',
+      MedioPago_TipoDocumento: '',
+      MedioPago_FechaVencimiento: fechaEmision,
+      MedioPago_Importe: importe,
+      MedioPago_NumeroCheque: valor.numeroCheque || '',
+      MedioPago_CodigoBanco: valor.codigoBanco || '',
+      MedioPago_SucursalBanco: valor.sucursalBanco || '',
+      MedioPago_Clearing: 0,
+      MedioPago_Origen: '',
+      MedioPago_CodigoCuenta: '',
+      MedioPago_NumeroTarjeta: '',
+      MedioPago_NumeroAutorizacion: '',
+      MedioPago_NombreLibrador: '',
+      MedioPago_DireccionLibrador: '',
+      MedioPago_CodPostalLibrador: '',
+      MedioPago_ProvinciaLibrador: '',
+      MedioPago_LocalidadLibrador: '',
+      MedioPago_TelefonoLibrador: '',
+      MedioPago_ImporteMonedaLocal: importe,
     };
-
-    const tipo = (valor.tipo || '').toString().toUpperCase();
-
-    // Cheques (CHE, ECH)
-    if (tipo === 'CHE' || tipo === 'ECH') {
-      return {
-        ...base,
-        CodigoBanco: (valor.codigoBanco || '').toString(),
-        NumeroCheque: (valor.numeroCheque || '').toString(),
-        FechaEmision: convertirFechaToSDK(valor.fechaEmision),
-        FechaCobro: convertirFechaToSDK(valor.fechaCobro),
-        CUIT: valor.cuit || '',
-        Librador: valor.librador || '',
-        NumeroCuenta: valor.numeroCuenta || '',
-        CMC7: valor.cmc7 || '',
-      };
-    }
-
-    // Transferencias (TRF)
-    if (tipo === 'TRF') {
-      return {
-        ...base,
-        CodigoBanco: valor.codigoBanco || '',
-        NumeroCuenta: valor.numeroCuenta || '',
-        FechaTransferencia: convertirFechaToSDK(valor.fechaTransferencia || valor.fecha),
-      };
-    }
-
-    // Efectivo (EFE) solo necesita campos base
-    return base;
   });
 }
 
 /**
- * Mapea aplicaciones (facturas a cancelar) de DataFlow a formato SDK
- * @param {Array<Object>} aplicaciones - Array de aplicaciones
- * @returns {Array<Object>} - Array de aplicaciones en formato SDK
+ * Mapea el tipo de valor de DataFlow al código de medio de pago de Bejerman
+ * @param {string} tipo - Tipo de valor (EFE, CHE, TRF, etc.)
+ * @returns {number} - Código de medio de pago
  */
-function mapAplicaciones(aplicaciones) {
-  if (!aplicaciones || !Array.isArray(aplicaciones)) {
-    return [];
-  }
+function mapTipoValorToMedioPago(tipo) {
+  const tipoUpper = (tipo || '').toString().toUpperCase();
 
-  return aplicaciones.map((aplicacion) => ({
-    TipoComprobanteAplicado: (aplicacion.tipoComprobante || 'FA').toString().toUpperCase(),
-    PuntoVenta: formatPuntoVenta(aplicacion.puntoVenta),
-    NumeroComprobante: formatNumeroComprobante(aplicacion.numeroComprobante),
-    ImporteAplicado: formatImporte(aplicacion.importe),
-    Observaciones: aplicacion.observaciones || '',
-  }));
+  const mapaCodigos = {
+    'EFE': 1,      // Efectivo
+    'CHE': 2,      // Cheque
+    'ECH': 2,      // E-Cheq
+    'TRF': 3,      // Transferencia
+    'TAR': 4,      // Tarjeta
+    'DEP': 5,      // Depósito
+    'RET': 6,      // Retención
+  };
+
+  return mapaCodigos[tipoUpper] || 1;
 }
 
 /**
- * Convierte fecha a formato DD/MM/YYYY (requerido por SDK)
- * @param {string} fecha - Fecha en formato DD/MM/YYYY o YYYY-MM-DD
- * @returns {string} - Fecha en formato DD/MM/YYYY
+ * Calcula el importe total del recibo (negativo para RC)
+ * @param {Object} recibo - Recibo con valores
+ * @returns {number} - Importe total (negativo)
  */
-function convertirFechaToSDK(fecha) {
+function calcularImporteTotal(recibo) {
+  const valores = recibo.valores || [];
+  const total = valores.reduce((sum, v) => sum + (parseFloat(v.importe) || 0), 0);
+  return -Math.abs(total);
+}
+
+/**
+ * Formatea código de cliente (6 dígitos con ceros a la izquierda)
+ * @param {string} codigo - Código de cliente
+ * @returns {string} - Código formateado
+ */
+function formatCodigoCliente(codigo) {
+  if (!codigo) return '000000';
+  return codigo.toString().trim().padStart(6, '0');
+}
+
+/**
+ * Formatea código de provincia (3 dígitos con ceros a la izquierda)
+ * Códigos válidos: 1-25 (según documentación Bejerman)
+ * @param {string|number} provincia - Código de provincia
+ * @returns {string} - Código formateado (ej: "001", "002")
+ */
+function formatProvincia(provincia) {
+  if (!provincia) return '001'; // Default: Capital Federal
+  const num = parseInt(provincia, 10);
+  if (isNaN(num) || num < 1 || num > 25) return '001';
+  return num.toString().padStart(3, '0');
+}
+
+/**
+ * Convierte fecha a formato ISO (YYYY-MM-DDTHH:MM:SS)
+ * @param {string} fecha - Fecha en formato DD/MM/YYYY o YYYY-MM-DD
+ * @returns {string} - Fecha en formato ISO
+ */
+function convertirFechaToISO(fecha) {
   if (!fecha) return '';
 
   const fechaStr = fecha.toString().trim();
 
-  // Ya está en formato DD/MM/YYYY
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaStr)) {
+  if (/^\d{4}-\d{2}-\d{2}T/.test(fechaStr)) {
     return fechaStr;
   }
 
-  // Convertir de YYYY-MM-DD a DD/MM/YYYY
   if (/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-    const [yyyy, mm, dd] = fechaStr.split('-');
-    return `${dd}/${mm}/${yyyy}`;
+    return `${fechaStr}T00:00:00`;
   }
 
-  // Si es un objeto Date
-  if (fechaStr instanceof Date) {
-    const dd = String(fechaStr.getDate()).padStart(2, '0');
-    const mm = String(fechaStr.getMonth() + 1).padStart(2, '0');
-    const yyyy = fechaStr.getFullYear();
-    return `${dd}/${mm}/${yyyy}`;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaStr)) {
+    const [dd, mm, yyyy] = fechaStr.split('/');
+    return `${yyyy}-${mm}-${dd}T00:00:00`;
   }
 
-  // Si no se reconoce el formato, devolver como está
+  if (fecha instanceof Date) {
+    return fecha.toISOString().replace(/\.\d{3}Z$/, '');
+  }
+
+  try {
+    const d = new Date(fechaStr);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().replace(/\.\d{3}Z$/, '');
+    }
+  } catch (e) {
+    // Ignorar
+  }
+
   return fechaStr;
 }
 
 /**
- * Formatea un importe a string con 2 decimales
- * @param {number|string} importe - Importe a formatear
- * @returns {string} - Importe formateado (ej: "1234.50")
- */
-function formatImporte(importe) {
-  if (!importe) return '0.00';
-
-  const num = parseFloat(importe);
-  if (isNaN(num)) return '0.00';
-
-  return num.toFixed(2);
-}
-
-/**
- * Formatea tipo de cambio con 4 decimales
- * @param {number|string} tipoCambio - Tipo de cambio a formatear
- * @returns {string} - TC formateado (ej: "1050.0000")
- */
-function formatTipoCambio(tipoCambio) {
-  if (!tipoCambio) return '1.0000';
-
-  const num = parseFloat(tipoCambio);
-  if (isNaN(num)) return '1.0000';
-
-  return num.toFixed(4);
-}
-
-/**
- * Formatea punto de venta a 4 dígitos con ceros a la izquierda
+ * Formatea punto de venta a 5 dígitos con ceros a la izquierda
  * @param {number|string} puntoVenta - Punto de venta
- * @returns {string} - Punto de venta formateado (ej: "0001")
+ * @returns {string} - Punto de venta formateado (ej: "00001")
  */
 function formatPuntoVenta(puntoVenta) {
-  if (!puntoVenta) return '0001';
-
-  const pv = puntoVenta.toString().trim();
-  return pv.padStart(4, '0');
+  if (!puntoVenta) return '00001';
+  return puntoVenta.toString().trim().padStart(5, '0');
 }
 
 /**
  * Formatea número de comprobante a 8 dígitos con ceros a la izquierda
  * @param {number|string} numeroComprobante - Número de comprobante
- * @returns {string} - Número formateado (ej: "00001234")
+ * @returns {string} - Número formateado (ej: "00000001")
  */
 function formatNumeroComprobante(numeroComprobante) {
   if (!numeroComprobante) return '00000000';
-
-  const num = numeroComprobante.toString().trim();
-  return num.padStart(8, '0');
+  return numeroComprobante.toString().trim().padStart(8, '0');
 }
 
 module.exports = {
   mapReciboToSDK,
-  mapValores,
-  mapAplicaciones,
-  convertirFechaToSDK,
-  formatImporte,
-  formatTipoCambio,
+  mapMediosPago,
+  mapTipoValorToMedioPago,
+  calcularImporteTotal,
+  convertirFechaToISO,
   formatPuntoVenta,
   formatNumeroComprobante,
+  formatCodigoCliente,
+  formatProvincia,
 };

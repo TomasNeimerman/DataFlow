@@ -14,11 +14,16 @@ function isOK(resultado) {
 
 /**
  * Parsea errores del resultado del SDK
- * @param {string} resultado - Resultado retornado por el SDK (cuando no es "OK")
+ * @param {string|Object} resultado - Resultado retornado por el SDK (cuando no es "OK")
  * @returns {Array<string>} - Array de mensajes de error
  */
 function parseErrors(resultado) {
   if (!resultado) return ['Error desconocido'];
+
+  // Si es un objeto, convertirlo a JSON string para mostrar el error real
+  if (typeof resultado === 'object') {
+    return [JSON.stringify(resultado, null, 2)];
+  }
 
   const resultStr = resultado.toString().trim();
 
