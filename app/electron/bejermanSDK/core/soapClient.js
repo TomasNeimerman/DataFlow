@@ -154,8 +154,9 @@ function buildSOAPRequest(circuito, operacion, parametros) {
   // FORMATO CORRECTO según documentación SDK:
   // ParametrosJson debe ser: ["[{objeto}]", "N", "E"]
   // El primer parámetro es un STRING que contiene un ARRAY JSON con el objeto
-  const arrayConObjeto = [comprobanteObj];
-  const primerParametro = JSON.stringify(arrayConObjeto);
+//  const arrayConObjeto = [comprobanteObj];
+//  const primerParametro = JSON.stringify(arrayConObjeto);
+  const primerParametro = JSON.stringify(comprobanteObj);
   
   const parametrosArray = [primerParametro, xNumeraFlex, xEmiteReg];
   const parametrosJson = JSON.stringify(parametrosArray);
