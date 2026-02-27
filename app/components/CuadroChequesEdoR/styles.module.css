@@ -1,13 +1,11 @@
 /* =========================
    CONTENEDOR PRINCIPAL
-   - Scroll interno (vertical) SIEMPRE
-   - Scrollbar overlay (por encima)
+   - Scroll general SIEMPRE visible
    ========================= */
 .container{
   background:#fff;
   width: clamp(320px, 92vw, 1080px);
-  min-height: clamp(520px, 80vh, 720px);
-  max-height: 720px;
+  height: clamp(520px, 80vh, 720px);
   margin: 20px auto;
   padding: 24px;
 
@@ -15,25 +13,39 @@
   box-shadow: 0 0 10px rgba(0,0,0,.08);
   font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
 
+  overflow-y: scroll;      /* ✅ siempre visible */
   overflow-x: hidden;
-  overflow-y: overlay; /* Chromium/Electron */
-}
-@supports not (overflow-y: overlay){
-  .container{ overflow-y: auto; }
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
 }
 
-/* Scrollbar del CONTENEDOR */
-.container::-webkit-scrollbar{ width: 10px; }
-.container::-webkit-scrollbar-track{ background: transparent; }
-.container::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.35); border-radius: 8px; }
+/* Scrollbar del contenedor (siempre visible, sin “salirse”) */
+.container::-webkit-scrollbar{ width: 12px; }
+.container::-webkit-scrollbar-track{
+  background: rgba(0,0,0,.06);
+  border-radius: 10px;
+}
+.container::-webkit-scrollbar-thumb{
+  background: rgba(0,0,0,.35);
+  border-radius: 10px;
+  border: 3px solid rgba(255,255,255,.85);
+}
 .container:hover::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.55); }
-.container{ scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.45) transparent; }
+.container{
+  scrollbar-width: auto;
+  scrollbar-color: rgba(0,0,0,.45) rgba(0,0,0,.06);
+}
 
 /* =========================
    TITULOS / HEADER
    ========================= */
 .title{ font-size:2rem; font-weight:700; color:#111; margin:0 0 .5rem; }
-.headerContainer{ display:flex; justify-content:space-between; align-items:center; margin-bottom:.75rem; }
+.headerContainer{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:.75rem;
+}
 
 /* =========================
    CARD FILTROS
@@ -61,6 +73,7 @@
   cursor:pointer;
 }
 .filtersHeaderBtn:hover{ background:#e5e5e5; }
+.chev{ margin-left:6px; }
 
 .smallBtn{
   border:1px solid #ddd;
@@ -135,16 +148,33 @@
 
 /* =========================
    TABLA
-   - height se controla por inline style (JS)
-   - transición suave
+   - la altura la controla el JS (style={{ height: `${tableHeight}px` }})
+   - overflow auto para scroll interno cuando haga falta
    ========================= */
+.tableScroll{
+  height: 100%;
+  overflow: auto;            /* ✅ scroll interno real */
+  display: block;
+
+  /* Esto evita que el contenido “empuje” y genere layouts raros */
+  min-height: 0;
+}   
 .tableContainer{
-  overflow: auto;
-  margin-bottom: 0.5rem;
   border: 1px solid #eee;
   border-radius: 12px;
   background: #fff;
-  transition: height .04s ease;
+  margin-bottom: 12px;
+
+  /* ✅ scroll NO acá, sino en .tableScroll */
+  overflow: hidden;
+
+  /* ✅ layout correcto para footer abajo */
+  display: flex;
+  flex-direction: column;
+
+  /* ✅ efecto acordeón */
+  transition: height .14s ease;
+  will-change: height;
 }
 
 /* Scrollbars tabla */
@@ -170,6 +200,15 @@
 .noResults{ text-align:center; color:#999; padding:16px; }
 .sortableHeader{ cursor:pointer; user-select:none; }
 
+/* Header sticky dentro de la tabla */
+.table thead th{
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(0,0,0,.06);
+}
+
 .situacionText{
   display:inline-block;
   padding:2px 8px;
@@ -179,9 +218,80 @@
 }
 
 /* =========================
+   PAGINACIÓN (dentro de tableContainer)
+   ========================= */
+.paginationBar{
+  display:grid;
+  grid-template-columns: auto 1fr auto;
+  align-items:center;
+  gap:10px;
+
+  position: sticky;     /* ✅ se queda visible dentro del scroll de la tabla */
+  bottom: 0;
+  z-index: 10;
+
+  padding: 10px 12px;
+  border-top: 1px solid #eee;
+  background: #fff;
+}
+
+.paginationCenter{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  flex-wrap:nowrap;
+  white-space:nowrap;
+
+  min-width:0;
+  overflow-x:auto;
+  overflow-y:hidden;
+}
+
+.paginationCenter::-webkit-scrollbar{ height: 8px; }
+.paginationCenter::-webkit-scrollbar-track{ background: transparent; }
+.paginationCenter::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.20); border-radius: 8px; }
+.paginationCenter:hover::-webkit-scrollbar-thumb{ background: rgba(0,0,0,.35); }
+
+.paginationText{ color:#444; white-space:nowrap; }
+
+.pageBtn{
+  border:1px solid #ddd;
+  background:#e82c02;
+  color:#fff;
+  font-weight:800;
+  border-radius:10px;
+  padding:7px 10px;
+  cursor:pointer;
+  min-width: 96px;
+}
+.pageBtn:hover{ background:#bf2300; }
+.pageBtn:disabled{ opacity:.6; cursor:not-allowed; }
+
+/* =========================
    BOTONERA FINAL
    ========================= */
-.importButtonContainer{ margin-top:.25rem; }
+.importButtonContainer{ margin-top:12px; }
+
+.footerMsg{
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  background: #fafafa;
+  color: #333;
+  font-weight: 600;
+}
+.ok{
+  border-color: rgba(0,160,60,.35);
+  background: rgba(0,160,60,.08);
+  color: #0a7a34;
+}
+.error{
+  border-color: rgba(232,44,2,.35);
+  background: rgba(232,44,2,.08);
+  color: #b51f00;
+}
 
 .btn{
   margin: 6px 0 4px;
@@ -210,4 +320,6 @@
 @media (max-width: 720px){
   .filtersBar{ grid-template-columns: repeat(2, 1fr); }
   .filterItem{ grid-column: span 2; }
+  .pageBtn{ min-width: 96px; padding: 8px 10px; }
+  .paginationCenter{ gap:10px; }
 }

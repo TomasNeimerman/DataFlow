@@ -645,7 +645,9 @@ const {
   actualizarCheque3Campo: actualizarCheque3CampoService,
   obtenerCheque3Rechazado: cheque3R,
   getSituacion: situacion,
-  getUpdatedbyRegistro: getupdreg
+  getUpdatedbyRegistro: getupdreg,
+  obtenerCheque3RechazadoPaginado: cheque3Paged,
+  obtenerCheques3Filtrado: obtenerCheques3Filtrado,
 } = require('./modulesService/Local/Cheques3');
 
 const {
@@ -1380,7 +1382,26 @@ ipcMain.handle('cheques3:export-xlsx', async (_e, payload) => {
     return { success: false, message: err?.message || 'Error exportando XLSX' };
   }
 });
+// main.js
+ipcMain.handle("obtenerCheques3Filtrado", async (event, payload) => {
+  try {
+    const { filters = {}, sortCol = null, sortDir = "asc" } = payload || {};
 
+    // llama al service (la función que agregaste recién)
+    const res = await obtenerCheques3Filtrado({
+      filters,
+      sortCol,
+      sortDir,
+    });
+
+    // res esperado: { success: true, rows: [...] } o { success:false, message }
+    return res;
+  } catch (err) {
+    console.error("❌ IPC obtenerCheques3Filtrado error:", err);
+    return { success: false, message: err?.message || "Error inesperado en obtenerCheques3Filtrado" };
+  }
+});
+safeIpc('cheque3-rechazado-paged', (payload) => cheque3Paged(payload));
 
 /* ────────────────────────────────────────────────────────────────────────────
  *  IPC: ARTÍCULOS

@@ -14,37 +14,42 @@ export default function ChequesRechazados(props) {
     isImportButtonDisabled = false,
     importStatus = null,
     importMessage = "",
-    runLogs = [],
-    runErrors = [],
     onSelectAllChange = () => {},
     refreshKey = 0,
+
+    // ✅ EXPORT (lista completa filtrada)
+    cheques3Export = [],
 
     fieldMode = "situacion",
     onFieldModeChange = () => {},
     onRowValueChange = () => {},
     onGlobalValueChange = () => {},
 
-    // lazy
+    // Buscar
     onBuscar = null,
+
+    // ✅ Paginación
+    page = 1,
+    pageSize = 15,
+    totalRows = null,
+    onPageChange = null,
+    onPageSizeChange = null,
+    lastFilters = null,
     lazyMode = true,
   } = props;
 
   /* =====================================================
      TABLA: altura gradual según scroll del contenedor general
-     - En el tope: tabla chica (apenas aparece)
-     - Mientras bajás: va creciendo hasta max
      ===================================================== */
   const containerRef = useRef(null);
   const rafRef = useRef(null);
   const lastHeightRef = useRef(null);
 
-  // Ajustá estos 3 valores a gusto
-  const TABLE_MIN_H = 180;   // altura mínima (cuando estás arriba)
-  const TABLE_MAX_H = 520;   // altura máxima
-  const EXPAND_RANGE = 260;  // cuántos px de scroll tarda en ir de min->max
+  const TABLE_MIN_H = 180;
+  const TABLE_MAX_H = 520;
+  const EXPAND_RANGE = 260;
 
   const [tableHeight, setTableHeight] = useState(TABLE_MIN_H);
-
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
   useEffect(() => {
@@ -53,20 +58,14 @@ export default function ChequesRechazados(props) {
 
     const compute = () => {
       const y = el.scrollTop || 0;
-
-      // y=0 => min
-      // y=EXPAND_RANGE => max
       const t = clamp(y / EXPAND_RANGE, 0, 1);
       const h = Math.round(TABLE_MIN_H + t * (TABLE_MAX_H - TABLE_MIN_H));
-
-      // evitamos renders por 1px
       if (lastHeightRef.current === null || Math.abs(h - lastHeightRef.current) >= 3) {
         lastHeightRef.current = h;
         setTableHeight(h);
       }
     };
 
-    // inicial
     compute();
 
     const onScroll = () => {
@@ -92,8 +91,8 @@ export default function ChequesRechazados(props) {
   const [fHasta, setFHasta] = useState("");
   const [fMin, setFMin] = useState("");
   const [fMax, setFMax] = useState("");
-  const [fEdo, setFEdo] = useState(""); // "" (vacío), "*" (Todos) o código
-  const [fSit, setFSit] = useState(""); // "" (vacío), "*" (Todos) o código
+  const [fEdo, setFEdo] = useState("");
+  const [fSit, setFSit] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
 
   const limpiar = () => {
@@ -106,6 +105,8 @@ export default function ChequesRechazados(props) {
     setFEdo("");
     setFSit("");
     setHasSearched(false);
+
+    if (typeof onPageChange === "function") onPageChange(1);
   };
 
   const hasAnyFilter = useMemo(() => {
@@ -121,7 +122,7 @@ export default function ChequesRechazados(props) {
     );
   }, [fId, fNro, fDesde, fHasta, fMin, fMax, fEdo, fSit]);
 
-  // ORDER
+  // ORDER (UI + sorting real)
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
 
@@ -132,43 +133,125 @@ export default function ChequesRechazados(props) {
     </span>
   );
 
-  // SELECCIÓN
-  const selectedIds = Object.keys(selectedChequesData || {}).filter(
-    (id) => selectedChequesData?.[id]?.isSelected
-  );
-  const allSelected =
-    chequesRechazados.length > 0 && selectedIds.length === chequesRechazados.length;
+  const onHeaderSort = (col) => {
+    setSortCol(col);
+    setSortDir((d) => (sortCol === col ? (d === "asc" ? "desc" : "asc") : "asc"));
+    // opcional: volver a página 1 al ordenar
+    if (typeof onPageChange === "function") onPageChange(1);
+  };
 
+  // ===== SORT HELPERS =====
+  const toNumberLoose = (v) => {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return v;
+    const s = String(v).replace(/\s/g, "");
+    const norm = s
+      .replace(/[^\d.,-]/g, "")
+      .replace(/\.(?=\d{3}(\D|$))/g, "") // miles con punto
+      .replace(",", "."); // decimal con coma
+    const n = Number(norm);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const toDateLoose = (v) => {
+    if (!v) return new Date(0);
+    if (v instanceof Date && !isNaN(v)) return v;
+
+    // dd/mm/yyyy
+    const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      const d = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10) - 1;
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      const dt = new Date(y, mm, d);
+      return isNaN(dt) ? new Date(0) : dt;
+    }
+
+    const dt = new Date(v);
+    return isNaN(dt) ? new Date(0) : dt;
+  };
+
+  const getSortValue = (row, col) => {
+    switch (col) {
+      case "idCheque":
+        return toNumberLoose(row?.idCheque);
+      case "nroDefinitivo":
+        return toNumberLoose(row?.nroDefinitivo);
+      case "importe":
+        return toNumberLoose(row?.importeRaw ?? row?.importe);
+      case "fvto":
+        return row?.fvtoRaw ? new Date(row.fvtoRaw) : toDateLoose(row?.fvto);
+      case "fMod":
+        return row?.fModRaw ? new Date(row.fModRaw) : toDateLoose(row?.fMod);
+      default:
+        return String(row?.[col] ?? "").toLowerCase();
+    }
+  };
+
+  const rowsSorted = useMemo(() => {
+    const src = Array.isArray(chequesRechazados) ? chequesRechazados : [];
+    if (!sortCol) return src;
+
+    const dir = sortDir === "desc" ? -1 : 1;
+    const copy = [...src];
+
+    copy.sort((a, b) => {
+      const va = getSortValue(a, sortCol);
+      const vb = getSortValue(b, sortCol);
+
+      // fechas
+      if (va instanceof Date && vb instanceof Date) return (va - vb) * dir;
+
+      // números
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+
+      // strings
+      return String(va).localeCompare(String(vb), "es", { numeric: true }) * dir;
+    });
+
+    return copy;
+  }, [chequesRechazados, sortCol, sortDir]);
+
+  // SELECCIÓN
+  const selectedIds = Object.keys(selectedChequesData || {}).filter((id) => selectedChequesData?.[id]?.isSelected);
+  const allSelected = chequesRechazados.length > 0 && selectedIds.length === chequesRechazados.length;
   const toggleAll = (checked) => onSelectAllChange?.(!!checked);
 
-  // SITUACIÓN (pill helper)
+  // SITUACIÓN
   const getSitDesc = (code) => {
     if (code === undefined || code === null || code === "") return "";
-    const sit = Array.isArray(situaciones)
-      ? situaciones.find((s) => String(s.sit_Cod) === String(code))
-      : null;
+    const sit = Array.isArray(situaciones) ? situaciones.find((s) => String(s.sit_Cod) === String(code)) : null;
     return sit ? sit.sit_Desc : String(code);
   };
 
   // EXPORT
   const handleExport = async () => {
     try {
-      const payload = (chequesRechazados || []).map((r) => ({
+      if (!cheques3Export?.length) {
+        alert("No hay datos para exportar. Primero realizá una búsqueda con filtros.");
+        return;
+      }
+
+      const payload = cheques3Export.map((r) => ({
         emp: r.emp,
         idCheque: r.idCheque,
         cliente: r.cliente ?? "",
         nroDefinitivo: r.nroDefinitivo,
-        importeRaw: r.importeRaw,
+        importe: r.importe,
         estado: r.estado,
         fvto: r.fvto,
         fMod: r.fMod,
+        situacion: r.situacion,
       }));
+
       const res = await window.api?.exportChequesXLSX?.(payload);
       if (!res?.success) {
         alert(res?.message || "No se pudo exportar");
-      } else {
-        alert(`Exportado OK (${res.count} filas).`);
+        return;
       }
+
+      alert(`Exportado OK (${payload.length} filas).`);
     } catch (e) {
       alert(e?.message || "Error inesperado al exportar");
     }
@@ -177,6 +260,7 @@ export default function ChequesRechazados(props) {
   // EDITOR GLOBAL / FILA
   const renderGlobalEditor = () => {
     if (selectedIds.length === 0) return null;
+
     if (fieldMode === "situacion") {
       return (
         <select className={styles.select} defaultValue="" onChange={(e) => onGlobalValueChange(e.target.value)}>
@@ -218,24 +302,10 @@ export default function ChequesRechazados(props) {
       );
     }
     if (fieldMode === "fvto") {
-      return (
-        <input
-          type="date"
-          className={styles.input}
-          value={val}
-          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
-        />
-      );
+      return <input type="date" className={styles.input} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)} />;
     }
     if (fieldMode === "numero") {
-      return (
-        <input
-          type="text"
-          className={styles.input}
-          value={val}
-          onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
-        />
-      );
+      return <input type="text" className={styles.input} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)} />;
     }
     return null;
   };
@@ -244,6 +314,7 @@ export default function ChequesRechazados(props) {
   const doBuscar = async () => {
     if (!onBuscar) return;
     if (!hasAnyFilter) return;
+
     setHasSearched(true);
 
     const filters = {
@@ -253,23 +324,26 @@ export default function ChequesRechazados(props) {
       hasta: fHasta || null,
       min: fMin?.trim() || null,
       max: fMax?.trim() || null,
-      estado: fEdo === "*" ? null : (fEdo || null),
-      situacion: fSit === "*" ? null : (fSit || null),
+      estado: fEdo === "*" ? null : fEdo || null,
+      situacion: fSit === "*" ? null : fSit || null,
     };
-    await onBuscar(filters);
 
-    // cuando buscás, “reseteo” altura para que arranque desde arriba prolijo
-    setTimeout(() => {
-      const el = containerRef.current;
-      if (!el) return;
-      // si estás arriba, mantiene el efecto desde el tope
-      lastHeightRef.current = null;
-      const y = el.scrollTop || 0;
-      const t = clamp(y / EXPAND_RANGE, 0, 1);
-      const h = Math.round(TABLE_MIN_H + t * (TABLE_MAX_H - TABLE_MIN_H));
-      setTableHeight(h);
-    }, 0);
+    await onBuscar(filters);
   };
+
+  // ====== PAGINACIÓN ======
+  const total = Number.isFinite(totalRows) && totalRows !== null ? Number(totalRows) : chequesRechazados?.length || 0;
+  const ps = Number(pageSize) || 15;
+  const p = Math.max(1, Number(page) || 1);
+  const totalPages = Math.max(1, Math.ceil(total / ps));
+
+  const start = total === 0 ? 0 : (p - 1) * ps + 1;
+  const end = total === 0 ? 0 : Math.min(p * ps, total);
+
+  const canPrev = p > 1;
+  const canNext = p < totalPages;
+
+  const pageControlsEnabled = typeof onPageChange === "function" && typeof onPageSizeChange === "function";
 
   return (
     <div ref={containerRef} className={styles.container} data-key={refreshKey}>
@@ -282,16 +356,14 @@ export default function ChequesRechazados(props) {
       {/* ====== FILTROS ====== */}
       <div className={styles.card}>
         <div className={styles.filtersHeader}>
-          <button
-            className={styles.filtersHeaderBtn}
-            onClick={() => setFiltersOpen((o) => !o)}
-            aria-expanded={filtersOpen}
-          >
+          <button className={styles.filtersHeaderBtn} onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
             FILTROS <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
           </button>
 
           <div style={{ display: "flex", gap: 8 }}>
-            <button className={styles.smallBtn} onClick={limpiar}>Limpiar</button>
+            <button className={styles.smallBtn} onClick={limpiar}>
+              Limpiar
+            </button>
             <button
               className={styles.smallBtn}
               onClick={doBuscar}
@@ -309,22 +381,27 @@ export default function ChequesRechazados(props) {
               <label className={styles.label}>IdCheque</label>
               <input className={styles.input} value={fId} onChange={(e) => setFId(e.target.value)} placeholder="Ej: 10234" />
             </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Nro. Cheque</label>
               <input className={styles.input} value={fNro} onChange={(e) => setFNro(e.target.value)} placeholder="Buscar por número..." />
             </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Fecha Vto. (Desde)</label>
               <input type="date" className={styles.input} value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
             </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Fecha Vto. (Hasta)</label>
               <input type="date" className={styles.input} value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
             </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Importe Mín.</label>
               <input className={styles.input} value={fMin} onChange={(e) => setFMin(e.target.value)} placeholder="0.00" />
             </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Importe Máx.</label>
               <input className={styles.input} value={fMax} onChange={(e) => setFMax(e.target.value)} placeholder="999999.99" />
@@ -336,7 +413,9 @@ export default function ChequesRechazados(props) {
                 <option value=""></option>
                 <option value="*">Todos</option>
                 {(estados || []).map((e) => (
-                  <option key={e.edo_Cod} value={e.edo_Cod}>{e.edo_Desc}</option>
+                  <option key={e.edo_Cod} value={e.edo_Cod}>
+                    {e.edo_Desc}
+                  </option>
                 ))}
               </select>
             </div>
@@ -347,7 +426,9 @@ export default function ChequesRechazados(props) {
                 <option value=""></option>
                 <option value="*">Todos</option>
                 {(situaciones || []).map((s) => (
-                  <option key={s.sit_Cod} value={String(s.sit_Cod)}>{s.sit_Desc}</option>
+                  <option key={s.sit_Cod} value={String(s.sit_Cod)}>
+                    {s.sit_Desc}
+                  </option>
                 ))}
               </select>
             </div>
@@ -355,9 +436,13 @@ export default function ChequesRechazados(props) {
             <div className={styles.filterFull}>
               <span className={styles.summaryLine}>
                 {hasSearched ? (
-                  <>Resultados: <b>{chequesRechazados.length}</b></>
+                  <>
+                    Resultados: <b>{total}</b>
+                  </>
                 ) : (
-                  <>Usá los filtros y presioná <b>Buscar</b></>
+                  <>
+                    Usá los filtros y presioná <b>Buscar</b>
+                  </>
                 )}
               </span>
             </div>
@@ -375,6 +460,7 @@ export default function ChequesRechazados(props) {
             <option value="numero">Número de Cheque</option>
           </select>
         </div>
+
         <div className={styles.massRight}>
           {selectedIds.length > 0 && (
             <>
@@ -388,101 +474,127 @@ export default function ChequesRechazados(props) {
       </div>
 
       {/* ====== TABLA (altura gradual) ====== */}
-      {(hasAnyFilter && hasSearched) && (
-        <div
-          className={styles.tableContainer}
-          style={{ height: `${tableHeight}px` }}   // 👈 acá está la magia
-        >
-          <table className={styles.table}>
-            <thead>
-              <tr className={styles.headerRow}>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={(e) => toggleAll(e.target.checked)}
-                    title="Seleccionar todos"
-                  />
-                </th>
-                <th>Empresa</th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => {
-                    setSortCol("idCheque");
-                    setSortDir((d) => (sortCol === "idCheque" ? (d === "asc" ? "desc" : "asc") : "asc"));
-                  }}
-                >
-                  ID Cheque {sortArrow("idCheque")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => {
-                    setSortCol("nroDefinitivo");
-                    setSortDir((d) => (sortCol === "nroDefinitivo" ? (d === "asc" ? "desc" : "asc") : "asc"));
-                  }}
-                >
-                  Número {sortArrow("nroDefinitivo")}
-                </th>
-                <th>Cliente</th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => {
-                    setSortCol("fvto");
-                    setSortDir((d) => (sortCol === "fvto" ? (d === "asc" ? "desc" : "asc") : "asc"));
-                  }}
-                >
-                  Fecha Vencimiento {sortArrow("fvto")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => {
-                    setSortCol("fMod");
-                    setSortDir((d) => (sortCol === "fMod" ? (d === "asc" ? "desc" : "asc") : "asc"));
-                  }}
-                >
-                  Fecha Modificación {sortArrow("fMod")}
-                </th>
-                <th
-                  className={styles.sortableHeader}
-                  onClick={() => {
-                    setSortCol("importe");
-                    setSortDir((d) => (sortCol === "importe" ? (d === "asc" ? "desc" : "asc") : "asc"));
-                  }}
-                >
-                  Importe {sortArrow("importe")}
-                </th>
-                <th>Estado</th>
-                <th>Situación</th>
-                <th>Editar</th>
-              </tr>
-            </thead>
+      {hasSearched && (
+        <div className={styles.tableContainer} style={{ maxHeight: `${tableHeight}px` }}>
+          <div className={styles.tableScroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th>
+                    <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} title="Seleccionar todos" />
+                  </th>
+                  <th>Empresa</th>
 
-            <tbody>
-              {!chequesRechazados.length ? (
-                <tr><td className={styles.noResults} colSpan="11">No hay cheques para mostrar</td></tr>
-              ) : (
-                chequesRechazados.map((row) => {
-                  const sel = !!selectedChequesData?.[row.idCheque]?.isSelected;
-                  const sit = selectedChequesData?.[row.idCheque]?.situacionId || row.situacion || "";
-                  return (
-                    <tr key={row.idCheque}>
-                      <td><input type="checkbox" checked={sel} onChange={() => onChequeToggle(row.idCheque)} /></td>
-                      <td>{row.emp}</td>
-                      <td>{row.idCheque}</td>
-                      <td>{row.nroDefinitivo}</td>
-                      <td>{row.cliente ?? ""}</td>
-                      <td>{row.fvto}</td>
-                      <td>{row.fMod || "Sin actualizar"}</td>
-                      <td>{row.importe}</td>
-                      <td>{row.estado}</td>
-                      <td><span className={styles.situacionText}>{getSitDesc(sit)}</span></td>
-                      <td className={styles.editCell}>{renderRowEditor(row)}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("idCheque")}>
+                    ID Cheque {sortArrow("idCheque")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("nroDefinitivo")}>
+                    Número {sortArrow("nroDefinitivo")}
+                  </th>
+
+                  <th>Cliente</th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("fvto")}>
+                    Fecha Vencimiento {sortArrow("fvto")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("fMod")}>
+                    Fecha Modificación {sortArrow("fMod")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("importe")}>
+                    Importe {sortArrow("importe")}
+                  </th>
+
+                  <th>Estado</th>
+                  <th>Situación</th>
+                  <th>Editar</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {!rowsSorted.length ? (
+                  <tr>
+                    <td className={styles.noResults} colSpan="11">
+                      No hay cheques para mostrar
+                    </td>
+                  </tr>
+                ) : (
+                  rowsSorted.map((row) => {
+                    const sel = !!selectedChequesData?.[row.idCheque]?.isSelected;
+                    const sit = selectedChequesData?.[row.idCheque]?.situacionId || row.situacion || "";
+                    return (
+                      <tr key={row.idCheque}>
+                        <td>
+                          <input type="checkbox" checked={sel} onChange={() => onChequeToggle(row.idCheque)} />
+                        </td>
+                        <td>{row.emp}</td>
+                        <td>{row.idCheque}</td>
+                        <td>{row.nroDefinitivo}</td>
+                        <td>{row.cliente ?? ""}</td>
+                        <td>{row.fvto}</td>
+                        <td>{row.fMod || "Sin actualizar"}</td>
+                        <td>{row.importe}</td>
+                        <td>{row.estado}</td>
+                        <td>
+                          <span className={styles.situacionText}>{getSitDesc(sit)}</span>
+                        </td>
+                        <td className={styles.editCell}>{renderRowEditor(row)}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ====== FOOTER PAGINACIÓN ====== */}
+          <div className={styles.paginationBar}>
+            <button
+              className={styles.pageBtn}
+              disabled={!pageControlsEnabled || !canPrev || (lastFilters === null && lazyMode)}
+              onClick={() => typeof onPageChange === "function" && onPageChange(p - 1)}
+            >
+              Anterior
+            </button>
+
+            <div className={styles.paginationCenter}>
+              <span className={styles.paginationText}>
+                Resultados: <b>{total}</b>
+              </span>
+              <span className={styles.paginationText}>
+                Página <b>{p}</b> / <b>{totalPages}</b>
+              </span>
+              <span className={styles.paginationText}>
+                <b>{start}-{end}</b> de <b>{total}</b> cheques
+              </span>
+
+              <span className={styles.paginationText} style={{ marginLeft: 8 }}>
+                Por página:
+              </span>
+              <select
+                className={styles.select}
+                value={String(ps)}
+                onChange={(e) => typeof onPageSizeChange === "function" && onPageSizeChange(Number(e.target.value))}
+                style={{ width: 110 }}
+                disabled={!pageControlsEnabled || (lastFilters === null && lazyMode)}
+              >
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="60">60</option>
+                <option value="90">90</option>
+              </select>
+            </div>
+
+            <button
+              className={styles.pageBtn}
+              disabled={!pageControlsEnabled || !canNext || (lastFilters === null && lazyMode)}
+              onClick={() => typeof onPageChange === "function" && onPageChange(p + 1)}
+            >
+              Siguiente
+            </button>
+          </div>
         </div>
       )}
 

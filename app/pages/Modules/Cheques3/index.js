@@ -58,12 +58,23 @@ const extractArray = (res) => {
 };
 
 const mapChequeRecord = (ch) => {
-  const idCheque = String(
-    pick(ch, ["ch3_ID", "idCheque", "IDCheque", "chequeId", "id", "c3sch3_ID"])
-  );
+  const idCheque = String(pick(ch, ["ch3_ID", "idCheque", "IDCheque", "chequeId", "id", "c3sch3_ID"]));
   const emp = pick(ch, ["ch3emp_Codigo", "emp", "Empresa", "emp_codigo"]);
-  const nroDefinitivo = String(pick(ch, ["ch3_NroCheq", "NroCheq", "ch3_Nro", "numero", "Numero"]));
-  const fvtoRaw = parseDateLoose(pick(ch, ["ch3_FVto", "fvto", "FecVto", "FechaVencimiento", "fechaVto", "fecha_vto"]));
+  const nroDefinitivo = String(
+    pick(ch, [
+      "ch3_NroCheq",
+      "NroCheq",
+      "ch3_Nro",
+      "numero",
+      "Numero",
+      "NroCheque",
+      "nroCheque",
+      "nroDefinitivo",
+    ])
+  );
+  const fvtoRaw = parseDateLoose(
+    pick(ch, ["ch3_FVto", "fvto", "FecVto", "FechaVencimiento", "fechaVto", "fecha_vto"])
+  );
   const importeRaw = numFromAny(pick(ch, ["ch3_Importe", "Importe", "importe", "monto"]));
   const estado = pick(ch, ["ch3_Edo", "Estado", "estado"]);
   const situacion = pick(ch, ["ch3sit_Cod", "Situacion", "situacion", "sit_Cod"]);
@@ -91,8 +102,9 @@ export default function Cheques3() {
   const [idCliente, setIdCliente] = useState(null);
   const [chequesRechazados, setChequesRechazados] = useState([]);
   const [situaciones, setSituaciones] = useState([]);
-  const [estados, setEstados] = useState([]); // ⬅ NUEVO catálogo de estados
-
+  const [estados, setEstados] = useState([]);
+  const [cheques3Export, setCheques3Export] = useState([]);
+  const [cheques, setCheques] = useState([]);
   const [selectedChequesData, setSelectedChequesData] = useState({});
   const [importStatus, setImportStatus] = useState(null);
   const [importMessage, setImportMessage] = useState("");
@@ -102,7 +114,10 @@ export default function Cheques3() {
   const [runErrors, setRunErrors] = useState([]);
 
   const [fieldMode, setFieldMode] = useState("situacion");
-
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [totalRows, setTotalRows] = useState(0);
+  const [lastFilters, setLastFilters] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // idCliente
@@ -126,27 +141,26 @@ export default function Cheques3() {
       } catch {
         setSituaciones([]);
       }
+
       try {
-        // Intentá traer catálogo de Estados (nombre flexible)
         const res =
           (await window.api?.obtenerCheque3Rechazado?.()) ||
           (await window.api?.cheques3?.obtenerCheque3Rechazado?.()) ||
           null;
-        
+
         if (res?.success && Array.isArray(res.cheque)) {
-          // Normalizo a {edo_Cod, edo_Desc}
-            const norm = Array.from(
+          const norm = Array.from(
             new Set(
               res.cheque
-              .map((e) => String(e?.Estado || "").trim())
-              .filter((code) => code !== "")
+                .map((e) => String(e?.Estado || "").trim())
+                .filter((code) => code !== "")
             )
-            ).map((code) => ({ edo_Cod: code, edo_Desc: code }));
-            
+          ).map((code) => ({ edo_Cod: code, edo_Desc: code }));
+
           console.log("Catálogo de Estados normalizado:", norm);
           setEstados(norm);
         } else {
-          setEstados([]); // fallback desde el front
+          setEstados([]);
         }
       } catch {
         setEstados([]);
@@ -154,15 +168,55 @@ export default function Cheques3() {
     })();
   }, []);
 
-  // BUSCAR (lazy)
+  // BUSCAR (lazy + paginado)
   const handleBuscar = useCallback(
-    async (filters) => {
+    async (filters, opts = {}) => {
       if (!idCliente) return;
+
+      const nextPage = Math.max(1, Number(opts.page ?? 1));
+      const nextPageSize = Math.max(5, Number(opts.pageSize ?? pageSize));
+
       setImportStatus("loading");
       setImportMessage("Buscando cheques...");
       setHasSearched(true);
 
       try {
+        setLastFilters(filters);
+        setPage(nextPage);
+        setPageSize(nextPageSize);
+
+        // ✅ Server-side paginado
+        if (window.api?.obtenerCheque3RechazadoPaged) {
+          const res = await window.api.obtenerCheque3RechazadoPaged({
+            page: nextPage,
+            pageSize: nextPageSize,
+            filters,
+          });
+
+          const arr = Array.isArray(res?.rows) ? res.rows : [];
+          setTotalRows(Number(res?.total ?? 0));
+
+          const mapped = arr.map(mapChequeRecord);
+          setChequesRechazados(mapped);
+
+          const initial = {};
+          mapped.forEach((row) => {
+            initial[row.idCheque] = {
+              isSelected: false,
+              situacionId: "",
+              situacionLabel: "",
+              newValue: "",
+              newValueLabel: "",
+            };
+          });
+          setSelectedChequesData(initial);
+
+          setImportStatus(null);
+          setImportMessage("");
+          return;
+        }
+
+        // 🔙 Fallback client-side (si no existe paginado server-side)
         let arr = [];
         if (window.api?.obtenerCheque3RechazadoFiltrado) {
           const r = await window.api.obtenerCheque3RechazadoFiltrado(idCliente, filters);
@@ -186,6 +240,8 @@ export default function Cheques3() {
             .slice(0, 3000);
         }
 
+        setTotalRows(arr.length);
+
         const mapped = arr.map(mapChequeRecord);
         setChequesRechazados(mapped);
 
@@ -200,19 +256,222 @@ export default function Cheques3() {
           };
         });
         setSelectedChequesData(initial);
+
         setImportStatus(null);
         setImportMessage("");
       } catch (e) {
         console.error(e);
         setChequesRechazados([]);
         setSelectedChequesData({});
+        setTotalRows(0);
         setImportStatus("error");
         setImportMessage("Error al buscar cheques.");
       }
     },
-    [idCliente]
+    [idCliente, pageSize]
   );
+  const normalize = (v) => String(v ?? "").trim().toLowerCase();
 
+const applyCheques3Filters = (rows, filters) => {
+  if (!filters) return rows || [];
+
+  const idCheque = normalize(filters.idCheque);
+  const nroCheque = normalize(filters.nroCheque);
+  const estado = normalize(filters.estado);
+  const situacion = normalize(filters.situacion);
+
+  const desde = filters.desde ? new Date(filters.desde) : null;
+  const hasta = filters.hasta ? new Date(filters.hasta) : null;
+  if (hasta) hasta.setHours(23, 59, 59, 999);
+
+  const min = filters.min !== null && filters.min !== undefined && String(filters.min).trim() !== ""
+    ? Number(filters.min)
+    : null;
+  const max = filters.max !== null && filters.max !== undefined && String(filters.max).trim() !== ""
+    ? Number(filters.max)
+    : null;
+
+  return (rows || []).filter((r) => {
+    // En tu service actual: idCheque, NroCheque, FechaVencimiento, Importe, Estado, Situacion
+    const rId = normalize(r.idCheque);
+    const rNro = normalize(r.NroCheque ?? r.nroDefinitivo ?? r.nroCheque);
+    const rEstado = normalize(r.Estado ?? r.estado);
+    const rSit = normalize(r.Situacion ?? r.situacion);
+
+    // id exacto
+    if (idCheque && rId !== idCheque) return false;
+
+    // nro contiene
+    if (nroCheque && !rNro.includes(nroCheque)) return false;
+
+    // estado exacto (ojo: algunos vienen con espacios)
+    if (estado && rEstado !== estado) return false;
+
+    // situacion exacta
+    if (situacion && rSit !== situacion) return false;
+
+    // fechas
+    if (desde || hasta) {
+      const fv = r.FechaVencimiento ?? r.fvto;
+      const d = fv ? new Date(fv) : null;
+      if (!d || isNaN(d.getTime())) return false;
+      if (desde && d < desde) return false;
+      if (hasta && d > hasta) return false;
+    }
+
+    // importes
+    const imp = Number(r.Importe ?? r.importe);
+    if (min !== null && (!Number.isFinite(imp) || imp < min)) return false;
+    if (max !== null && (!Number.isFinite(imp) || imp > max)) return false;
+
+    return true;
+  });
+};
+  // ✅ NUEVO: Buscar “principal” (grilla paginada + export completo)
+const onBuscar = async (filters) => {
+  // ✅ AJUSTÁ ESTO a tus setters reales
+  const SET_LIST = setChequesRechazados; // <-- tu setter real de la grilla
+  const SET_EXPORT = setCheques3Export;  // <-- tu setter real del export
+  const SET_TOTAL = setTotalRows;        // <-- tu setter real del total
+  const SET_LAST = setLastFilters;       // <-- tu setter real
+
+  try {
+    SET_LAST(filters);
+
+    // ===============================
+    // 1) TRAER TODO (API ORIGINAL)
+    // ===============================
+    const resAll = await window.api.obtenerCheque3Rechazado();
+    if (!resAll?.success) {
+      SET_LIST([]);
+      SET_EXPORT([]);
+      SET_TOTAL(0);
+      return;
+    }
+
+    const rows = resAll.cheque || [];
+
+    // ===============================
+    // Helpers
+    // ===============================
+    const norm = (v) => String(v ?? "").trim().toLowerCase();
+
+    const toDateStr = (v) => {
+      if (!v) return "";
+      const d = v instanceof Date ? v : new Date(v);
+      if (isNaN(d.getTime())) return String(v);
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yy = d.getFullYear();
+      return `${dd}/${mm}/${yy}`;
+    };
+
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // ===============================
+    // 2) NORMALIZAR FILTROS
+    // ===============================
+    const fId = norm(filters?.idCheque);
+    const fNro = norm(filters?.nroCheque);
+    const fEstado = norm(filters?.estado);
+    const fSit = norm(filters?.situacion);
+
+    const desde = filters?.desde ? new Date(filters.desde) : null;
+    const hasta = filters?.hasta ? new Date(filters.hasta) : null;
+    if (hasta) hasta.setHours(23, 59, 59, 999);
+
+    const min =
+      String(filters?.min ?? "").trim() !== "" ? Number(filters.min) : null;
+    const max =
+      String(filters?.max ?? "").trim() !== "" ? Number(filters.max) : null;
+
+    // ===============================
+    // 3) FILTRAR (con nombres reales del backend)
+    // ===============================
+    const filtradosRaw = rows.filter((r) => {
+      const rId = norm(r.idCheque);
+      const rNro = norm(r.NroCheque ?? r.nroDefinitivo ?? r.nroCheque);
+      const rEstado = norm(r.Estado ?? r.estado);
+      const rSit = norm(r.Situacion ?? r.situacion);
+
+      if (fId && rId !== fId) return false;
+      if (fNro && !rNro.includes(fNro)) return false;
+      if (fEstado && rEstado !== fEstado) return false;
+      if (fSit && rSit !== fSit) return false;
+
+      if (desde || hasta) {
+        const d = r.FechaVencimiento
+          ? new Date(r.FechaVencimiento)
+          : r.fvto
+          ? new Date(r.fvto)
+          : null;
+
+        if (!d || isNaN(d.getTime())) return false;
+        if (desde && d < desde) return false;
+        if (hasta && d > hasta) return false;
+      }
+
+      const imp = Number(r.Importe ?? r.importe);
+      if (min !== null && (!Number.isFinite(imp) || imp < min)) return false;
+      if (max !== null && (!Number.isFinite(imp) || imp > max)) return false;
+
+      return true;
+    });
+
+    // ===============================
+    // 4) MAP A FORMATO UI (tabla)
+    // ===============================
+    const uiAll = filtradosRaw.map((r) => ({
+      emp: r.Empresa ?? r.emp,
+      idCheque: r.idCheque,
+      cliente: typeof r.Cliente === "string" ? r.Cliente : String(r.Cliente ?? ""),
+      nroDefinitivo: r.NroCheque ?? r.nroDefinitivo ?? "",
+      fvto: toDateStr(r.FechaVencimiento ?? r.fvto),
+      fMod: r.FecMod ? toDateStr(r.FecMod) : "Sin actualizar",
+      importe: toNum(r.Importe ?? r.importe),
+      estado: String(r.Estado ?? r.estado ?? ""),
+      situacion: String(r.Situacion ?? r.situacion ?? ""),
+    }));
+
+    // ===============================
+    // 5) MAP A FORMATO EXPORT (excel)
+    // ===============================
+    const exportAll = filtradosRaw.map((r) => ({
+      Empresa: r.Empresa ?? "",
+      idCheque: r.idCheque,
+      Cliente:
+        typeof r.Cliente === "string" ? r.Cliente : String(r.Cliente ?? ""),
+      NroCheque: r.NroCheque ?? "",
+      FechaVencimiento: toDateStr(r.FechaVencimiento),
+      FechaModificacion: r.FecMod ? toDateStr(r.FecMod) : "",
+      Importe: toNum(r.Importe),
+      Estado: String(r.Estado ?? ""),
+      Situacion: String(r.Situacion ?? ""),
+    }));
+
+    SET_EXPORT(exportAll);
+
+    // ===============================
+    // 6) PAGINADO MANUAL PARA GRILLA
+    // ===============================
+    const total = uiAll.length;
+    SET_TOTAL(total);
+
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+
+    SET_LIST(uiAll.slice(start, end));
+  } catch (err) {
+    console.error("❌ Error en onBuscar:", err);
+    SET_LIST([]);
+    SET_EXPORT([]);
+    SET_TOTAL(0);
+  }
+};
+  
   /* ------- selección / edición helpers ------- */
   const primeDefaultsForField = useCallback(
     (row, mode) => {
@@ -223,7 +482,8 @@ export default function Cheques3() {
         return { value: code, label: s ? s.sit_Desc : "" };
       }
       if (mode === "fvto") return { value: fmtYYYYMMDD(row.fvtoRaw), label: "" };
-      if (mode === "numero") return { value: row.nroDefinitivo ? String(row.nroDefinitivo) : "", label: "" };
+      if (mode === "numero")
+        return { value: row.nroDefinitivo ? String(row.nroDefinitivo) : "", label: "" };
       return { value: "", label: "" };
     },
     [situaciones]
@@ -330,9 +590,7 @@ export default function Cheques3() {
           const defaults = checked ? primeDefaultsForField(ch, fieldMode) : { value: "", label: "" };
           newData[ch.idCheque] = {
             isSelected: checked,
-            situacionId: checked
-              ? prev[ch.idCheque]?.situacionId || (ch.situacion ? String(ch.situacion) : "")
-              : "",
+            situacionId: checked ? prev[ch.idCheque]?.situacionId || (ch.situacion ? String(ch.situacion) : "") : "",
             situacionLabel: checked ? prev[ch.idCheque]?.situacionLabel || "" : "",
             newValue: defaults.value,
             newValueLabel: defaults.label,
@@ -358,8 +616,9 @@ export default function Cheques3() {
     setRunLogs([]);
     setRunErrors([]);
 
-    const selected = Object.keys(selectedChequesData)
-      .filter((id) => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.newValue !== "");
+    const selected = Object.keys(selectedChequesData).filter(
+      (id) => selectedChequesData[id]?.isSelected && selectedChequesData[id]?.newValue !== ""
+    );
 
     const changedItems = [];
     const unchangedIds = [];
@@ -409,13 +668,7 @@ export default function Cheques3() {
               } else {
                 logs.push(`Cheque ${it.idCheque}: ${res.message || "Actualizado."}`);
                 if (fieldMode === "situacion") {
-                  const reg = await window.api.setRegistro(
-                    it.row?.emp,
-                    it.row?.suc,
-                    it.idCheque,
-                    it.value,
-                    it.row?.situacion
-                  );
+                  const reg = await window.api.setRegistro(it.row?.emp, it.row?.suc, it.idCheque, it.value, it.row?.situacion);
                   if (reg?.success === false) {
                     errs.push(`Registro situación ${it.idCheque}: ${reg?.message || "Fallo registrando."}`);
                   } else if (reg?.message) {
@@ -429,12 +682,11 @@ export default function Cheques3() {
           })
         );
 
-        if (unchangedIds.length > 0) {
-          logs.push(`Ignorados sin cambio: ${unchangedIds.length}`);
-        }
+        if (unchangedIds.length > 0) logs.push(`Ignorados sin cambio: ${unchangedIds.length}`);
 
         setRunLogs(logs);
         setRunErrors(errs);
+
         if (errs.length === 0) {
           setImportStatus("success");
           setImportMessage("Actualización completada.");
@@ -470,7 +722,7 @@ export default function Cheques3() {
       <ChequesRechazados
         chequesRechazados={chequesRechazados}
         situaciones={situaciones}
-        estados={estados}          
+        estados={estados}
         onChequeToggle={handleChequeToggle}
         selectedChequesData={selectedChequesData}
         onImportarClick={handleImportarClick}
@@ -485,7 +737,20 @@ export default function Cheques3() {
         onFieldModeChange={handleFieldModeChange}
         onRowValueChange={handleRowValueChange}
         onGlobalValueChange={handleGlobalValueChange}
-        onBuscar={handleBuscar}
+        page={page}
+        pageSize={pageSize}
+        totalRows={totalRows}
+        lastFilters={lastFilters}
+        onPageChange={(nextPage) => {
+          if (!lastFilters) return;
+          handleBuscar(lastFilters, { page: nextPage, pageSize });
+        }}
+        onPageSizeChange={(nextSize) => {
+          if (!lastFilters) return;
+          handleBuscar(lastFilters, { page: 1, pageSize: nextSize });
+        }}
+        onBuscar={onBuscar}
+        cheques3Export={cheques3Export}
         lazyMode={true}
       />
     </div>

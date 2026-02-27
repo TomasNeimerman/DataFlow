@@ -1,6 +1,7 @@
 {
-  "name": "DataFlow",
-  "version": "1.0.1",
+  "name": "dataflow",
+  "productname": "DataFlow",
+  "version": "1.0.2",
   "description": "DataFlow",
   "private": true,
   "author": "Consultora de Negocios Empresrios S.R.L.",
