@@ -1,19 +1,19 @@
 /**
  * Módulo SDK de Bejerman - Punto de entrada
  *
- * Este módulo proporciona una interfaz modular para interactuar con el
- * SDK de Bejerman (Web Service SOAP) desde DataFlow.
+ * Usa SDKWrapper.exe para llamar a las DLLs del SDK directamente,
+ * eliminando la dependencia del Web Service WCF/SOAP.
  *
  * Arquitectura:
- * - config/     : Configuración centralizada
- * - core/       : Cliente SOAP, autenticación, parsing XML
- * - services/   : Servicios por circuito (FINANZAS, VENTAS, etc.)
- * - utils/      : Validadores, serializers, reintentos
+ * - config/     : Configuración (ruta al wrapper, credenciales, empresa)
+ * - core/       : dllClient (invoca SDKWrapper.exe via child_process)
+ * - services/   : Servicios por circuito (VENTAS, COMPRAS)
+ * - utils/      : Validadores, serializers
+ * - wrapper/    : Código fuente C# del SDKWrapper.exe
  *
  * Uso:
  *   const bejermanSDK = require('./bejermanSDK');
- *
- *   const result = await bejermanSDK.finanzas.ingresarRecibo({ recibo });
+ *   const result = await bejermanSDK.ventas.ingresarRecibo({ recibo });
  */
 
 module.exports = {
@@ -22,23 +22,15 @@ module.exports = {
 
   // Servicios por circuito
   ventas: require('./services/ventas'),
-  finanzas: require('./services/finanzas'), // Legacy - usar ventas para recibos
-  // Futuros circuitos:
-  // compras: require('./services/compras'),
-  // stock: require('./services/stock'),
-  // tablas: require('./services/tablas'),
 
   // Core (acceso directo para casos avanzados)
   core: {
-    soapClient: require('./core/soapClient'),
-    tokenManager: require('./core/tokenManager'),
-    xmlParser: require('./core/xmlParser'),
+    dllClient: require('./core/dllClient'),
   },
 
-  // Utils (acceso directo para casos avanzados)
+  // Utils
   utils: {
     validators: require('./utils/validators'),
     serializers: require('./utils/serializers'),
-    retry: require('./utils/retry'),
   },
 };
