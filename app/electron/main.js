@@ -655,11 +655,65 @@ async function createMainWindow() {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ *  SDK WRAPPER AUTO-COMPILATION
+ * ──────────────────────────────────────────────────────────────────────────── */
+async function ensureSDKWrapper() {
+  const SDK_DIR    = 'C:\\Bejerman\\Instalación\\Tester';
+  const wrapperExe = path.join(SDK_DIR, 'SDKWrapper.exe');
+  const dll1       = path.join(SDK_DIR, 'SB.NET.eFlex.SDKLib.dll');
+  const dll2       = path.join(SDK_DIR, 'SB.NET.eFlex.SDKLib.Comprobantes.dll');
+  const wrapperSrc = path.join(__dirname, 'bejermanSDK', 'wrapper', 'SDKWrapper.cs');
+  const wrapperCfg = path.join(__dirname, 'bejermanSDK', 'wrapper', 'SDKWrapper.exe.config');
+  const cscExe     = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework', 'v4.0.30319', 'csc.exe');
+
+  if (fs.existsSync(wrapperExe)) return; // ya compilado
+
+  if (!fs.existsSync(dll1)) {
+    dialog.showErrorBox(
+      'Integración Bejerman no disponible',
+      `No se encontraron las DLLs del SDK de Bejerman en:\n${SDK_DIR}\n\n` +
+      `Instale el SDK de Bejerman ERP antes de usar DataFlow con integración ERP.`
+    );
+    return;
+  }
+
+  try {
+    // Copiar fuentes al SDK folder (igual que compilar.bat)
+    fs.copyFileSync(wrapperSrc, path.join(SDK_DIR, 'SDKWrapper.cs'));
+    fs.copyFileSync(wrapperCfg, path.join(SDK_DIR, 'SDKWrapper.exe.config'));
+
+    const { execFileSync } = require('child_process');
+    // Referenciar todos los .dll del SDK folder (resuelve tipos en cualquier DLL)
+    const dllRefs = fs.readdirSync(SDK_DIR)
+      .filter(f => f.toLowerCase().endsWith('.dll'))
+      .map(f => `/reference:${f}`);
+    execFileSync(cscExe, [
+      '/target:exe',
+      '/out:SDKWrapper.exe',
+      '/platform:x86',
+      ...dllRefs,
+      'SDKWrapper.cs',
+    ], { cwd: SDK_DIR });
+    writeToLog('ensureSDKWrapper: SDKWrapper.exe compilado exitosamente.');
+  } catch (err) {
+    const detail = [err.stdout?.toString(), err.stderr?.toString(), err.message].filter(Boolean).join('\n');
+    writeToLog(`ensureSDKWrapper error: ${detail}`);
+    dialog.showErrorBox(
+      'Error compilando SDKWrapper',
+      `No se pudo compilar SDKWrapper.exe automáticamente.\n\n` +
+      `Error: ${detail}\n\n` +
+      `Compile manualmente ejecutando compilar.bat en:\n${SDK_DIR}`
+    );
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  *  APP LIFECYCLE
  * ──────────────────────────────────────────────────────────────────────────── */
 app.whenReady().then(async () => {
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
   try { if (!fs.existsSync(tempFolderPath)) fs.mkdirSync(tempFolderPath); } catch {}
+  await ensureSDKWrapper();
   createMainWindow().catch(e => writeToLog(`createMainWindow error: ${e.message}`));
 });
 

@@ -99,7 +99,11 @@ export default function RecibosPage() {
           window?.api?.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito: "V" }),
           window?.api?.recibos?.getMonedas?.(),
         ]);
-        if (rTipos?.ok) setTipos(rTipos.data || []);
+        if (rTipos?.ok) {
+          const data = rTipos.data || [];
+          setTipos(data);
+          if (data.some((t) => t.tco_cod === "RC")) setTipoComprobante("RC");
+        }
         const mm = (rMon?.ok ? rMon.data : []).map((x) => ({
           mon_codigo: String(x.mon_codigo),
           mon_descrip: String(x.mon_descrip || ""),
@@ -416,7 +420,7 @@ export default function RecibosPage() {
         recibo: {
           // Datos básicos
           codigoCliente: cliente,
-          nombreCliente: clientes.find(c => c.cli_CodCli === cliente)?.cli_RazonSoc || "",
+          nombreCliente: clientes.find(c => c.CodCliente === cliente)?.RazonSocial || "",
           fecha: fecha,
           moneda: monSel.mon_codigo,
           tipoCambio: tc,
@@ -496,7 +500,7 @@ export default function RecibosPage() {
     // Aplicaciones (otros valores)
     aplicAps.forEach(ap => {
       valores.push({
-        tipo: 'OTR',
+        tipo: 'EFE',
         importe: ap.monto,
         observaciones: ap.label || '',
       });

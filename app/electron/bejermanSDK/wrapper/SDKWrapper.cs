@@ -17,13 +17,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using SB.NET.eFlex.SDKLib;
 using SB.NET.eFlex.SDKLib.Comprobantes;
+using SB.NET.eFlex.SDKLib.Procesos;
 
 namespace DataFlow.SDKWrapper
 {
     class Program
     {
+        [System.STAThread]
         static int Main(string[] args)
         {
             // Parsear argumentos
@@ -60,12 +63,13 @@ namespace DataFlow.SDKWrapper
             }
 
             // Ejecutar operación SDK
-            EFlexSDK_TokenValidacion token = null;
+            var procesos = new EFlexSDK_ProcesoCollection();
+            dynamic token = null;
             try
             {
                 // 1. Iniciar proceso (login)
                 LogDebug("Iniciando proceso SDK...");
-                token = EFlexSDK_Procesos.ProcesosFlex.IniciarProcesoFlex(
+                token = procesos.IniciarProcesoFlex(
                     config["usuario"],
                     config["clave"]
                 );
@@ -79,11 +83,17 @@ namespace DataFlow.SDKWrapper
 
                 // 2. Abrir empresa
                 LogDebug("Abriendo empresa " + config["empresa"] + "...");
-                EFlexSDK_Procesos.ProcesosFlex.AbrirEmpresaFlex(
+                bool empresaAbierta = procesos.AbrirEmpresaFlex(
                     config["empresa"],
                     config["pto-trabajo"],
                     token
                 );
+                LogDebug("AbrirEmpresaFlex retornó: " + empresaAbierta);
+                if (!empresaAbierta)
+                {
+                    WriteOutput(false, "No se pudo abrir la empresa '" + config["empresa"] + "'. Verifique código de empresa y punto de trabajo.", null);
+                    return 1;
+                }
                 LogDebug("Empresa abierta OK");
 
                 // 3. Registrar aplicación SDK (COM interop)
@@ -94,10 +104,13 @@ namespace DataFlow.SDKWrapper
                     if (tipoImportador != null)
                     {
                         dynamic importador = Activator.CreateInstance(tipoImportador);
-                        EFlexSDK_Procesos.ProcesosFlex.HabilitarInfoDebug();
+                        procesos.HabilitarInfoDebug();
                         string nuevoValor = importador.RegistraAplicacionSDK(token.Valor);
-                        token.Valor = nuevoValor;
-                        LogDebug("Aplicación SDK registrada OK");
+                        LogDebug("RegistraAplicacionSDK retornó: [" + (nuevoValor ?? "NULL") + "]");
+                        // NO actualizamos token.Valor: AbrirEmpresaFlex registra el ProcesoFlex
+                        // con el valor original del token. Si lo cambiamos, EFlexSDK_Ventas
+                        // no encuentra el contexto y _ProcFlex queda null → NullReferenceException.
+                        LogDebug("Aplicación SDK registrada OK. token.Valor (sin cambiar)=[" + (token.Valor ?? "NULL") + "]");
                     }
                     else
                     {
@@ -117,7 +130,7 @@ namespace DataFlow.SDKWrapper
 
                 LogDebug("Ejecutando " + circuito + "/" + operacion + " (numera=" + numera + ", emite=" + emite + ")...");
 
-                string resultado = EjecutarOperacion(circuito, operacion, jsonData, numera, emite, token);
+                string resultado = EjecutarOperacion(circuito, operacion, jsonData, numera, emite, token, procesos);
 
                 if (!string.IsNullOrEmpty(resultado))
                 {
@@ -146,7 +159,7 @@ namespace DataFlow.SDKWrapper
                     try
                     {
                         LogDebug("Cerrando proceso SDK...");
-                        EFlexSDK_Procesos.ProcesosFlex.CerrarProcesoFlex(token);
+                        procesos.CerrarProcesoFlex(token);
                         LogDebug("Proceso cerrado OK");
                     }
                     catch (Exception exClose)
@@ -160,15 +173,15 @@ namespace DataFlow.SDKWrapper
         /// <summary>
         /// Ejecuta la operación SDK según el circuito
         /// </summary>
-        static string EjecutarOperacion(string circuito, string operacion, string jsonData, string numera, string emite, EFlexSDK_TokenValidacion token)
+        static string EjecutarOperacion(string circuito, string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
         {
             switch (circuito)
             {
                 case "VENTAS":
-                    return EjecutarVentas(operacion, jsonData, numera, emite, token);
+                    return EjecutarVentas(operacion, jsonData, numera, emite, token, procesos);
 
                 case "COMPRAS":
-                    return EjecutarCompras(operacion, jsonData, numera, emite, token);
+                    return EjecutarCompras(operacion, jsonData, numera, emite, token, procesos);
 
                 default:
                     return "Circuito no soportado: " + circuito;
@@ -178,25 +191,26 @@ namespace DataFlow.SDKWrapper
         /// <summary>
         /// Ejecuta operaciones del circuito VENTAS
         /// </summary>
-        static string EjecutarVentas(string operacion, string jsonData, string numera, string emite, EFlexSDK_TokenValidacion token)
+        static string EjecutarVentas(string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
         {
             string errores = string.Empty;
             EFlexSDK_Ventas ventas = new EFlexSDK_Ventas(token);
+            InjectProcFlex(ventas, token, procesos);
 
             switch (operacion)
             {
                 case "IngresarComprobanteJSON":
-                    EFlexSDK_ComprobanteVentas comp = ventas.IngresarComprobanteJSON(jsonData, numera, emite, token);
+                    try { ventas.IngresarComprobanteJSON(jsonData, numera, emite, token); }
+                    catch (Exception exDeser) { LogDebug("SDK excepcion (completa):\n" + exDeser.ToString()); }
                     string listaErrores = ventas.ObtenerListaErrores();
-                    // "No existen errores." o vacío = éxito
-                    if (comp == null && !string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
-                        errores = listaErrores;
-                    else if (comp != null && !string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
+                    LogDebug("ObtenerListaErrores: [" + (listaErrores ?? "NULL") + "]");
+                    if (!string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
                         errores = listaErrores;
                     break;
 
                 case "IngresarListaComprobantesJSON":
-                    List<EFlexSDK_ComprobanteVentas> comps = ventas.IngresarListaComprobantesJSON(jsonData, numera, emite, token);
+                    try { ventas.IngresarListaComprobantesJSON(jsonData, numera, emite, token); }
+                    catch (Exception exDeser) { LogDebug("SDK deserialización (no fatal): " + exDeser.Message); }
                     string listaErroresMultiV = ventas.ObtenerListaErrores();
                     if (!string.IsNullOrEmpty(listaErroresMultiV) && !listaErroresMultiV.Contains("No existen errores"))
                         errores = listaErroresMultiV;
@@ -213,25 +227,25 @@ namespace DataFlow.SDKWrapper
         /// <summary>
         /// Ejecuta operaciones del circuito COMPRAS
         /// </summary>
-        static string EjecutarCompras(string operacion, string jsonData, string numera, string emite, EFlexSDK_TokenValidacion token)
+        static string EjecutarCompras(string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
         {
             string errores = string.Empty;
             EFlexSDK_Compras compras = new EFlexSDK_Compras(token);
+            InjectProcFlex(compras, token, procesos);
 
             switch (operacion)
             {
                 case "IngresarComprobanteJSON":
-                    EFlexSDK_ComprobanteCompras comp = compras.IngresarComprobanteJSON(jsonData, numera, emite, token);
+                    try { compras.IngresarComprobanteJSON(jsonData, numera, emite, token); }
+                    catch (Exception exDeser) { LogDebug("SDK deserialización (no fatal): " + exDeser.Message); }
                     string listaErrores = compras.ObtenerListaErrores();
-                    // "No existen errores." o vacío = éxito
-                    if (comp == null && !string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
-                        errores = listaErrores;
-                    else if (comp != null && !string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
+                    if (!string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))
                         errores = listaErrores;
                     break;
 
                 case "IngresarListaComprobantesJSON":
-                    List<EFlexSDK_ComprobanteCompras> comps = compras.IngresarListaComprobantesJSON(jsonData, numera, emite, token);
+                    try { compras.IngresarListaComprobantesJSON(jsonData, numera, emite, token); }
+                    catch (Exception exDeser) { LogDebug("SDK deserialización (no fatal): " + exDeser.Message); }
                     string listaErroresMulti = compras.ObtenerListaErrores();
                     if (!string.IsNullOrEmpty(listaErroresMulti) && !listaErroresMulti.Contains("No existen errores"))
                         errores = listaErroresMulti;
@@ -243,6 +257,53 @@ namespace DataFlow.SDKWrapper
             }
 
             return errores;
+        }
+
+        /// <summary>
+        /// Inyecta _ProcFlex en el circuito via reflexión si el constructor no lo inicializó.
+        /// EFlexSDK_Ventas/Compras heredan de EFlexSDK_CircuitoFlex que tiene _ProcFlex privado.
+        /// El constructor busca el ProcesoFlex por token pero falla silenciosamente en consola.
+        /// </summary>
+        static void InjectProcFlex(object circuito, dynamic token, EFlexSDK_ProcesoCollection procesos)
+        {
+            try
+            {
+                FieldInfo fi = circuito.GetType().BaseType.GetField("_ProcFlex",
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+
+                if (fi == null)
+                {
+                    LogDebug("InjectProcFlex: campo _ProcFlex no encontrado en clase base");
+                    return;
+                }
+
+                object current = fi.GetValue(circuito);
+                if (current != null)
+                {
+                    LogDebug("InjectProcFlex: _ProcFlex ya inicializado, OK");
+                    return;
+                }
+
+                LogDebug("InjectProcFlex: _ProcFlex es null, inyectando...");
+                dynamic idResult = procesos.ObtenerIDProcesoToken(token);
+                string idProceso = idResult != null ? idResult.ToString() : null;
+                LogDebug("ObtenerIDProcesoToken: [" + (idProceso ?? "NULL") + "]");
+
+                if (!string.IsNullOrEmpty(idProceso))
+                {
+                    object procFlex = procesos[idProceso];
+                    LogDebug("procFlex: " + (procFlex == null ? "NULL" : procFlex.GetType().Name));
+                    if (procFlex != null)
+                    {
+                        fi.SetValue(circuito, procFlex);
+                        LogDebug("InjectProcFlex: _ProcFlex inyectado OK");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDebug("InjectProcFlex error: " + ex.Message);
+            }
         }
 
         /// <summary>

@@ -54,10 +54,12 @@ if not exist "SB.NET.eFlex.SDKLib.Comprobantes.dll" (
 )
 
 REM Compilar (x86 obligatorio - las DLLs del SDK son 32-bit)
-"%CSC%" /target:exe /out:SDKWrapper.exe /platform:x86 ^
-    /reference:SB.NET.eFlex.SDKLib.dll ^
-    /reference:SB.NET.eFlex.SDKLib.Comprobantes.dll ^
-    SDKWrapper.cs
+REM Referencia todos los .dll del folder para cubrir cualquier version del SDK
+setlocal enabledelayedexpansion
+set REFS=
+for %%f in (*.dll) do set REFS=!REFS! /reference:%%f
+
+"%CSC%" /target:exe /out:SDKWrapper.exe /platform:x86 !REFS! SDKWrapper.cs
 
 if %ERRORLEVEL% neq 0 (
     echo.

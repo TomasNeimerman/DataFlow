@@ -8,7 +8,7 @@
 module.exports = {
   // Ruta al SDKWrapper.exe (junto a las DLLs del SDK)
   // Configurar según cada servidor donde estén instaladas las DLLs
-  SDK_WRAPPER_PATH: 'C:\\Bejerman\\sdk\\SDK TESTER\\SDKWrapper.exe',
+  SDK_WRAPPER_PATH: 'C:\\Bejerman\\Instalación\\Tester\\SDKWrapper.exe',
 
   // Credenciales de autenticación
   SDK_USER: 'ADMIN',

@@ -55,6 +55,7 @@ async function ejecutar(circuito, operacion, jsonData, opciones = {}) {
   try {
     fs.writeFileSync(tempFile, jsonString, 'utf8');
     logToFile(`[dllClient] JSON temporal escrito en: ${tempFile}`);
+    logToFile(`[dllClient] JSON enviado: ${jsonString}`);
     logToFile(`[dllClient] Ejecutando: ${circuito}/${operacion} (numera=${numera}, emite=${emite})`);
 
     // Construir argumentos
