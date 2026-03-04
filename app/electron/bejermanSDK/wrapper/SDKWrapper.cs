@@ -29,6 +29,8 @@ namespace DataFlow.SDKWrapper
         [System.STAThread]
         static int Main(string[] args)
         {
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
+
             // Parsear argumentos
             var config = ParseArgs(args);
             if (config == null)
@@ -201,7 +203,12 @@ namespace DataFlow.SDKWrapper
             {
                 case "IngresarComprobanteJSON":
                     try { ventas.IngresarComprobanteJSON(jsonData, numera, emite, token); }
-                    catch (Exception exDeser) { LogDebug("SDK excepcion (completa):\n" + exDeser.ToString()); }
+                    catch (Exception exDeser)
+                    {
+                        LogDebug("SDK excepcion (completa):\n" + exDeser.ToString());
+                        errores = exDeser.Message;
+                        break;
+                    }
                     string listaErrores = ventas.ObtenerListaErrores();
                     LogDebug("ObtenerListaErrores: [" + (listaErrores ?? "NULL") + "]");
                     if (!string.IsNullOrEmpty(listaErrores) && !listaErrores.Contains("No existen errores"))

@@ -116,6 +116,8 @@ function mapMediosPago(recibo) {
   return valores.map((valor) => {
     const medioPago = mapTipoValorToMedioPago(valor.tipo);
     const importe = parseFloat(valor.importe) || 0;
+    const tipo = (valor.tipo || '').toString().toUpperCase();
+    const esCheque = tipo === 'CHE' || tipo === 'ECH';
 
     return {
       Comprobante_Tipo: 'RC',
@@ -128,9 +130,9 @@ function mapMediosPago(recibo) {
       MedioPago: medioPago,
       MedioPago_Moneda: '1',
       MedioPago_TipoCambio: 'UNI',
-      MedioPago_CajaOrigen: valor.cajaOrigen || '001',
-      MedioPago_TipoDocumento: '',
-      MedioPago_FechaVencimiento: fechaEmision,
+      MedioPago_CajaOrigen: esCheque ? '' : (valor.cajaOrigen || '001'),
+      MedioPago_TipoDocumento: esCheque ? 'DIF' : '',
+      MedioPago_FechaVencimiento: valor.fechaCobro ? convertirFechaToISO(valor.fechaCobro) : fechaEmision,
       MedioPago_Importe: importe,
       MedioPago_NumeroCheque: valor.numeroCheque || '',
       MedioPago_CodigoBanco: valor.codigoBanco || '',
@@ -153,23 +155,22 @@ function mapMediosPago(recibo) {
 
 /**
  * Mapea el tipo de valor de DataFlow al código de medio de pago de Bejerman
- * @param {string} tipo - Tipo de valor (EFE, CHE, TRF, etc.)
+ * Códigos según tabla de medios de pago Bejerman:
+ *   1 = Caja (Efectivo), 2 = Cheque / Tarjeta, 4 = Cta. Bancaria, 9 = Documento
+ * @param {string} tipo - Tipo de valor (EFE, CHE, ECH, TRF, TAR, DEP, RET)
  * @returns {number} - Código de medio de pago
  */
 function mapTipoValorToMedioPago(tipo) {
-  const tipoUpper = (tipo || '').toString().toUpperCase();
-
-  const mapaCodigos = {
-    'EFE': 1,      // Efectivo
-    'CHE': 2,      // Cheque
-    'ECH': 2,      // E-Cheq
-    'TRF': 3,      // Transferencia
-    'TAR': 4,      // Tarjeta
-    'DEP': 5,      // Depósito
-    'RET': 6,      // Retención
+  const map = {
+    EFE: 1,
+    CHE: 2,
+    ECH: 2,
+    TAR: 2,
+    TRF: 4,
+    DEP: 4,
+    RET: 9,
   };
-
-  return mapaCodigos[tipoUpper] || 1;
+  return map[(tipo || '').toString().toUpperCase()] ?? 1;
 }
 
 /**
