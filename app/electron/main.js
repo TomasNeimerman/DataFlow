@@ -18,6 +18,8 @@ const ZongJi = require('zongji');
 const { getDbConfig, onDbConfigChange } = require('./dbConfig');         // (keep: referenced by modules/services)
 const { initializeConfig,getAdminDbConfig, writeAdminDbConfig } = require('./userDbConfig.js');
 let odbc;
+const { spawn, execSync } = require("child_process");
+const http = require("http");
 
 
 
@@ -28,6 +30,60 @@ const { startSessionHeartbeat, stopSessionHeartbeat } = require('./helpers/sessi
 const { odbcConnectAndSave, getServerForLogin, saveServerForOdbc } =require('./helpers/ODBCConnection.js');
 let __adminPool = null;
 
+
+
+let nextProcess = null;
+
+function startNextDev() {
+  if (nextProcess) {
+    console.log("⚠ Next ya está corriendo");
+    return;
+  }
+
+  const projectRoot = path.resolve(__dirname, "..");
+
+  console.log("🚀 Iniciando Next DEV...");
+  console.log("📂 CWD:", projectRoot);
+
+  nextProcess = spawn("npm", ["run", "dev"], {
+    cwd: projectRoot,
+    shell: true,
+    stdio: "pipe",
+    env: process.env
+  });
+
+  nextProcess.stdout.on("data", (data) => {
+    console.log("[NEXT STDOUT]", data.toString());
+  });
+
+  nextProcess.stderr.on("data", (data) => {
+    console.error("[NEXT STDERR]", data.toString());
+  });
+
+  nextProcess.on("error", (err) => {
+    console.error("❌ Error arrancando Next:", err);
+  });
+
+  nextProcess.on("exit", (code) => {
+    console.log("🛑 Next terminó con código:", code);
+    nextProcess = null;
+  });
+}
+
+function stopNextDev() {
+  if (!nextProcess) return;
+
+  const pid = nextProcess.pid;
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+    } else {
+      try { process.kill(-pid, "SIGTERM"); } catch { process.kill(pid, "SIGTERM"); }
+    }
+  } catch {}
+
+  nextProcess = null;
+}
 const APP_NAME = 'DataFlow';
 try { if (app.getName() !== APP_NAME) app.setName(APP_NAME); } catch {}
 try {
@@ -762,6 +818,10 @@ async function createMainWindow() {
     }
   });
 
+  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+  writeToLog(`did-fail-load ${errorCode} ${errorDescription} URL=${validatedURL}`);
+  console.error("❌ did-fail-load:", code, desc, url);
+});
   // Al cerrar la ventana, marcar sesión inactiva y parar heartbeat/watchdog
   mainWindow?.on('close', async () => {
     await finalizeActiveSession('window-close', { releaseLock: RELEASE_SESSION_ON_EXIT });
@@ -769,91 +829,93 @@ async function createMainWindow() {
 
   // ------- Carga de la app (DEV/PROD) --------
   if (isDev) {
-    const DEV_BASE = 'http://localhost:3000';
+  const DEV_BASE = 'http://localhost:3000';
+  startNextDev();
+
+  try {
+    // limpiar .next/trace corrupto (si pasa)
     try {
-      // limpiar .next/trace corrupto (si pasa)
-      try {
-        const projectRoot = path.resolve(__dirname, '..');
-        const tracePath = path.join(projectRoot, '.next', 'trace');
-        if (fs.existsSync(tracePath) && fs.statSync(tracePath).isDirectory()) {
-          fs.rmSync(tracePath, { recursive: true, force: true });
-          writeToLog('DEV: borrado .next/trace corrupto');
-        }
-      } catch {}
-
-      await waitForUrl(DEV_BASE, 30000, 500);
-
-      if (FORCE_LOGIN_ON_START) {
-        clearStoreForLogin({ preserveRemember: true });
-        modulosCache = [];
-        activeSession = null;
-        stopSessionHeartbeat();
-        await mainWindow.loadURL(`${DEV_BASE}/Login`);
-        setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
-      } else {
-        await loadLoginOnly(DEV_BASE);
+      const projectRoot = path.resolve(__dirname, '..');
+      const tracePath = path.join(projectRoot, '.next', 'trace');
+      if (fs.existsSync(tracePath) && fs.statSync(tracePath).isDirectory()) {
+        fs.rmSync(tracePath, { recursive: true, force: true });
+        writeToLog('DEV: borrado .next/trace corrupto');
       }
-
-      try { mainWindow.webContents.openDevTools(); } catch {}
-    } catch (e) {
-      writeToLog(`DEV load error: ${e.message}`);
-      await mainWindow.loadURL(
-        'data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>'
-      );
+    } catch {}
+    console.log("⏳ Esperando que Next levante en:", DEV_BASE);
+    await waitForUrl(DEV_BASE, 30000, 500);
+    console.log("✅ Next respondió correctamente");
+    if (FORCE_LOGIN_ON_START) {
+      clearStoreForLogin({ preserveRemember: true });
+      modulosCache = [];
+      activeSession = null;
+      stopSessionHeartbeat();
+      await mainWindow.loadURL(`${DEV_BASE}/Login`);
+      setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
+    } else {
+      await loadLoginOnly(DEV_BASE);
     }
-  } else {
-    const { createServer } = require('http');
-    const next = require('next');
-    const MAX_PORT_ATTEMPTS = 10;
-    let currentPort = 3000;
 
-    try {
-      const nextApp = next({ dev: false, dir: app.getAppPath() });
-      await nextApp.prepare();
-      const handle = nextApp.getRequestHandler();
-
-      let server, ok = false;
-      for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
-        try {
-          server = createServer((req, res) => handle(req, res));
-          await new Promise((resolve, reject) => {
-            server.listen(currentPort, () => {
-              ok = true;
-              writeToLog(`Servidor en http://localhost:${currentPort}`);
-              resolve();
-            });
-            server.once('error', (err) => {
-              if (err && err.code === 'EADDRINUSE') {
-                currentPort++;
-                try { server.close(); } catch {}
-                reject(err);
-              } else reject(err);
-            });
-          });
-          if (ok) break;
-        } catch (e) {
-          if (!e || e.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) throw e;
-        }
-      }
-
-      const BASE = `http://localhost:${currentPort}`;
-      if (FORCE_LOGIN_ON_START) {
-        clearStoreForLogin({ preserveRemember: true });
-        modulosCache = [];
-        activeSession = null;
-        stopSessionHeartbeat();
-        await mainWindow.loadURL(`${BASE}/Login`);
-        setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
-      } else {
-        await loadLoginOnly(BASE);
-      }
-    } catch (e) {
-      writeToLog(`PROD prepare error: ${e.message}`);
-      await mainWindow.loadURL('data:text/html,<h1>Error iniciando servidor interno</h1>');
-      setTimeout(() => app.quit(), 1500);
-      return;
-    }
+    try { mainWindow.webContents.openDevTools(); } catch {}
+  } catch (e) {
+    writeToLog(`DEV load error: ${e.message}`);
+    await mainWindow.loadURL(
+      'data:text/html,<h1>No se pudo conectar a Next (DEV)</h1><p>Reintenta con F5</p>'
+    );
   }
+} else {
+  const { createServer } = require('http');
+  const next = require('next');
+  const MAX_PORT_ATTEMPTS = 10;
+  let currentPort = 3000;
+
+  try {
+    const nextApp = next({ dev: false, dir: app.getAppPath() });
+    await nextApp.prepare();
+    const handle = nextApp.getRequestHandler();
+
+    let server, ok = false;
+    for (let i = 0; i < MAX_PORT_ATTEMPTS; i++) {
+      try {
+        server = createServer((req, res) => handle(req, res));
+        await new Promise((resolve, reject) => {
+          server.listen(currentPort, () => {
+            ok = true;
+            writeToLog(`Servidor en http://localhost:${currentPort}`);
+            resolve();
+          });
+          server.once('error', (err) => {
+            if (err && err.code === 'EADDRINUSE') {
+              currentPort++;
+              try { server.close(); } catch {}
+              reject(err);
+            } else reject(err);
+          });
+        });
+        if (ok) break;
+      } catch (e) {
+        if (!e || e.code !== 'EADDRINUSE' || i === MAX_PORT_ATTEMPTS - 1) throw e;
+      }
+    }
+
+    const BASE = `http://localhost:${currentPort}`;
+    if (FORCE_LOGIN_ON_START) {
+      clearStoreForLogin({ preserveRemember: true });
+      modulosCache = [];
+      activeSession = null;
+      stopSessionHeartbeat();
+      await mainWindow.loadURL(`${BASE}/Login`);
+      setTimeout(() => { autoLoginIfRememberedAndGotoIndex(); }, 50);
+    } else {
+      await loadLoginOnly(BASE);
+    }
+  } catch (e) {
+    writeToLog(`PROD prepare error: ${e.message}`);
+    await mainWindow.loadURL('data:text/html,<h1>Error iniciando servidor interno</h1>');
+    setTimeout(() => app.quit(), 1500);
+    return;
+  }
+}
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -867,6 +929,7 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', (e) => {
   if (isFinalizing) return;
+  if (isDev) stopNextDev();
   e.preventDefault();
   (async () => {
     await finalizeActiveSession('before-quit', { releaseLock: RELEASE_SESSION_ON_EXIT });
@@ -881,6 +944,8 @@ app.on('will-quit', async () => {
 
 app.on('window-all-closed', () => {
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
+    if (isDev) stopNextDev();
+
   try { fs.rmSync(tempFolderPath, { recursive: true, force: true }); } catch {}
   if (process.platform !== 'darwin') app.quit();
 });
