@@ -96,8 +96,40 @@ function mapReciboToSDK(recibo) {
     Comprobante_DatosAdicionales: [],
     Comprobante_Cuotas: [],
     Comprobante_CentrosCosto: [],
-    Comprobante_RelacionComprobante: [],
+    Comprobante_RelacionComprobante: mapRelacionComprobante(recibo),
   };
+}
+
+/**
+ * Mapea las facturas canceladas al formato RelacionComprobante del SDK
+ */
+function mapRelacionComprobante(recibo) {
+  const aplicaciones = recibo.aplicaciones || [];
+  if (aplicaciones.length === 0) return [];
+
+  const fechaEmision = convertirFechaToISO(recibo.fecha);
+  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
+
+  return aplicaciones.map((ap) => ({
+    Comprobante_Cancelatorio_Tipo: 'RC',
+    Comprobante_Cancelatorio_Letra: ' ',
+    Comprobante_Cancelatorio_PtoVenta: ptoVenta,
+    Comprobante_Cancelatorio_Numero: '',
+    Comprobante_Cancelatorio_FechaEmision: fechaEmision,
+    Comprobante_Cancelatorio_EnCuotas: ' ',
+    Comprobante_Cancelatorio_NumeroCuota: '',
+    Comprobante_Cancelatorio_FechaVencimiento: '',
+    Cliente_Codigo: formatCodigoCliente(recibo.codigoCliente),
+    Comprobante_Cancelado_Tipo: ap.tipoComprobante || 'FC',
+    Comprobante_Cancelado_Letra: ap.letra || ' ',
+    Comprobante_Cancelado_PtoVenta: ap.puntoVenta != null ? String(ap.puntoVenta).trim() : '',
+    Comprobante_Cancelado_Numero: formatNumeroComprobante(ap.numeroComprobante),
+    Comprobante_Cancelado_FechaEmision: convertirFechaToISO(ap.fechaEmision),
+    Comprobante_Cancelado_EnCuotas: ' ',
+    Comprobante_Cancelado_NumeroCuota: '',
+    Comprobante_Canceladoo_FechaVencimiento: '',
+    Comprobante_Cancelatorio_ImporteTotal: Math.abs(ap.importe),
+  }));
 }
 
 /**
@@ -118,6 +150,7 @@ function mapMediosPago(recibo) {
     const importe = parseFloat(valor.importe) || 0;
     const tipo = (valor.tipo || '').toString().toUpperCase();
     const esCheque = tipo === 'CHE' || tipo === 'ECH';
+    const esCuentaBancaria = tipo === 'TRF' || tipo === 'DEP';
 
     return {
       Comprobante_Tipo: 'RC',
@@ -130,7 +163,7 @@ function mapMediosPago(recibo) {
       MedioPago: medioPago,
       MedioPago_Moneda: '1',
       MedioPago_TipoCambio: 'UNI',
-      MedioPago_CajaOrigen: esCheque ? '' : (valor.cajaOrigen || '001'),
+      MedioPago_CajaOrigen: (esCheque || esCuentaBancaria) ? '' : (valor.cajaOrigen || '001'),
       MedioPago_TipoDocumento: esCheque ? 'DIF' : '',
       MedioPago_FechaVencimiento: valor.fechaCobro ? convertirFechaToISO(valor.fechaCobro) : fechaEmision,
       MedioPago_Importe: importe,
@@ -139,7 +172,7 @@ function mapMediosPago(recibo) {
       MedioPago_SucursalBanco: valor.sucursalBanco || '',
       MedioPago_Clearing: 0,
       MedioPago_Origen: '',
-      MedioPago_CodigoCuenta: '',
+      MedioPago_CodigoCuenta: esCuentaBancaria ? (valor.numeroCuenta || '').trim() : '',
       MedioPago_NumeroTarjeta: '',
       MedioPago_NumeroAutorizacion: '',
       MedioPago_NombreLibrador: '',
@@ -269,6 +302,7 @@ function formatNumeroComprobante(numeroComprobante) {
 module.exports = {
   mapReciboToSDK,
   mapMediosPago,
+  mapRelacionComprobante,
   mapTipoValorToMedioPago,
   calcularImporteTotal,
   convertirFechaToISO,

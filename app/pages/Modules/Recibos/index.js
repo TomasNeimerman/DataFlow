@@ -516,15 +516,13 @@ export default function RecibosPage() {
       .filter(([_, v]) => v?.checked)
       .forEach(([idx, v]) => {
         const factura = facturas[idx];
-        const parts = (factura.Comprobante || '').split(' ');
-        const tipoComp = parts[0] || 'FA';
-        const numeroCompleto = parts[1] || '0001-00000000';
-        const [ptoVenta, numero] = numeroCompleto.split('-');
 
         aplicaciones.push({
-          tipoComprobante: tipoComp,
-          puntoVenta: ptoVenta || '0001',
-          numeroComprobante: numero || '00000000',
+          tipoComprobante: factura.TipoFijo || 'FC',
+          letra: (factura.Letra || ' ').trim() || ' ',
+          puntoVenta: factura.PtoVenta ?? '',
+          numeroComprobante: factura.Numero || '00000000',
+          fechaEmision: factura['Fecha Emision'] || '',
           importe: Number(v.monto) || 0,
         });
       });

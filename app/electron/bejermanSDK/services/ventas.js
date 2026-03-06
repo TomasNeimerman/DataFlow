@@ -11,7 +11,6 @@ const config = require('../config');
 const dllClient = require('../core/dllClient');
 const { validateRecibo } = require('../utils/validators');
 const { mapReciboToSDK } = require('../utils/serializers');
-
 // Crear directorio de logs si no existe
 const LOG_DIR = 'C:/Dataflow';
 const LOG_FILE = path.join(LOG_DIR, 'error.log');
@@ -50,6 +49,7 @@ async function ingresarRecibo({ recibo, numeraFlex, emiteReg }) {
     }
 
     // 2. Mapear recibo a formato SDK
+    const numeraEfectivo = numeraFlex || config.DEFAULT_NUMERA_FLEX;
     const reciboSDK = mapReciboToSDK(recibo);
     logToFile(`[ventas] Recibo mapeado a SDK: ${JSON.stringify(reciboSDK)}`);
 
@@ -62,7 +62,7 @@ async function ingresarRecibo({ recibo, numeraFlex, emiteReg }) {
       'IngresarComprobanteJSON',
       jsonParaSDK,
       {
-        numera: numeraFlex || config.DEFAULT_NUMERA_FLEX,
+        numera: numeraEfectivo,
         emite: emiteReg || config.DEFAULT_EMITE_REG,
       }
     );
