@@ -7,7 +7,10 @@ export default function MediosSection({
   // cheques
   file, onFileChange, cargarCheques, cancelarCheques,
   cheques, selCheques, setSelCheques, importMsg,
-  aplicadoMedios, restanteVsFact, excedentePos, facturasaplic,
+  aplicadoMedios, restanteVsFact, excedentePos, facturasaplic,esReciboACuenta,
+saldoRestanteCliente,
+facturasPendienteMonto,
+cantFacturasAplicadas,
   // totals helpers
   nfmt, dfmt,
   // transferencias
@@ -27,18 +30,53 @@ export default function MediosSection({
   return (
     <div className={styles.tabInner}>
       <div className={styles.saldoHeader}>
-        <div className={styles.favorRow}>
-          {facturasaplic >= 0 ? (
-            <span><strong>Facturas a pagar:</strong> $ {nfmt(facturasaplic)}</span>
-          ) : (
-            <span className={styles.parenGreen}><strong>Facturas a pagar</strong> (a favor): {nfmt(excedentePos)}</span>
-          )}
-        </div>
-        <div>
-          Aplicado: <strong>$ {nfmt(aplicadoMedios)}</strong> ·{" "}
-          Restante: <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>$ {nfmt(restanteVsFact)}</strong>
-        </div>
-      </div>
+  <div className={styles.favorRow}>
+    {/* Siempre visible: saldo del cliente luego de aplicar facturas */}
+    <span>
+      <strong>Saldo Restante:</strong> $ {nfmt(saldoRestanteCliente)}
+    </span>
+
+    {/* Solo si hay facturas aplicadas */}
+    {!esReciboACuenta && (
+      <>
+        <span>·</span>
+
+        {facturasPendienteMonto > 0 ? (
+          <span>
+            <strong>Facturas a pagar:</strong> $ {nfmt(facturasPendienteMonto)}
+          </span>
+        ) : (
+          <span className={styles.parenGreen}>
+            <strong>Facturas a pagar</strong> (a favor): {nfmt(excedentePos)}
+          </span>
+        )}
+
+        <span>·</span>
+        <span>
+          <strong>Cant. facturas:</strong> {cantFacturasAplicadas}
+        </span>
+      </>
+    )}
+  </div>
+
+  <div>
+    Aplicado: <strong>$ {nfmt(aplicadoMedios)}</strong> ·{" "}
+
+    {/* Si es recibo a cuenta, mostrar saldo total en vez del restante de facturas */}
+    {esReciboACuenta ? (
+      <>
+        Saldo Total: <strong>$ {nfmt(saldoRestanteCliente)}</strong>
+      </>
+    ) : (
+      <>
+        Restante:{" "}
+        <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>
+          $ {nfmt(restanteVsFact)}
+        </strong>
+      </>
+    )}
+  </div>
+</div>
 
       {/* Cheques */}
       <div className={styles.card}>

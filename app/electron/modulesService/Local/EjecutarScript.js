@@ -428,6 +428,36 @@ ORDER BY ArticuloCodGen, ArticuloCodEle1, ArticuloCodEle2, ArticuloCodEle3
     try { await pool?.close(); } catch {}
   }
 }
+function extractSqlDescription(sqlText = '') {
+  const s = String(sqlText || '').replace(/\r\n/g, '\n');
+
+  // 1) Si hay bloque /* ... */ al inicio, tomamos ese
+  const block = s.match(/^\s*\/\*([\s\S]*?)\*\//);
+  if (block?.[1]) {
+    return block[1].trim();
+  }
+
+  // 2) Si no, tomamos el primer “bloque” de líneas que sean comentarios "--"
+  const lines = s.split('\n');
+  const commentLines = [];
+  for (const ln of lines) {
+    const t = ln.trim();
+    if (t.startsWith('--')) commentLines.push(t.replace(/^--\s?/, ''));
+    else if (commentLines.length) break; // cortamos cuando termina el bloque
+  }
+  return commentLines.join('\n').trim();
+}
+
+function obtenerScriptInfo() {
+  const description = extractSqlDescription(SQL_UPDATE_PRECIOS_EXACTO);
+  return {
+    success: true,
+    // si no hay comentario, devolvemos un fallback cortito
+    description: description || 'Ejecuta el script de actualización de precios y registra auditoría.',
+    // opcional: si querés mostrar el SQL en el front
+    sql: SQL_UPDATE_PRECIOS_EXACTO,
+  };
+}
 
 // ---------- exports ----------
 module.exports = {
@@ -435,4 +465,5 @@ module.exports = {
   obtenerPrecios,
   actualizarListaDePrecios,      // progressive (default) o exact
   obtenerPreciosActualizados,
+  obtenerScriptInfo,
 };

@@ -1,6 +1,11 @@
+<<<<<<< HEAD
 // app/components/CuadroChequesEdoR.js
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
+=======
+"use client";
+import React, { useMemo, useState, useRef, useEffect } from "react";
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
 import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
 
@@ -8,23 +13,98 @@ export default function ChequesRechazados(props) {
   const {
     chequesRechazados = [],
     situaciones = [],
+<<<<<<< HEAD
+=======
+    estados = [],
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
     onChequeToggle = () => {},
     selectedChequesData = {},
     onImportarClick = () => {},
     isImportButtonDisabled = false,
     importStatus = null,
     importMessage = "",
+<<<<<<< HEAD
     runLogs = [],
     runErrors = [],
     onSelectAllChange = () => {},
     refreshKey = 0,
 
+=======
+    onSelectAllChange = () => {},
+    refreshKey = 0,
+
+    // ✅ EXPORT (lista completa filtrada)
+    cheques3Export = [],
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
     fieldMode = "situacion",
     onFieldModeChange = () => {},
     onRowValueChange = () => {},
     onGlobalValueChange = () => {},
+<<<<<<< HEAD
   } = props;
 
+=======
+
+    // Buscar
+    onBuscar = null,
+
+    // ✅ Paginación
+    page = 1,
+    pageSize = 15,
+    totalRows = null,
+    onPageChange = null,
+    onPageSizeChange = null,
+    lastFilters = null,
+    lazyMode = true,
+  } = props;
+
+  /* =====================================================
+     TABLA: altura gradual según scroll del contenedor general
+     ===================================================== */
+  const containerRef = useRef(null);
+  const rafRef = useRef(null);
+  const lastHeightRef = useRef(null);
+
+  const TABLE_MIN_H = 180;
+  const TABLE_MAX_H = 520;
+  const EXPAND_RANGE = 260;
+
+  const [tableHeight, setTableHeight] = useState(TABLE_MIN_H);
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const compute = () => {
+      const y = el.scrollTop || 0;
+      const t = clamp(y / EXPAND_RANGE, 0, 1);
+      const h = Math.round(TABLE_MIN_H + t * (TABLE_MAX_H - TABLE_MIN_H));
+      if (lastHeightRef.current === null || Math.abs(h - lastHeightRef.current) >= 3) {
+        lastHeightRef.current = h;
+        setTableHeight(h);
+      }
+    };
+
+    compute();
+
+    const onScroll = () => {
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        compute();
+      });
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [refreshKey]);
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
   // ====== FILTROS ======
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [fId, setFId] = useState("");
@@ -33,6 +113,7 @@ export default function ChequesRechazados(props) {
   const [fHasta, setFHasta] = useState("");
   const [fMin, setFMin] = useState("");
   const [fMax, setFMax] = useState("");
+<<<<<<< HEAD
 
   const limpiar = () => {
     setFId(""); setFNro(""); setFDesde(""); setFHasta(""); setFMin(""); setFMax("");
@@ -105,6 +186,43 @@ export default function ChequesRechazados(props) {
     return arr;
   }, [filtered, sortCol, sortDir]);
 
+=======
+  const [fEdo, setFEdo] = useState("");
+  const [fSit, setFSit] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
+  const limpiar = () => {
+    setFId("");
+    setFNro("");
+    setFDesde("");
+    setFHasta("");
+    setFMin("");
+    setFMax("");
+    setFEdo("");
+    setFSit("");
+    setHasSearched(false);
+
+    if (typeof onPageChange === "function") onPageChange(1);
+  };
+
+  const hasAnyFilter = useMemo(() => {
+    return (
+      (fId?.trim() || "") !== "" ||
+      (fNro?.trim() || "") !== "" ||
+      (fDesde || "") !== "" ||
+      (fHasta || "") !== "" ||
+      (fMin?.trim() || "") !== "" ||
+      (fMax?.trim() || "") !== "" ||
+      (fEdo || "") !== "" ||
+      (fSit || "") !== ""
+    );
+  }, [fId, fNro, fDesde, fHasta, fMin, fMax, fEdo, fSit]);
+
+  // ORDER (UI + sorting real)
+  const [sortCol, setSortCol] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
   const sortArrow = (name) => (
     <span style={{ marginLeft: 6 }}>
       <b style={{ opacity: sortCol === name && sortDir === "asc" ? 1 : 0.35 }}>▲</b>
@@ -112,6 +230,7 @@ export default function ChequesRechazados(props) {
     </span>
   );
 
+<<<<<<< HEAD
   // ====== SELECCIÓN ======
   const selectedIds = Object.keys(selectedChequesData || {}).filter(
     (id) => selectedChequesData?.[id]?.isSelected
@@ -160,6 +279,141 @@ export default function ChequesRechazados(props) {
       return (
         <select className={styles.select} defaultValue="" onChange={(e) => onGlobalValueChange(e.target.value)}>
           <option value="">Seleccionar...</option>
+=======
+  const onHeaderSort = (col) => {
+    setSortCol(col);
+    setSortDir((d) => (sortCol === col ? (d === "asc" ? "desc" : "asc") : "asc"));
+    // opcional: volver a página 1 al ordenar
+    if (typeof onPageChange === "function") onPageChange(1);
+  };
+
+  // ===== SORT HELPERS =====
+  const toNumberLoose = (v) => {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return v;
+    const s = String(v).replace(/\s/g, "");
+    const norm = s
+      .replace(/[^\d.,-]/g, "")
+      .replace(/\.(?=\d{3}(\D|$))/g, "") // miles con punto
+      .replace(",", "."); // decimal con coma
+    const n = Number(norm);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const toDateLoose = (v) => {
+    if (!v) return new Date(0);
+    if (v instanceof Date && !isNaN(v)) return v;
+
+    // dd/mm/yyyy
+    const m = String(v).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      const d = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10) - 1;
+      let y = parseInt(m[3], 10);
+      if (y < 100) y += 2000;
+      const dt = new Date(y, mm, d);
+      return isNaN(dt) ? new Date(0) : dt;
+    }
+
+    const dt = new Date(v);
+    return isNaN(dt) ? new Date(0) : dt;
+  };
+
+  const getSortValue = (row, col) => {
+    switch (col) {
+      case "idCheque":
+        return toNumberLoose(row?.idCheque);
+      case "nroDefinitivo":
+        return toNumberLoose(row?.nroDefinitivo);
+      case "importe":
+        return toNumberLoose(row?.importeRaw ?? row?.importe);
+      case "fvto":
+        return row?.fvtoRaw ? new Date(row.fvtoRaw) : toDateLoose(row?.fvto);
+      case "fMod":
+        return row?.fModRaw ? new Date(row.fModRaw) : toDateLoose(row?.fMod);
+      default:
+        return String(row?.[col] ?? "").toLowerCase();
+    }
+  };
+
+  const rowsSorted = useMemo(() => {
+    const src = Array.isArray(chequesRechazados) ? chequesRechazados : [];
+    if (!sortCol) return src;
+
+    const dir = sortDir === "desc" ? -1 : 1;
+    const copy = [...src];
+
+    copy.sort((a, b) => {
+      const va = getSortValue(a, sortCol);
+      const vb = getSortValue(b, sortCol);
+
+      // fechas
+      if (va instanceof Date && vb instanceof Date) return (va - vb) * dir;
+
+      // números
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+
+      // strings
+      return String(va).localeCompare(String(vb), "es", { numeric: true }) * dir;
+    });
+
+    return copy;
+  }, [chequesRechazados, sortCol, sortDir]);
+
+  // SELECCIÓN
+  const selectedIds = Object.keys(selectedChequesData || {}).filter((id) => selectedChequesData?.[id]?.isSelected);
+  const allSelected = chequesRechazados.length > 0 && selectedIds.length === chequesRechazados.length;
+  const toggleAll = (checked) => onSelectAllChange?.(!!checked);
+
+  // SITUACIÓN
+  const getSitDesc = (code) => {
+    if (code === undefined || code === null || code === "") return "";
+    const sit = Array.isArray(situaciones) ? situaciones.find((s) => String(s.sit_Cod) === String(code)) : null;
+    return sit ? sit.sit_Desc : String(code);
+  };
+
+  // EXPORT
+  const handleExport = async () => {
+    try {
+      if (!cheques3Export?.length) {
+        alert("No hay datos para exportar. Primero realizá una búsqueda con filtros.");
+        return;
+      }
+
+      const payload = cheques3Export.map((r) => ({
+        emp: r.emp,
+        idCheque: r.idCheque,
+        cliente: r.cliente ?? "",
+        nroDefinitivo: r.nroDefinitivo,
+        importe: r.importe,
+        estado: r.estado,
+        fvto: r.fvto,
+        fMod: r.fMod,
+        situacion: r.situacion,
+      }));
+
+      const res = await window.api?.exportChequesXLSX?.(payload);
+      if (!res?.success) {
+        alert(res?.message || "No se pudo exportar");
+        return;
+      }
+
+      alert(`Exportado OK (${payload.length} filas).`);
+    } catch (e) {
+      alert(e?.message || "Error inesperado al exportar");
+    }
+  };
+
+  // EDITOR GLOBAL / FILA
+  const renderGlobalEditor = () => {
+    if (selectedIds.length === 0) return null;
+
+    if (fieldMode === "situacion") {
+      return (
+        <select className={styles.select} defaultValue="" onChange={(e) => onGlobalValueChange(e.target.value)}>
+          <option value=""></option>
+          <option value="*">Todos</option>
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
           {(situaciones || []).map((s) => (
             <option key={s.sit_Cod} value={s.sit_Cod}>
               {s.sit_Desc}
@@ -184,12 +438,18 @@ export default function ChequesRechazados(props) {
 
     if (fieldMode === "situacion") {
       return (
+<<<<<<< HEAD
         <select
           className={styles.select}
           value={val}
           onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
         >
           <option value="">Seleccionar...</option>
+=======
+        <select className={styles.select} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}>
+          <option value=""></option>
+          <option value="*">Todos</option>
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
           {(situaciones || []).map((s) => (
             <option key={s.sit_Cod} value={s.sit_Cod}>
               {s.sit_Desc}
@@ -199,6 +459,7 @@ export default function ChequesRechazados(props) {
       );
     }
     if (fieldMode === "fvto") {
+<<<<<<< HEAD
       return (
         <input
           type="date"
@@ -217,12 +478,58 @@ export default function ChequesRechazados(props) {
           onChange={(e) => onRowValueChange(row.idCheque, e.target.value)}
         />
       );
+=======
+      return <input type="date" className={styles.input} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)} />;
+    }
+    if (fieldMode === "numero") {
+      return <input type="text" className={styles.input} value={val} onChange={(e) => onRowValueChange(row.idCheque, e.target.value)} />;
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
     }
     return null;
   };
 
+<<<<<<< HEAD
   return (
     <div className={styles.container}>
+=======
+  // BUSCAR
+  const doBuscar = async () => {
+    if (!onBuscar) return;
+    if (!hasAnyFilter) return;
+
+    setHasSearched(true);
+
+    const filters = {
+      idCheque: fId?.trim() || null,
+      nroCheque: fNro?.trim() || null,
+      desde: fDesde || null,
+      hasta: fHasta || null,
+      min: fMin?.trim() || null,
+      max: fMax?.trim() || null,
+      estado: fEdo === "*" ? null : fEdo || null,
+      situacion: fSit === "*" ? null : fSit || null,
+    };
+
+    await onBuscar(filters);
+  };
+
+  // ====== PAGINACIÓN ======
+  const total = Number.isFinite(totalRows) && totalRows !== null ? Number(totalRows) : chequesRechazados?.length || 0;
+  const ps = Number(pageSize) || 15;
+  const p = Math.max(1, Number(page) || 1);
+  const totalPages = Math.max(1, Math.ceil(total / ps));
+
+  const start = total === 0 ? 0 : (p - 1) * ps + 1;
+  const end = total === 0 ? 0 : Math.min(p * ps, total);
+
+  const canPrev = p > 1;
+  const canNext = p < totalPages;
+
+  const pageControlsEnabled = typeof onPageChange === "function" && typeof onPageSizeChange === "function";
+
+  return (
+    <div ref={containerRef} className={styles.container} data-key={refreshKey}>
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
       {/* Header */}
       <div className={styles.headerContainer}>
         <h2 className={styles.title}>Actualizador de Cheques de Terceros</h2>
@@ -232,6 +539,7 @@ export default function ChequesRechazados(props) {
       {/* ====== FILTROS ====== */}
       <div className={styles.card}>
         <div className={styles.filtersHeader}>
+<<<<<<< HEAD
           <button
             className={styles.filtersHeaderBtn}
             onClick={() => setFiltersOpen((o) => !o)}
@@ -241,6 +549,25 @@ export default function ChequesRechazados(props) {
             <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
           </button>
           <button className={styles.smallBtn} onClick={limpiar}>Limpiar</button>
+=======
+          <button className={styles.filtersHeaderBtn} onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen}>
+            FILTROS <span className={styles.chev}>{filtersOpen ? "▾" : "▸"}</span>
+          </button>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className={styles.smallBtn} onClick={limpiar}>
+              Limpiar
+            </button>
+            <button
+              className={styles.smallBtn}
+              onClick={doBuscar}
+              disabled={!hasAnyFilter || !onBuscar}
+              title={!hasAnyFilter ? "Elegí al menos un filtro" : "Buscar"}
+            >
+              Buscar
+            </button>
+          </div>
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
         </div>
 
         {filtersOpen && (
@@ -249,28 +576,90 @@ export default function ChequesRechazados(props) {
               <label className={styles.label}>IdCheque</label>
               <input className={styles.input} value={fId} onChange={(e) => setFId(e.target.value)} placeholder="Ej: 10234" />
             </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             <div className={styles.filterItem}>
               <label className={styles.label}>Nro. Cheque</label>
               <input className={styles.input} value={fNro} onChange={(e) => setFNro(e.target.value)} placeholder="Buscar por número..." />
             </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             <div className={styles.filterItem}>
               <label className={styles.label}>Fecha Vto. (Desde)</label>
               <input type="date" className={styles.input} value={fDesde} onChange={(e) => setFDesde(e.target.value)} />
             </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             <div className={styles.filterItem}>
               <label className={styles.label}>Fecha Vto. (Hasta)</label>
               <input type="date" className={styles.input} value={fHasta} onChange={(e) => setFHasta(e.target.value)} />
             </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             <div className={styles.filterItem}>
               <label className={styles.label}>Importe Mín.</label>
               <input className={styles.input} value={fMin} onChange={(e) => setFMin(e.target.value)} placeholder="0.00" />
             </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             <div className={styles.filterItem}>
               <label className={styles.label}>Importe Máx.</label>
               <input className={styles.input} value={fMax} onChange={(e) => setFMax(e.target.value)} placeholder="999999.99" />
             </div>
+<<<<<<< HEAD
             <div className={styles.filterFull}>
               <span className={styles.summaryLine}>Total: {chequesRechazados.length} | Filtrados: <b>{filtered.length}</b></span>
+=======
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Estado</label>
+              <select className={styles.select} value={fEdo} onChange={(e) => setFEdo(e.target.value)}>
+                <option value=""></option>
+                <option value="*">Todos</option>
+                {(estados || []).map((e) => (
+                  <option key={e.edo_Cod} value={e.edo_Cod}>
+                    {e.edo_Desc}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Situación</label>
+              <select className={styles.select} value={fSit} onChange={(e) => setFSit(e.target.value)}>
+                <option value=""></option>
+                <option value="*">Todos</option>
+                {(situaciones || []).map((s) => (
+                  <option key={s.sit_Cod} value={String(s.sit_Cod)}>
+                    {s.sit_Desc}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.filterFull}>
+              <span className={styles.summaryLine}>
+                {hasSearched ? (
+                  <>
+                    Resultados: <b>{total}</b>
+                  </>
+                ) : (
+                  <>
+                    Usá los filtros y presioná <b>Buscar</b>
+                  </>
+                )}
+              </span>
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
             </div>
           </div>
         )}
@@ -286,6 +675,10 @@ export default function ChequesRechazados(props) {
             <option value="numero">Número de Cheque</option>
           </select>
         </div>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
         <div className={styles.massRight}>
           {selectedIds.length > 0 && (
             <>
@@ -298,6 +691,7 @@ export default function ChequesRechazados(props) {
         </div>
       </div>
 
+<<<<<<< HEAD
       {/* ====== TABLA ====== */}
       <div className={styles.tableContainer}>
         <table className={styles.table}>
@@ -381,15 +775,156 @@ export default function ChequesRechazados(props) {
   <button className={styles.btn} onClick={handleExport}>
     Exportar a Excel (.xlsx)
   </button>
+=======
+      {/* ====== TABLA (altura gradual) ====== */}
+      {hasSearched && (
+        <div className={styles.tableContainer} style={{ maxHeight: `${tableHeight}px` }}>
+          <div className={styles.tableScroll}>
+            <table className={styles.table}>
+              <thead>
+                <tr className={styles.headerRow}>
+                  <th>
+                    <input type="checkbox" checked={allSelected} onChange={(e) => toggleAll(e.target.checked)} title="Seleccionar todos" />
+                  </th>
+                  <th>Empresa</th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("idCheque")}>
+                    ID Cheque {sortArrow("idCheque")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("nroDefinitivo")}>
+                    Número {sortArrow("nroDefinitivo")}
+                  </th>
+
+                  <th>Cliente</th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("fvto")}>
+                    Fecha Vencimiento {sortArrow("fvto")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("fMod")}>
+                    Fecha Modificación {sortArrow("fMod")}
+                  </th>
+
+                  <th className={styles.sortableHeader} onClick={() => onHeaderSort("importe")}>
+                    Importe {sortArrow("importe")}
+                  </th>
+
+                  <th>Estado</th>
+                  <th>Situación</th>
+                  <th>Editar</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {!rowsSorted.length ? (
+                  <tr>
+                    <td className={styles.noResults} colSpan="11">
+                      No hay cheques para mostrar
+                    </td>
+                  </tr>
+                ) : (
+                  rowsSorted.map((row) => {
+                    const sel = !!selectedChequesData?.[row.idCheque]?.isSelected;
+                    const sit = selectedChequesData?.[row.idCheque]?.situacionId || row.situacion || "";
+                    return (
+                      <tr key={row.idCheque}>
+                        <td>
+                          <input type="checkbox" checked={sel} onChange={() => onChequeToggle(row.idCheque)} />
+                        </td>
+                        <td>{row.emp}</td>
+                        <td>{row.idCheque}</td>
+                        <td>{row.nroDefinitivo}</td>
+                        <td>{row.cliente ?? ""}</td>
+                        <td>{row.fvto}</td>
+                        <td>{row.fMod || "Sin actualizar"}</td>
+                        <td>{row.importe}</td>
+                        <td>{row.estado}</td>
+                        <td>
+                          <span className={styles.situacionText}>{getSitDesc(sit)}</span>
+                        </td>
+                        <td className={styles.editCell}>{renderRowEditor(row)}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ====== FOOTER PAGINACIÓN ====== */}
+          <div className={styles.paginationBar}>
+            <button
+              className={styles.pageBtn}
+              disabled={!pageControlsEnabled || !canPrev || (lastFilters === null && lazyMode)}
+              onClick={() => typeof onPageChange === "function" && onPageChange(p - 1)}
+            >
+              Anterior
+            </button>
+
+            <div className={styles.paginationCenter}>
+              <span className={styles.paginationText}>
+                Resultados: <b>{total}</b>
+              </span>
+              <span className={styles.paginationText}>
+                Página <b>{p}</b> / <b>{totalPages}</b>
+              </span>
+              <span className={styles.paginationText}>
+                <b>{start}-{end}</b> de <b>{total}</b> cheques
+              </span>
+
+              <span className={styles.paginationText} style={{ marginLeft: 8 }}>
+                Por página:
+              </span>
+              <select
+                className={styles.select}
+                value={String(ps)}
+                onChange={(e) => typeof onPageSizeChange === "function" && onPageSizeChange(Number(e.target.value))}
+                style={{ width: 110 }}
+                disabled={!pageControlsEnabled || (lastFilters === null && lazyMode)}
+              >
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="60">60</option>
+                <option value="90">90</option>
+              </select>
+            </div>
+
+            <button
+              className={styles.pageBtn}
+              disabled={!pageControlsEnabled || !canNext || (lastFilters === null && lazyMode)}
+              onClick={() => typeof onPageChange === "function" && onPageChange(p + 1)}
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ====== BOTONERA ====== */}
+      <div className={styles.importButtonContainer}>
+        <button className={styles.btn} onClick={handleExport}>
+          Exportar a Excel (.xlsx)
+        </button>
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
         {importStatus && (
           <p className={`${styles.footerMsg} ${importStatus === "error" ? styles.error : importStatus === "success" ? styles.ok : ""}`}>
             {importMessage}
           </p>
         )}
+<<<<<<< HEAD
+=======
+
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
         <button className={styles.btn} disabled={!!isImportButtonDisabled} onClick={onImportarClick}>
           Actualizar Cheques Seleccionados
         </button>
       </div>
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985

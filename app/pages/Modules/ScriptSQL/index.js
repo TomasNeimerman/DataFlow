@@ -1,7 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
+<<<<<<< HEAD
 import CuadroPrecios from "../../../components/Precios/CuadroPrecios";
 import PreciosActualizados from "../../../components/PreciosActualizados";
+=======
+import Script from "../../../components/Precios/Script";
+import ScriptUpdated from "../../../components/ScriptUpdated";
+>>>>>>> 915c66909684db098d8351c18a29db2455c4a985
 import pageStyles from "./styles.module.css";
 
 export default function ScriptSQL() {
@@ -9,9 +14,12 @@ export default function ScriptSQL() {
   const [preciosActualizados, setPreciosActualizados] = useState([]);
   const [showActualizados, setShowActualizados] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
-  const [progress, setProgress] = useState(null);   // { percent, stage, message }
+  const [progress, setProgress] = useState(null); // { percent, stage, message }
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
+
+  // ✅ NUEVO: info / descripción del script (sale del SQL)
+  const [scriptInfo, setScriptInfo] = useState(null);
 
   const loadPrecios = async () => {
     setError(null);
@@ -24,7 +32,19 @@ export default function ScriptSQL() {
     }
   };
 
-  useEffect(() => { loadPrecios(); }, []);
+  const loadScriptInfo = async () => {
+    try {
+      const r = await window.api.getPreciosScriptInfo?.();
+      if (r?.success) setScriptInfo(r);
+    } catch {
+      // silencioso
+    }
+  };
+
+  useEffect(() => {
+    loadPrecios();
+    loadScriptInfo();
+  }, []);
 
   // ⬇️ progreso en vivo
   useEffect(() => {
@@ -68,15 +88,16 @@ export default function ScriptSQL() {
     <div className={pageStyles.body}>
       <div className={pageStyles.contentContainer}>
         {showActualizados ? (
-          <PreciosActualizados
+          <ScriptUpdated
             precios={preciosActualizados}
             onVolver={handleVolver}
             successMessage={successMessage}
             error={error}
           />
         ) : (
-          <CuadroPrecios
+          <Script
             precios={precios}
+            scriptInfo={scriptInfo}
             onActualizar={handleUpdatePrices}
             isUpdating={isUpdating}
             progress={progress}

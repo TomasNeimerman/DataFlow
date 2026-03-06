@@ -37,6 +37,213 @@ async function obtenerCheque3Rechazado() {
     if (pool) await pool.close();
   }
 }
+async function obtenerCheques3Filtrado({ filters = {}, sortCol = null, sortDir = "asc" } = {}) {
+  let pool;
+  try {
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
+
+    const req = pool.request();
+
+    const where = [];
+
+    // idCheque (exacto)
+    if (filters.idCheque !== undefined && String(filters.idCheque).trim() !== "") {
+      const id = parseInt(filters.idCheque, 10);
+      if (!isNaN(id)) {
+        req.input("idCheque", sql.Int, id);
+        where.push("C.ch3_ID = @idCheque");
+      }
+    }
+
+    // nroCheque (like)
+    if (filters.nroCheque !== undefined && String(filters.nroCheque).trim() !== "") {
+      req.input("nroCheque", sql.NVarChar, `%${String(filters.nroCheque).trim()}%`);
+      where.push("C.ch3_NroCheq LIKE @nroCheque");
+    }
+
+    // fechas vto
+    if (filters.desde && String(filters.desde).trim() !== "") {
+      req.input("desde", sql.Date, String(filters.desde).trim());
+      where.push("C.ch3_Fvto >= @desde");
+    }
+    if (filters.hasta && String(filters.hasta).trim() !== "") {
+      req.input("hasta", sql.Date, String(filters.hasta).trim());
+      where.push("C.ch3_Fvto <= @hasta");
+    }
+
+    // importes
+    if (filters.min !== undefined && String(filters.min).trim() !== "") {
+      const v = Number(filters.min);
+      if (!Number.isNaN(v)) {
+        req.input("min", sql.Decimal(18, 2), v);
+        where.push("C.ch3_Importe >= @min");
+      }
+    }
+    if (filters.max !== undefined && String(filters.max).trim() !== "") {
+      const v = Number(filters.max);
+      if (!Number.isNaN(v)) {
+        req.input("max", sql.Decimal(18, 2), v);
+        where.push("C.ch3_Importe <= @max");
+      }
+    }
+
+    // estado (si viene '*' o vacío => no filtra)
+    if (filters.estado && String(filters.estado).trim() !== "" && String(filters.estado).trim() !== "*") {
+      req.input("estado", sql.NVarChar, String(filters.estado).trim());
+      where.push("C.ch3_Edo = @estado");
+    }
+
+    // situacion (si viene '*' o vacío => no filtra)
+    if (filters.situacion && String(filters.situacion).trim() !== "" && String(filters.situacion).trim() !== "*") {
+      // en tu tabla parece ser ch3sit_Cod (numérico o string), usamos NVarChar para no romper
+      req.input("situacion", sql.NVarChar, String(filters.situacion).trim());
+      where.push("C.ch3sit_Cod = @situacion");
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    // ORDER BY (whitelist)
+    const sortMap = {
+      idCheque: "C.ch3_ID",
+      nroDefinitivo: "C.ch3_NroCheq",
+      fvto: "C.ch3_Fvto",
+      fMod: "C.ch3_FecMod",
+      importe: "C.ch3_Importe",
+    };
+    const col = sortMap[sortCol] || "C.ch3_ID";
+    const dir = String(sortDir).toLowerCase() === "desc" ? "DESC" : "ASC";
+
+    const query = `
+      SELECT
+        C.ch3emp_Codigo                      AS Empresa,
+        C.ch3_ID                             AS idCheque,
+        CL.cli_RazSoc                        AS Cliente,
+        C.ch3_NroCheq                        AS NroCheque,
+        C.ch3_Fvto                           AS FechaVencimiento,
+        C.ch3_Importe                        AS Importe,
+        C.ch3_Edo                            AS Estado,
+        C.ch3_FecMod                         AS FecMod,
+        S.sit_Desc                           AS Situacion
+      FROM Cheques3 AS C
+      LEFT JOIN Situacion AS S ON S.sit_Cod = C.ch3sit_Cod
+      LEFT JOIN Clientes  AS CL ON CL.cli_cod = C.ch3cli_Cod
+      ${whereSql}
+      ORDER BY ${col} ${dir}
+    `;
+
+    const result = await req.query(query);
+
+    // 👇 Devuelvo rows (más cómodo para front)
+    return { success: true, rows: result.recordset || [] };
+  } catch (err) {
+    console.error("❌ Error en obtenerCheques3Filtrado (Cheques3):", err);
+    return { success: false, message: err.message };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
+// Cheques3.js (agregar)
+async function obtenerCheque3RechazadoPaginado({ page = 1, pageSize = 15, filters = {} } = {}) {
+  let pool;
+  try {
+    const dbConfig = getAdminDbConfig();
+    pool = await sql.connect(dbConfig);
+
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const ps = Math.min(200, Math.max(5, parseInt(pageSize, 10) || 15)); // cap para que no pidan 50k :)
+
+    const {
+      idCheque = null,
+      nroCheque = null,
+      desde = null,
+      hasta = null,
+      min = null,
+      max = null,
+      estado = null,
+      situacion = null,
+    } = filters || {};
+
+    const where = [];
+    const req = pool.request();
+
+    // filtros
+    if (idCheque) {
+      where.push(`C.ch3_ID = @idCheque`);
+      req.input('idCheque', sql.Int, parseInt(idCheque, 10));
+    }
+    if (nroCheque) {
+      where.push(`CAST(C.ch3_NroCheq AS nvarchar(50)) LIKE '%' + @nroCheque + '%'`);
+      req.input('nroCheque', sql.NVarChar, String(nroCheque));
+    }
+    if (desde) {
+      where.push(`C.ch3_Fvto >= CONVERT(datetime, @desde, 120)`);
+      req.input('desde', sql.NVarChar, String(desde)); // YYYY-MM-DD
+    }
+    if (hasta) {
+      where.push(`C.ch3_Fvto <= DATEADD(day, 1, CONVERT(datetime, @hasta, 120))`);
+      req.input('hasta', sql.NVarChar, String(hasta));
+    }
+    if (min) {
+      where.push(`C.ch3_Importe >= @min`);
+      req.input('min', sql.Decimal(18, 2), Number(min));
+    }
+    if (max) {
+      where.push(`C.ch3_Importe <= @max`);
+      req.input('max', sql.Decimal(18, 2), Number(max));
+    }
+    if (estado) {
+      where.push(`C.ch3_Edo = @estado`);
+      req.input('estado', sql.NVarChar, String(estado));
+    }
+    if (situacion) {
+      where.push(`C.ch3sit_Cod = @situacion`);
+      req.input('situacion', sql.NVarChar, String(situacion));
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    // total
+    const totalRes = await req.query(`
+      SELECT COUNT(1) AS total
+      FROM Cheques3 AS C
+      ${whereSql}
+    `);
+    const total = totalRes.recordset?.[0]?.total ?? 0;
+
+    // pagina
+    const offset = (p - 1) * ps;
+    req.input('offset', sql.Int, offset);
+    req.input('pageSize', sql.Int, ps);
+
+    const rowsRes = await req.query(`
+      SELECT
+        C.ch3emp_Codigo  AS Empresa,
+        C.ch3_ID         AS idCheque,
+        CL.cli_RazSoc    AS Cliente,
+        C.ch3_NroCheq    AS NroCheque,
+        C.ch3_Fvto       AS FechaVencimiento,
+        C.ch3_Importe    AS Importe,
+        C.ch3_Edo        AS Estado,
+        C.ch3_FecMod     AS FecMod,
+        S.sit_Desc       AS Situacion
+      FROM Cheques3 AS C
+      LEFT JOIN Situacion AS S ON S.sit_Cod = C.ch3sit_Cod
+      LEFT JOIN Clientes  AS CL ON CL.cli_cod = C.ch3cli_Cod
+      ${whereSql}
+      ORDER BY C.ch3_ID DESC
+      OFFSET @offset ROWS
+      FETCH NEXT @pageSize ROWS ONLY
+    `);
+
+    return { success: true, rows: rowsRes.recordset || [], total, page: p, pageSize: ps };
+  } catch (err) {
+    console.error('❌ obtenerCheque3RechazadoPaginado:', err);
+    return { success: false, message: err.message, rows: [], total: 0, page, pageSize };
+  } finally {
+    if (pool) await pool.close();
+  }
+}
 
 /**
  * UPDATE (legacy): solo situación (se mantiene por compat)
@@ -255,5 +462,7 @@ module.exports = {
   obtenerCheque3Rechazado,
   getSituacion,
   registroCheq3Sit,
-  getUpdatedbyRegistro
+  getUpdatedbyRegistro,
+  obtenerCheque3RechazadoPaginado,
+  obtenerCheques3Filtrado,
 };

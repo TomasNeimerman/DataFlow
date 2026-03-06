@@ -368,8 +368,20 @@ export default function RecibosPage() {
   // Restante contra valor de facturas (puede ser negativo => a favor)
   const restanteVsFact = valorFacturas - aplicadoMedios;
   const excedentePos = Math.max(0, aplicadoMedios - valorFacturas);
-  const facturasaplic = valorFacturas - aplicadoMedios;
+  const facturasaplic = Number(valorFacturas || 0) - Number(aplicadoMedios || 0);
+  // ===== Distinguir recibo a cuenta vs con facturas =====
+const esReciboACuenta = Number(valorFacturas || 0) <= 0;
 
+// saldo del cliente "reservado" (ya lo venías mostrando)
+const saldoRestanteCliente = Math.max(0, saldoBase - valorFacturas);
+
+// pendiente de facturas (si hay facturas aplicadas)
+const facturasPendienteMonto = Math.max(0, Number(valorFacturas || 0) - Number(aplicadoMedios || 0));
+
+// cantidad de facturas seleccionadas/aplicadas (por ahora)
+const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
+  (it) => it?.checked && Number(it?.monto || 0) > 0
+).length;
   /* ======================= Add / Del medios ======================= */
   function addTransf() {
     if (!transfSel || !transfMonto) return;
@@ -605,6 +617,10 @@ export default function RecibosPage() {
             facturasaplic={facturasaplic}
             nfmt={nfmt}
             dfmt={dfmt}
+            esReciboACuenta={esReciboACuenta}
+            saldoRestanteCliente={saldoRestanteCliente}
+            facturasPendienteMonto={facturasPendienteMonto}
+            cantFacturasAplicadas={cantFacturasAplicadas}
             // transferencias
             optsTransf={optsTransf}
             transfSel={transfSel}
@@ -638,7 +654,7 @@ export default function RecibosPage() {
         {/* ======= Submit Dock (dentro del contenedor) ======= */}
         <div className={styles.submitDock}>
           <button className={styles.submitBtn} disabled={!ready || !canConfirm} onClick={onConfirmar}>
-            Confirmar Recibos
+            {Number(valorFacturas || 0) <= 0 ? "Confirmar Recibo a Cuenta" : "Confirmar Recibos"}
           </button>
         </div>
       </div>

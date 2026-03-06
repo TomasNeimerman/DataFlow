@@ -1,3 +1,4 @@
+//pages/Modules/Clientes/index.js
 "use client";
 
 import Clientes from "../../../components/ClientesContainer";
