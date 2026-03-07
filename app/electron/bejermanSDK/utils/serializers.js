@@ -285,7 +285,7 @@ function convertirFechaToISO(fecha) {
  * @returns {string} - Punto de venta formateado (ej: "00001")
  */
 function formatPuntoVenta(puntoVenta) {
-  if (!puntoVenta) return '00001';
+  if (!puntoVenta) return ' ';
   return puntoVenta.toString().trim().padStart(5, '0');
 }
 

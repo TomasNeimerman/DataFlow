@@ -978,7 +978,6 @@ async function ensureSDKWrapper() {
 app.whenReady().then(async () => {
   const tempFolderPath = path.join(app.getPath('temp'), 'BejermanErpTemp');
   try { if (!fs.existsSync(tempFolderPath)) fs.mkdirSync(tempFolderPath); } catch {}
-  await ensureSDKWrapper();
   createMainWindow().catch(e => writeToLog(`createMainWindow error: ${e.message}`));
 });
 

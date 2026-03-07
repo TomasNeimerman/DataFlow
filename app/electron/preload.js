@@ -188,7 +188,6 @@ contextBridge.exposeInMainWorld('api', {
     getCajas:            ()       => ipcRenderer.invoke("recibos:getCajas"),
     getAplicaciones:     ()       => ipcRenderer.invoke("recibos:getAplicaciones"),
   },
-<<<<<<< HEAD
   // ======================
   // SDK Bejerman
   // ======================
@@ -199,12 +198,6 @@ contextBridge.exposeInMainWorld('api', {
       listarRecibos: (params) => ipcRenderer.invoke('sdk:ventas:listar-recibos', params),
     },
   },
-  // ======================
-  // Store
-  // ======================
-  getStoreValue: (key) => ipcRenderer.invoke('electron-store-get', key),
-=======
->>>>>>> 915c66909684db098d8351c18a29db2455c4a985
 
   /* ======================
      Store (electron-store en main)

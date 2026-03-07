@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/router";
 import styles from "./styles.module.css";
 
 // Módulos
@@ -13,6 +14,7 @@ import MediosSection from "../../../components/Recibos/MediosSection";
 
 
 export default function RecibosPage() {
+  const router = useRouter();
   /* ======================= Catálogos ======================= */
   const [tipos, setTipos] = useState([]);
   const [monMtca, setMonMtca] = useState([]);
@@ -65,6 +67,7 @@ export default function RecibosPage() {
   const [loadingCore, setLoadingCore] = useState(true);
   const [loadingClientes, setLoadingClientes] = useState(true);
   const [activeTab, setActiveTab] = useState("facturas"); // "facturas" | "medios"
+  const [sending, setSending] = useState(false);
 
   /* ======================= Helpers ======================= */
   const nfmt = (v) =>
@@ -421,40 +424,34 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
 
   /* ======================= Confirmar ======================= */
   const ready = !!(tipoComprobante && fecha && cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
-  const canConfirm = valorFacturas > 0 && aplicadoMedios >= valorFacturas;
+  const canConfirm = esReciboACuenta
+    ? aplicadoMedios > 0
+    : aplicadoMedios >= valorFacturas;
 
   async function onConfirmar() {
     if (!canConfirm) return;
 
+    setSending(true);
     try {
-      // Construir payload para el SDK
       const payload = {
         recibo: {
-          // Datos básicos
           codigoCliente: cliente,
           nombreCliente: clientes.find(c => c.CodCliente === cliente)?.RazonSocial || "",
           fecha: fecha,
           moneda: monSel.mon_codigo,
           tipoCambio: tc,
           observaciones: `Recibo generado desde DataFlow`,
-
-          // Valores (medios de pago)
           valores: construirValores(),
-
-          // Aplicaciones (facturas a cancelar)
           aplicaciones: construirAplicaciones(),
         }
       };
 
-      // Llamar al SDK
       const result = await window.api.sdk.ventas.ingresarRecibo(payload);
 
-      // Manejar respuesta
       if (result?.success) {
         alert(`✓ Recibo registrado exitosamente en Bejerman ERP\n\n${result.message}`);
-        // TODO: Limpiar formulario o redirigir
+        router.replace("/Index");
       } else {
-        // Convertir errores a string (pueden ser objetos o strings)
         const errores = (result.errors || [])
           .map(e => typeof e === 'object' ? JSON.stringify(e) : e)
           .join('\n');
@@ -462,10 +459,12 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
           ? JSON.stringify(result.message)
           : result.message;
         alert(`✗ Error al registrar recibo:\n\n${errores || mensaje}`);
+        setSending(false);
       }
 
     } catch (error) {
       alert(`✗ Error inesperado: ${error.message}`);
+      setSending(false);
     }
   }
 
@@ -545,6 +544,12 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
   /* ======================= Render ======================= */
   return (
     <div className={styles.pageBg}>
+      {sending && (
+        <div className={styles.sendingOverlay}>
+          <div className={styles.spinner} />
+          <span className={styles.sendingText}>Enviando...</span>
+        </div>
+      )}
       <div className={styles.container}>
         {/* ---------- STICKY HEADER ---------- */}
         <div className={styles.stickyHead}>
@@ -653,8 +658,8 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
 
         {/* ======= Submit Dock (dentro del contenedor) ======= */}
         <div className={styles.submitDock}>
-          <button className={styles.submitBtn} disabled={!ready || !canConfirm} onClick={onConfirmar}>
-            {Number(valorFacturas || 0) <= 0 ? "Confirmar Recibo a Cuenta" : "Confirmar Recibos"}
+          <button className={styles.submitBtn} disabled={!ready || !canConfirm || sending} onClick={onConfirmar}>
+            {sending ? "Enviando..." : Number(valorFacturas || 0) <= 0 ? "Confirmar Recibo a Cuenta" : "Confirmar Recibos"}
           </button>
         </div>
       </div>

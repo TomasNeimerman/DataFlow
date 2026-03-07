@@ -20,7 +20,6 @@ using System.IO;
 using System.Reflection;
 using SB.NET.eFlex.SDKLib;
 using SB.NET.eFlex.SDKLib.Comprobantes;
-using SB.NET.eFlex.SDKLib.Procesos;
 
 namespace DataFlow.SDKWrapper
 {

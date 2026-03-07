@@ -1,14 +1,8 @@
 {
-<<<<<<< HEAD
   "name": "DataFlow-SDK",
   "version": "0.9.0",
   "description": "DataFlow-SDK",
-=======
-  "name": "dataflow",
-  "productname": "DataFlow",
-  "version": "1.0.2",
-  "description": "DataFlow",
->>>>>>> 915c66909684db098d8351c18a29db2455c4a985
+  "productName": "DataFlow-SDK",
   "private": true,
   "author": "Consultora de Negocios Empresrios S.R.L.",
   "main": "electron/main.js",

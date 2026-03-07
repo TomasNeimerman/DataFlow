@@ -1,12 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-<<<<<<< HEAD
-import CuadroPrecios from "../../../components/Precios/CuadroPrecios";
-import PreciosActualizados from "../../../components/PreciosActualizados";
-=======
 import Script from "../../../components/Precios/Script";
 import ScriptUpdated from "../../../components/ScriptUpdated";
->>>>>>> 915c66909684db098d8351c18a29db2455c4a985
 import pageStyles from "./styles.module.css";
 
 export default function ScriptSQL() {
