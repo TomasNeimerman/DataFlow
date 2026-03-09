@@ -39,6 +39,7 @@ export default function RecibosPage() {
   const [aplicaFact, setAplicaFact] = useState({});
 
   /* ======================= Medios (Cheques) ======================= */
+  const [chequesFormato, setChequesFormato] = useState(""); // "ECH" | "CHE"
   const [cheques, setCheques] = useState([]);
   const [selCheques, setSelCheques] = useState(new Set());
   const [file, setFile] = useState(null);
@@ -261,76 +262,150 @@ export default function RecibosPage() {
   }
 
   // columnas pedidas: Nro Echeq, Razón Social, Historial de Endosos, Fecha Vencimiento, Importe
-  function mapRowToCheque(row) {
-  const pick = (keys) => {
-    for (const k of keys) if (row[k] != null && row[k] !== "") return row[k];
-    return null;
+function mapRowToCheque(row, formato) {
+  // normaliza keys (acentos/espacios)
+  const norm = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const dict = {};
+  for (const k of Object.keys(row || {})) dict[norm(k)] = row[k];
+
+  const get = (...keys) => {
+    for (const k of keys) {
+      const v = dict[norm(k)];
+      if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+    }
+    return undefined;
   };
 
-  const nroEcheq = pick([
-    "Nro Echeq",
-    "Numero de ECHEQ",
-    "Nro ECHEQ",
-    "Número de ECHEQ",
-    "Numero Echeq",
-  ]);
+  // helper para intentar derivar razón social desde el historial de endosos (si viene vacío)
+  const deriveRazonFromHist = (hist) => {
+    const s = String(hist || "");
+    if (!s) return "";
+    const parts = s.split("-").map(x => x.trim()).filter(Boolean);
+    // ejemplo típico: "CUIT - 307... - ECOEXIST SRL - aceptado"
+    const filtered = parts.filter(p => {
+      const low = p.toLowerCase();
+      if (low === "cuit") return false;
+      if (/^\d{6,}$/.test(p)) return false;
+      if (/(aceptado|rechazado|pendiente|endoso)/.test(low)) return false;
+      return true;
+    });
+    // devolvemos el “nombre” más largo que quede
+    return filtered.sort((a,b)=>b.length-a.length)[0] || "";
+  };
 
-  // En el XLS viene como “Nombre o Razón Social Emisor” (y a veces el del beneficiario)
-  const razonSocial = pick([
-    "Razón Social",
-    "Razon Social",
-    "Nombre o Razón Social",
-    "Nombre o Razón Social Emisor",
-    "Nombre o Razón Social Beneficiario Endoso",
-    "Nombre o Razon Social Emisor",
-    "Nombre o Razon Social Beneficiario Endoso",
-  ]);
+  // ------------------- ECHEQS -------------------
+  if (formato === "ECH") {
+    const nroEcheq =
+      get("Nro Echeq", "Numero de ECHEQ", "Nro ECHEQ", "Número de ECHEQ", "Numero Echeq");
 
-  const historialEndosos = pick(["Historial de Endosos", "Historial Endosos"]);
+    const historialEndosos = get("Historial de Endosos", "Historial Endosos", "Endosos") || "";
 
-  // En el XLS la “Fecha Vencimiento” viene como “Fecha Pago”
-  const fechaVencimiento = pick([
-    "Fecha Vencimiento",
-    "Fec Vencimiento",
-    "Fecha Pago",
-    "Fecha de Pago",
-  ]);
+    // en algunos archivos puede venir como "Fecha Vencimiento" o "Fecha Pago"
+    const fechaVencimiento =
+      get("Fecha Vencimiento", "Fec Vencimiento", "Fecha Pago", "Fecha de Pago") || "";
 
-  const importe = pick(["Importe", "Monto"]);
+    const importe = get("Importe", "Monto");
 
-  if (nroEcheq == null && importe == null) return null;
+    // puede venir o no; si no viene, intentamos derivar del historial
+    const razonSocial =
+      get("Razón Social", "Razon Social", "Nombre o Razón Social", "Nombre o Razon Social") ||
+      deriveRazonFromHist(historialEndosos);
+
+    if (nroEcheq == null || importe == null) return null;
+
+    return {
+      tipoCheque: "ECH",
+      nroEcheq: String(nroEcheq || ""),
+      razonSocial: String(razonSocial || ""),
+      historialEndosos: String(historialEndosos || ""),
+      fechaVencimiento: fechaVencimiento ? String(fechaVencimiento) : "",
+      importe: Number(importe) || 0,
+    };
+  }
+
+  // ------------------- CHEQUES FÍSICOS -------------------
+  const nroCheque = get("Nro de Cheque", "Nro Cheque", "Numero de Cheque", "Número de Cheque", "Cheque");
+  const fechaPago = get("Fecha de Pago", "Fecha Pago");
+  const importe = get("Importe", "Monto");
+
+  const firmanteEmisor = get("Firmante/Emisor", "Firmante Emisor", "Emisor", "Librador") || "";
+  const cuitLibrador = get("CUIT Librador", "Cuit Librador", "CUIT") || "";
+  const codBanco = get("Cod. Banco", "Cod Banco", "Codigo Banco", "Código Banco") || "";
+  const estadoFirma = get("Estado Firma", "Estado") || "";
+  const observaciones = get("Observaciones", "Obs") || "";
+
+  if (nroCheque == null || importe == null) return null;
 
   return {
-    nroEcheq: String(nroEcheq || ""),
-    razonSocial: String(razonSocial || ""),
-    historialEndosos: String(historialEndosos || ""),
-    // lo dejo como string; tu dfmt ya lo muestra
-    fechaVencimiento: fechaVencimiento ? String(fechaVencimiento) : "",
+    tipoCheque: "CHE",
+    // para mantener tu tabla actual, seguimos guardando el número en nroEcheq (aunque sea físico)
+    nroEcheq: String(nroCheque || ""),
+    razonSocial: String(firmanteEmisor || ""),
+    historialEndosos: String([estadoFirma, observaciones].filter(Boolean).join(" - ")),
+    fechaVencimiento: fechaPago ? String(fechaPago) : "",
     importe: Number(importe) || 0,
+
+    // extras por si después los necesitás
+    codBanco: String(codBanco || ""),
+    cuitLibrador: String(cuitLibrador || ""),
+    estadoFirma: String(estadoFirma || ""),
+    observaciones: String(observaciones || ""),
   };
 }
 
-  async function cargarCheques() {
-    try {
-      if (!file) {
-        setImportMsg("Seleccioná un archivo.");
-        return;
-      }
-      const XLSX = await import("xlsx");
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const sh = wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sh], { defval: "" });
-      const mapped = rows.map(mapRowToCheque).filter(Boolean);
-      setCheques(mapped);
-      setSelCheques(new Set());
-      setImportMsg(`Se importaron ${mapped.length} cheque(s).`);
-      setActiveTab("medios");
-    } catch (e) {
-      console.error(e);
-      setImportMsg("Error procesando planilla.");
+async function cargarCheques() {
+  try {
+    if (!file) {
+      setImportMsg("Seleccioná un archivo.");
+      return;
     }
+
+    const XLSX = await import("xlsx");
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const sh = wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sh], { defval: "" });
+
+    if (!rows.length) {
+      setCheques([]);
+      setSelCheques(new Set());
+      setChequesFormato("");
+      setImportMsg("El archivo no tiene filas.");
+      return;
+    }
+
+    // Detecta formato por headers
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const headers = new Set(Object.keys(rows[0] || {}).map(norm));
+    const esFisico = headers.has(norm("Nro de Cheque")) || headers.has(norm("Firmante/Emisor")) || headers.has(norm("Cod. Banco"));
+    const formato = esFisico ? "CHE" : "ECH";
+
+    const mapped = rows.map(r => mapRowToCheque(r, formato)).filter(Boolean);
+
+    setCheques(mapped);
+    setSelCheques(new Set());
+    setChequesFormato(formato);
+    setImportMsg(`Se importaron ${mapped.length} cheque(s). (${formato === "ECH" ? "ECheqs" : "Físicos"})`);
+    setActiveTab("medios");
+  } catch (e) {
+    console.error(e);
+    setImportMsg("Error procesando planilla.");
   }
+}
 
   function cancelarCheques() {
     setCheques([]);
@@ -506,6 +581,7 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
             selCheques={selCheques}
             setSelCheques={setSelCheques}
             importMsg={importMsg}
+            chequesFormato={chequesFormato}
             // totales / info
             aplicadoMedios={aplicadoMedios}
             restanteVsFact={restanteVsFact}
