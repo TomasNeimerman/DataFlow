@@ -15,8 +15,8 @@
  */
 function mapReciboToSDK(recibo) {
   const fechaEmision = convertirFechaToISO(recibo.fecha);
-  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
-  const numero = formatNumeroComprobante(recibo.numero);
+  const ptoVenta = recibo.ptoVentaPredicado || formatPuntoVenta(recibo.puntoVenta);
+  const numero = formatNumeroComprobante(recibo.numeroPredicado || recibo.numero);
 
   // IMPORTANTE: El orden de los campos debe ser exactamente este
   return {
@@ -108,13 +108,14 @@ function mapRelacionComprobante(recibo) {
   if (aplicaciones.length === 0) return [];
 
   const fechaEmision = convertirFechaToISO(recibo.fecha);
-  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
+  const ptoVenta = recibo.ptoVentaPredicado || formatPuntoVenta(recibo.puntoVenta);
+  const numero = formatNumeroComprobante(recibo.numeroPredicado || recibo.numero);
 
   return aplicaciones.map((ap) => ({
     Comprobante_Cancelatorio_Tipo: 'RC',
     Comprobante_Cancelatorio_Letra: ' ',
     Comprobante_Cancelatorio_PtoVenta: ptoVenta,
-    Comprobante_Cancelatorio_Numero: '',
+    Comprobante_Cancelatorio_Numero: numero,
     Comprobante_Cancelatorio_FechaEmision: fechaEmision,
     Comprobante_Cancelatorio_EnCuotas: ' ',
     Comprobante_Cancelatorio_NumeroCuota: '',
@@ -122,7 +123,7 @@ function mapRelacionComprobante(recibo) {
     Cliente_Codigo: formatCodigoCliente(recibo.codigoCliente),
     Comprobante_Cancelado_Tipo: ap.tipoComprobante || 'FC',
     Comprobante_Cancelado_Letra: ap.letra || ' ',
-    Comprobante_Cancelado_PtoVenta: ap.puntoVenta != null ? String(ap.puntoVenta).trim() : '',
+    Comprobante_Cancelado_PtoVenta: formatPuntoVenta(ap.puntoVenta),
     Comprobante_Cancelado_Numero: formatNumeroComprobante(ap.numeroComprobante),
     Comprobante_Cancelado_FechaEmision: convertirFechaToISO(ap.fechaEmision),
     Comprobante_Cancelado_EnCuotas: ' ',
@@ -142,8 +143,8 @@ function mapMediosPago(recibo) {
   if (valores.length === 0) return [];
 
   const fechaEmision = convertirFechaToISO(recibo.fecha);
-  const ptoVenta = formatPuntoVenta(recibo.puntoVenta);
-  const numero = formatNumeroComprobante(recibo.numero);
+  const ptoVenta = recibo.ptoVentaPredicado || formatPuntoVenta(recibo.puntoVenta);
+  const numero = formatNumeroComprobante(recibo.numeroPredicado || recibo.numero);
 
   return valores.map((valor) => {
     const medioPago = mapTipoValorToMedioPago(valor.tipo);
@@ -163,7 +164,7 @@ function mapMediosPago(recibo) {
       MedioPago: medioPago,
       MedioPago_Moneda: '1',
       MedioPago_TipoCambio: 'UNI',
-      MedioPago_CajaOrigen: (esCheque || esCuentaBancaria) ? '' : (valor.cajaOrigen || '001'),
+      MedioPago_CajaOrigen: (esCheque || esCuentaBancaria) ? '' : (valor.cajaOrigen || '1'),
       MedioPago_TipoDocumento: esCheque ? 'DIF' : '',
       MedioPago_FechaVencimiento: valor.fechaCobro ? convertirFechaToISO(valor.fechaCobro) : fechaEmision,
       MedioPago_Importe: importe,
@@ -250,31 +251,25 @@ function convertirFechaToISO(fecha) {
 
   const fechaStr = fecha.toString().trim();
 
-  if (/^\d{4}-\d{2}-\d{2}T/.test(fechaStr)) {
-    return fechaStr;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(fechaStr)) {
-    return `${fechaStr}T00:00:00`;
+  // YYYY-MM-DD con o sin hora → devolver solo fecha
+  if (/^\d{4}-\d{2}-\d{2}/.test(fechaStr)) {
+    return fechaStr.substring(0, 10);
   }
 
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaStr)) {
     const [dd, mm, yyyy] = fechaStr.split('/');
-    return `${yyyy}-${mm}-${dd}T00:00:00`;
-  }
-
-  if (fecha instanceof Date) {
-    return fecha.toISOString().replace(/\.\d{3}Z$/, '');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   try {
     const d = new Date(fechaStr);
     if (!isNaN(d.getTime())) {
-      return d.toISOString().replace(/\.\d{3}Z$/, '');
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
     }
-  } catch (e) {
-    // Ignorar
-  }
+  } catch (e) { /* ignorar */ }
 
   return fechaStr;
 }
@@ -286,7 +281,7 @@ function convertirFechaToISO(fecha) {
  */
 function formatPuntoVenta(puntoVenta) {
   if (!puntoVenta) return ' ';
-  return puntoVenta.toString().trim().padStart(5, '0');
+  return puntoVenta.toString().trim(); // sin padding: valor exacto de la DB/Talonar
 }
 
 /**

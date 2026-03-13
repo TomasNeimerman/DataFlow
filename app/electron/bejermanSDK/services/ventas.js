@@ -11,6 +11,7 @@ const config = require('../config');
 const dllClient = require('../core/dllClient');
 const { validateRecibo } = require('../utils/validators');
 const { mapReciboToSDK } = require('../utils/serializers');
+const Recibos = require('../../modulesService/Local/Recibos');
 // Crear directorio de logs si no existe
 const LOG_DIR = 'C:/Dataflow';
 const LOG_FILE = path.join(LOG_DIR, 'error.log');
@@ -48,15 +49,37 @@ async function ingresarRecibo({ recibo, numeraFlex, emiteReg }) {
       };
     }
 
-    // 2. Mapear recibo a formato SDK
-    const numeraEfectivo = numeraFlex || config.DEFAULT_NUMERA_FLEX;
+    // 2. Si hay facturas aplicadas: predecir número/PtoVenta y forzar numera='N'
+    //    numera='N' garantiza que el RC se guarda con EXACTAMENTE los valores
+    //    que ponemos en RelacionComprobante. Con numera='S' el talonario falla
+    //    y Bejerman guarda el RC con metadata que no coincide con la relación.
+    const tieneAplicaciones = recibo.aplicaciones && recibo.aplicaciones.length > 0;
+    if (tieneAplicaciones) {
+      try {
+        const prediccion = await Recibos.getProximoNumeroRC();
+        recibo.numeroPredicado   = prediccion.numero;
+        recibo.ptoVentaPredicado = prediccion.ptoVenta;
+        logToFile(`[ventas] RC predicho: numero=${recibo.numeroPredicado} ptoVenta=${recibo.ptoVentaPredicado}`);
+      } catch (e) {
+        logToFile(`[ventas] Warning: no se pudo predecir número RC: ${e.message}`);
+      }
+    }
+
+    // 3. Mapear recibo a formato SDK
+    // Con aplicaciones usamos numera='N' (número explícito) para garantizar que el RC
+    // se crea con exactamente el número predicho, que usaremos después para aplicar
+    // las relaciones via SQL directo (el SDK no procesa RelacionComprobante con FCs preexistentes).
+    const numeraEfectivo = tieneAplicaciones ? 'N' : (numeraFlex || config.DEFAULT_NUMERA_FLEX);
     const reciboSDK = mapReciboToSDK(recibo);
-    logToFile(`[ventas] Recibo mapeado a SDK: ${JSON.stringify(reciboSDK)}`);
 
-    // 3. Envolver en array (el SDK espera [{comprobante}])
-    const jsonParaSDK = JSON.stringify([reciboSDK]);
+    // 4. Serializar — siempre objeto simple (IngresarComprobanteJSON).
+    // Enviar RelacionComprobante vacía: el SDK no puede aplicar FCs preexistentes,
+    // lo haremos nosotros via SQL después de que el RC se cree exitosamente.
+    const reciboSDKsinRelacion = Object.assign({}, reciboSDK, { Comprobante_RelacionComprobante: [] });
+    logToFile(`[ventas] numera=${numeraEfectivo} | Recibo mapeado: ${JSON.stringify(reciboSDKsinRelacion)}`);
+    const jsonParaSDK = JSON.stringify(reciboSDKsinRelacion);
 
-    // 4. Ejecutar via SDKWrapper.exe
+    // 5. Ejecutar via SDKWrapper.exe
     const resultado = await dllClient.ejecutar(
       'VENTAS',
       'IngresarComprobanteJSON',
@@ -70,6 +93,31 @@ async function ingresarRecibo({ recibo, numeraFlex, emiteReg }) {
     logToFile(`[ventas] Resultado SDK: ${JSON.stringify(resultado)}`);
 
     if (resultado.success) {
+      // Con numera='N' Bejerman no actualiza Talonar — lo hacemos nosotros
+      if (numeraEfectivo === 'N' && recibo.numeroPredicado) {
+        try {
+          await Recibos.actualizarTalonarRC(recibo.numeroPredicado);
+          logToFile(`[ventas] Talonar actualizado a ${recibo.numeroPredicado}`);
+        } catch (e) {
+          logToFile(`[ventas] Warning: no se pudo actualizar Talonar: ${e.message}`);
+        }
+      }
+
+      // Aplicar relaciones RC→FC via SQL directo (el SDK no lo hace con FCs preexistentes)
+      if (tieneAplicaciones) {
+        try {
+          const rcData = await Recibos.getCveIDRC(recibo.numeroPredicado, recibo.ptoVentaPredicado);
+          if (rcData) {
+            await Recibos.aplicarRelacionComprobante(rcData.cve_ID, recibo.aplicaciones);
+            logToFile(`[ventas] RelacionComprobante aplicada via SQL para RC cve_ID=${rcData.cve_ID}`);
+          } else {
+            logToFile(`[ventas] Warning: no se encontró RC en CabVenta para aplicar relaciones (numero=${recibo.numeroPredicado} pto=${recibo.ptoVentaPredicado})`);
+          }
+        } catch (e) {
+          logToFile(`[ventas] Warning: error aplicando RelacionComprobante SQL: ${e.message} | Stack: ${e.stack}`);
+        }
+      }
+
       return {
         success: true,
         message: 'Recibo registrado exitosamente en Bejerman ERP',

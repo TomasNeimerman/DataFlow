@@ -92,9 +92,15 @@ async function getFacturas({ codcli, mon_codigo, mtca_codigo }) {
     .input('mtca_codigo', sql.VarChar(16), String(mtca_codigo))
     .query(`
       SELECT
+        cvetco_Cod                                  AS TipoFijo,
+        cve_Letra                                   AS Letra,
+        RIGHT(RTRIM(ISNULL(cve_CodPvt,'')), 5)      AS PtoVenta,
+        RIGHT(RTRIM(ISNULL(cve_Nro,'')),    8)      AS Numero,
         cve_FEmision        AS [Fecha Emision],
         cve_FVto            AS [Fecha Vencimiento],
-        CONCAT(cvetco_Cod,' ',cve_Letra,' ',cve_CodPvt,'-',cve_Nro) AS Comprobante,
+        CONCAT(cvetco_Cod,' ',cve_Letra,' ',
+               RIGHT(RTRIM(ISNULL(cve_CodPvt,'')),5),'-',
+               RIGHT(RTRIM(ISNULL(cve_Nro,'')),8)) AS Comprobante,
         cve_ImpMonEmis      AS [Importe Original],
         cve_SaldoMonCC      AS Saldo
       FROM CabVenta
@@ -102,7 +108,7 @@ async function getFacturas({ codcli, mon_codigo, mtca_codigo }) {
       LEFT JOIN mon      ON mon_codigo = cvemon_Codigo
       LEFT JOIN mon_tca  ON mtca_codigo = cvemtca_CodigoCC
       WHERE tco_TipoFijo IN ('FC','ND')
-        AND cve_SaldoMonLoc <> 0
+        AND cve_SaldoMonCC <> 0
         AND cve_CodCli LIKE @codcli
         AND cvemon_Codigo = @mon_codigo
         AND cvemtca_CodigoCC = @mtca_codigo
@@ -223,6 +229,195 @@ async function getSaldoCliente(payload = {}) {
       return ok(r.recordset || []);
     } catch (e) { return fail("getAplicaciones", e); }
   }
+async function getCveIDRC(numero, ptoVenta) {
+  const pool = await getPool();
+  const nro = String(numero).trim().padStart(8, '0');
+  const pto = String(ptoVenta).trim();
+  const r = await pool.request()
+    .input('nro', sql.VarChar(20), nro)
+    .input('pto', sql.VarChar(10), pto)
+    .query(`
+      SELECT TOP 1 cve_ID, cveemp_Codigo, cvesuc_Cod
+      FROM CabVenta
+      WHERE cvetco_Cod = 'RC'
+        AND cve_Nro LIKE '%' + @nro
+        AND cve_CodPvt LIKE '%' + @pto
+      ORDER BY cve_ID DESC
+    `);
+  if (!r.recordset || !r.recordset[0]) return null;
+  return r.recordset[0];
+}
+
+async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
+  if (!aplicaciones || aplicaciones.length === 0) return;
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    // Get RC empresa/sucursal
+    const rcRow = await transaction.request()
+      .input('rcId', sql.Int, rcCveID)
+      .query(`SELECT cveemp_Codigo, cvesuc_Cod FROM CabVenta WHERE cve_ID = @rcId`);
+    if (!rcRow.recordset || !rcRow.recordset[0])
+      throw new Error(`RC cve_ID=${rcCveID} no encontrado en CabVenta`);
+    const rcEmp = rcRow.recordset[0].cveemp_Codigo || 'MODE';
+    const rcSuc = rcRow.recordset[0].cvesuc_Cod || ' ';
+
+    let primaryFcCveID = null;
+    let primaryFcEmp = rcEmp;
+    let primaryFcSuc = rcSuc;
+    let totalAplicado = 0;
+
+    for (let i = 0; i < aplicaciones.length; i++) {
+      const ap = aplicaciones[i];
+      const importe = Math.round(Math.abs(parseFloat(ap.importe) || 0) * 100) / 100;
+      if (importe <= 0) continue;
+
+      const fcTipo  = String(ap.tipoComprobante || 'FC').trim();
+      const fcLetra = String(ap.letra || ' ').trim() || ' ';
+      const fcNro   = String(ap.numeroComprobante || ap.numero || '').trim().padStart(8, '0');
+      const fcPto   = String(ap.puntoVenta || '').trim();
+
+      const fcRow = await transaction.request()
+        .input('tipo',  sql.VarChar(4),  fcTipo)
+        .input('letra', sql.VarChar(4),  fcLetra)
+        .input('nro',   sql.VarChar(20), fcNro)
+        .input('pto',   sql.VarChar(10), fcPto)
+        .query(`
+          SELECT TOP 1 cve_ID, cveemp_Codigo, cvesuc_Cod
+          FROM CabVenta
+          WHERE cvetco_Cod = @tipo
+            AND RTRIM(ISNULL(cve_Letra,'')) = @letra
+            AND cve_Nro LIKE '%' + @nro
+            AND cve_CodPvt LIKE '%' + @pto
+          ORDER BY cve_ID DESC
+        `);
+      if (!fcRow.recordset || !fcRow.recordset[0])
+        throw new Error(`FC no encontrado: ${fcTipo} ${fcLetra} ${fcPto}-${fcNro}`);
+
+      const fcCveID = fcRow.recordset[0].cve_ID;
+      const fcEmp   = fcRow.recordset[0].cveemp_Codigo || rcEmp;
+      const fcSuc   = fcRow.recordset[0].cvesuc_Cod   || rcSuc;
+
+      if (i === 0) { primaryFcCveID = fcCveID; primaryFcEmp = fcEmp; primaryFcSuc = fcSuc; }
+
+      // Insertar relación
+      await transaction.request()
+        .input('emp1',      sql.VarChar(10), rcEmp)
+        .input('suc1',      sql.VarChar(10), rcSuc)
+        .input('id1',       sql.Int,         rcCveID)
+        .input('emp2',      sql.VarChar(10), fcEmp)
+        .input('suc2',      sql.VarChar(10), fcSuc)
+        .input('id2',       sql.Int,         fcCveID)
+        .input('emp3',      sql.VarChar(10), primaryFcEmp)
+        .input('suc3',      sql.VarChar(10), primaryFcSuc)
+        .input('id3',       sql.Int,         primaryFcCveID)
+        .input('impLoc',    sql.Float, importe)
+        .input('impCC',     sql.Float, importe)
+        .query(`
+          INSERT INTO RelCompVta (
+            rcvemp_CodigoCol1, rcvsuc_CodCol1, rcvcve_IDCol1, rcvcve_NroCuotaCol1,
+            rcvemp_CodigoCol2, rcvsuc_CodCol2, rcvcve_IDCol2, rcvcve_NroCuotaCol2,
+            rcvemp_CodigoCol3, rcvsuc_CodCol3, rcvcve_IDCol3, rcvcve_NroCuotaCol3,
+            rcv_ImpMonLoc, rcv_ImpMonCC, rcv_DescNCRC, rcv_PasadoCC,
+            rcv_FecMod, rcvusu_Codigo,
+            rcvemp_CodigoCol4, rcvsuc_CodCol4, rcvcve_IDCol4, rcvcve_NroCuotaCol4,
+            rcv_DiferenciaCotiz, rcv_SeCompenso, rcv_GrabaRegEspXComp, rcv_RegEspXComp
+          ) VALUES (
+            @emp1, @suc1, @id1, ' ',
+            @emp2, @suc2, @id2, ' ',
+            @emp3, @suc3, @id3, ' ',
+            @impLoc, @impCC, 1, 0,
+            GETDATE(), 'ADMIN',
+            NULL, NULL, NULL, NULL,
+            0, NULL, 'N', 0
+          )
+        `);
+
+      // Actualizar saldo FC
+      await transaction.request()
+        .input('imp', sql.Float, importe)
+        .input('id',  sql.Int, fcCveID)
+        .query(`UPDATE CabVenta SET cve_SaldoMonCC = ROUND(cve_SaldoMonCC - @imp, 2) WHERE cve_ID = @id`);
+
+      totalAplicado = Math.round((totalAplicado + importe) * 100) / 100;
+    }
+
+    // Actualizar saldo RC (saldo es negativo, sumar lo aplicado lo lleva a 0)
+    if (totalAplicado > 0) {
+      await transaction.request()
+        .input('total', sql.Float, totalAplicado)
+        .input('rcId',  sql.Int, rcCveID)
+        .query(`UPDATE CabVenta SET cve_SaldoMonCC = ROUND(cve_SaldoMonCC + @total, 2) WHERE cve_ID = @rcId`);
+    }
+
+    await transaction.commit();
+  } catch (e) {
+    await transaction.rollback();
+    throw e;
+  }
+}
+
+async function actualizarTalonarRC(numeroUsado) {
+  const pool = await getPool();
+  await pool.request()
+    .input('nro', sql.VarChar(20), String(numeroUsado))
+    .query(`UPDATE Talonar SET tal_ActualNro = @nro WHERE tal_Cod = 'RC'`);
+}
+
+async function getProximoNumeroRC() {
+  const pool = await getPool();
+  let numero = null;
+  let ptoVenta = null;
+
+  try {
+    const t = await pool.request().query(`
+      SELECT
+        CAST(RIGHT(RTRIM(ISNULL(tal_ActualNro,'')), 8) AS INT) + 1 AS proximo,
+        RTRIM(ISNULL(tal_CodPvt, '')) AS pvt
+      FROM Talonar WHERE tal_Cod = 'RC'
+    `);
+    if (t.recordset && t.recordset[0]) {
+      numero = String(t.recordset[0].proximo).padStart(8, '0');
+      const v = String(t.recordset[0].pvt || '').trim();
+      if (v) ptoVenta = v;
+    }
+  } catch (e) {
+    console.log('[getProximoNumeroRC] Talonar error:', e.message);
+  }
+
+  if (!numero) {
+    try {
+      const r = await pool.request().query(`
+        SELECT ISNULL(MAX(CAST(RIGHT(RTRIM(ISNULL(cve_Nro,'')), 8) AS INT)), 0) + 1 AS proximo
+        FROM CabVenta WHERE cvetco_Cod = 'RC'
+      `);
+      if (r.recordset && r.recordset[0])
+        numero = String(r.recordset[0].proximo).padStart(8, '0');
+    } catch (e2) { /* ignore */ }
+  }
+
+  if (!ptoVenta) {
+    try {
+      const c = await pool.request().query(`
+        SELECT TOP 1 RIGHT(RTRIM(ISNULL(cve_CodPvt,'')), 5) AS pvt
+        FROM CabVenta
+        WHERE cvetco_Cod = 'RC' AND LTRIM(RTRIM(ISNULL(cve_CodPvt,''))) <> ''
+        ORDER BY CAST(RIGHT(RTRIM(ISNULL(cve_Nro,'')), 8) AS INT) DESC
+      `);
+      if (c.recordset && c.recordset[0])
+        ptoVenta = String(c.recordset[0].pvt || '').trim() || null;
+    } catch (e3) { /* ignore */ }
+  }
+
+  return {
+    numero:   numero   || '00000001',
+    ptoVenta: ptoVenta || '0001',
+  };
+}
+
 module.exports = {
   __getPool: getPool,
   getTiposComprobante,
@@ -234,4 +429,8 @@ module.exports = {
   getTransferencias,
   getAplicaciones,
   getCajas,
+  getProximoNumeroRC,
+  actualizarTalonarRC,
+  getCveIDRC,
+  aplicarRelacionComprobante,
 };

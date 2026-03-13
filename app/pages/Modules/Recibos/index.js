@@ -504,6 +504,7 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
       valores.push({
         tipo: 'EFE',
         importe: caja.monto,
+        cajaOrigen: caja.value,
         observaciones: caja.label || '',
       });
     });
