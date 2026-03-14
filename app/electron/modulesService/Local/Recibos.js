@@ -265,9 +265,6 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
     const rcEmp = rcRow.recordset[0].cveemp_Codigo || 'MODE';
     const rcSuc = rcRow.recordset[0].cvesuc_Cod || ' ';
 
-    let primaryFcCveID = null;
-    let primaryFcEmp = rcEmp;
-    let primaryFcSuc = rcSuc;
     let totalAplicado = 0;
 
     for (let i = 0; i < aplicaciones.length; i++) {
@@ -301,19 +298,18 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
       const fcEmp   = fcRow.recordset[0].cveemp_Codigo || rcEmp;
       const fcSuc   = fcRow.recordset[0].cvesuc_Cod   || rcSuc;
 
-      if (i === 0) { primaryFcCveID = fcCveID; primaryFcEmp = fcEmp; primaryFcSuc = fcSuc; }
-
-      // Insertar relación
+      // Insertar relación: Col1=FC, Col2=RC, Col3=RC (igual a Col2)
+      // Bejerman filtra por rcvcve_IDCol2 = RC para mostrar FCs aplicadas en botón "Aplicado"
       await transaction.request()
-        .input('emp1',      sql.VarChar(10), rcEmp)
-        .input('suc1',      sql.VarChar(10), rcSuc)
-        .input('id1',       sql.Int,         rcCveID)
-        .input('emp2',      sql.VarChar(10), fcEmp)
-        .input('suc2',      sql.VarChar(10), fcSuc)
-        .input('id2',       sql.Int,         fcCveID)
-        .input('emp3',      sql.VarChar(10), primaryFcEmp)
-        .input('suc3',      sql.VarChar(10), primaryFcSuc)
-        .input('id3',       sql.Int,         primaryFcCveID)
+        .input('emp1',      sql.VarChar(10), fcEmp)
+        .input('suc1',      sql.VarChar(10), fcSuc)
+        .input('id1',       sql.Int,         fcCveID)
+        .input('emp2',      sql.VarChar(10), rcEmp)
+        .input('suc2',      sql.VarChar(10), rcSuc)
+        .input('id2',       sql.Int,         rcCveID)
+        .input('emp3',      sql.VarChar(10), rcEmp)
+        .input('suc3',      sql.VarChar(10), rcSuc)
+        .input('id3',       sql.Int,         rcCveID)
         .input('impLoc',    sql.Float, importe)
         .input('impCC',     sql.Float, importe)
         .query(`
