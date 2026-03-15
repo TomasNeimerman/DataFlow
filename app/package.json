@@ -25,7 +25,8 @@
     "dist:fresh:full": "npm run clear:store:local && cross-env APP_RESET_POLICY=FULL electron-builder --win",
     "dist:run:reset-store": "dist\\win-unpacked\\<TuApp>.exe --reset-store",
     "dist:run:reset-bound": "dist\\win-unpacked\\<TuApp>.exe --reset-bound",
-    "rebuild:electron": "electron-rebuild -f -w odbc -w keytar --arch=x64 --version=13.6.9"
+    "rebuild:electron": "electron-rebuild -f -w odbc -w keytar --arch=x64 --version=13.6.9",
+    "dist:release": "node scripts/build-dist.js"
   },
   "dependencies": {
     "axios": "^1.13.2",

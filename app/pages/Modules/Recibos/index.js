@@ -449,8 +449,31 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
       const result = await window.api.sdk.ventas.ingresarRecibo(payload);
 
       if (result?.success) {
-        alert(`✓ Recibo registrado exitosamente en Bejerman ERP\n\n${result.message}`);
-        router.replace("/Index");
+        alert(`✓ Recibo registrado exitosamente en Bejerman ERP`);
+        // Limpiar formulario
+        setCliente("");
+        setFecha(`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-${String(new Date().getDate()).padStart(2,"0")}`);
+        setMonSel({ mon_codigo: "", mtca_codigo: "" });
+        setTc("");
+        setSaldoBase(0);
+        setValorFacturas(0);
+        setFacturas([]);
+        setAplicaFact({});
+        setCheques([]);
+        setSelCheques(new Set());
+        setFile(null);
+        setImportMsg("");
+        setTransfSel("");
+        setTransfMonto("");
+        setAplicTransf([]);
+        setCajaSel("");
+        setCajaMonto("");
+        setAplicCajas([]);
+        setApSel("");
+        setApMonto("");
+        setAplicAps([]);
+        setActiveTab("facturas");
+        setSending(false);
       } else {
         const errores = (result.errors || [])
           .map(e => typeof e === 'object' ? JSON.stringify(e) : e)

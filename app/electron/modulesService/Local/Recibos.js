@@ -146,15 +146,19 @@ async function getSaldoCliente(payload = {}) {
     }
 
     pool = await sql.connect(getAdminDbConfig());
+    const codigoFixed = '%' + codcli + '%';
     const q = `
       SELECT SUM(cve_SaldoMonCC) AS saldo
       FROM CabVenta
-      WHERE cve_CodCli = @codcli
+      LEFT JOIN TipComp ON tco_Cod = cvetco_Cod AND tco_Circuito = cve_Circuito
+      WHERE tco_TipoFijo IN ('FC','ND')
+        AND cve_SaldoMonCC > 0
+        AND cve_CodCli LIKE @codcli
         AND cvemon_Codigo = @mon_codigo
         AND cvemtca_CodigoCC = @mtca_codigo
     `;
     const req = pool.request()
-      .input('codcli', sql.VarChar, String(codcli))
+      .input('codcli', sql.VarChar, codigoFixed)
       .input('mon_codigo', sql.VarChar, String(mon_codigo))
       .input('mtca_codigo', sql.VarChar, String(mtca_codigo));
 
@@ -231,8 +235,8 @@ async function getSaldoCliente(payload = {}) {
   }
 async function getCveIDRC(numero, ptoVenta) {
   const pool = await getPool();
-  const nro = String(numero).trim().padStart(8, '0');
-  const pto = String(ptoVenta).trim();
+  const nro = String(numero || '').trim().padStart(8, '0');
+  const pto = String(ptoVenta || '').trim();
   const r = await pool.request()
     .input('nro', sql.VarChar(20), nro)
     .input('pto', sql.VarChar(10), pto)
@@ -262,8 +266,8 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
       .query(`SELECT cveemp_Codigo, cvesuc_Cod FROM CabVenta WHERE cve_ID = @rcId`);
     if (!rcRow.recordset || !rcRow.recordset[0])
       throw new Error(`RC cve_ID=${rcCveID} no encontrado en CabVenta`);
-    const rcEmp = rcRow.recordset[0].cveemp_Codigo || 'MODE';
-    const rcSuc = rcRow.recordset[0].cvesuc_Cod || ' ';
+    const rcEmp = rcRow.recordset[0].cveemp_Codigo ?? 'MODE';
+    const rcSuc = rcRow.recordset[0].cvesuc_Cod ?? '';
 
     let totalAplicado = 0;
 
@@ -295,8 +299,8 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
         throw new Error(`FC no encontrado: ${fcTipo} ${fcLetra} ${fcPto}-${fcNro}`);
 
       const fcCveID = fcRow.recordset[0].cve_ID;
-      const fcEmp   = fcRow.recordset[0].cveemp_Codigo || rcEmp;
-      const fcSuc   = fcRow.recordset[0].cvesuc_Cod   || rcSuc;
+      const fcEmp   = fcRow.recordset[0].cveemp_Codigo ?? rcEmp;
+      const fcSuc   = fcRow.recordset[0].cvesuc_Cod   ?? '';
 
       // Insertar relación: Col1=FC, Col2=RC, Col3=RC (igual a Col2)
       // Bejerman filtra por rcvcve_IDCol2 = RC para mostrar FCs aplicadas en botón "Aplicado"
@@ -378,7 +382,7 @@ async function getProximoNumeroRC() {
     if (t.recordset && t.recordset[0]) {
       numero = String(t.recordset[0].proximo).padStart(8, '0');
       const v = String(t.recordset[0].pvt || '').trim();
-      if (v) ptoVenta = v;
+      if (v) ptoVenta = v.padStart(5, '0');
     }
   } catch (e) {
     console.log('[getProximoNumeroRC] Talonar error:', e.message);
@@ -403,14 +407,16 @@ async function getProximoNumeroRC() {
         WHERE cvetco_Cod = 'RC' AND LTRIM(RTRIM(ISNULL(cve_CodPvt,''))) <> ''
         ORDER BY CAST(RIGHT(RTRIM(ISNULL(cve_Nro,'')), 8) AS INT) DESC
       `);
-      if (c.recordset && c.recordset[0])
-        ptoVenta = String(c.recordset[0].pvt || '').trim() || null;
+      if (c.recordset && c.recordset[0]) {
+        const w = String(c.recordset[0].pvt || '').trim();
+        ptoVenta = w ? w.padStart(5, '0') : null;
+      }
     } catch (e3) { /* ignore */ }
   }
 
   return {
     numero:   numero   || '00000001',
-    ptoVenta: ptoVenta || '0001',
+    ptoVenta: ptoVenta || '00001',
   };
 }
 

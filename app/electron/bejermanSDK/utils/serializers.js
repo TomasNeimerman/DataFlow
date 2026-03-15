@@ -224,8 +224,8 @@ function calcularImporteTotal(recibo) {
  * @returns {string} - Código formateado
  */
 function formatCodigoCliente(codigo) {
-  if (!codigo) return '000000';
-  return codigo.toString().trim().padStart(6, '0');
+  if (!codigo) return '      ';
+  return codigo.toString().trim().padStart(6, ' ');
 }
 
 /**

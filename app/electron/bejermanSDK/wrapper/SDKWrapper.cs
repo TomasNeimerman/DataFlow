@@ -64,7 +64,12 @@ namespace DataFlow.SDKWrapper
             }
 
             // Ejecutar operación SDK
-            var procesos = new EFlexSDK_ProcesoCollection();
+            dynamic procesos = CrearProcesoCollection();
+            if (procesos == null)
+            {
+                WriteOutput(false, "No se pudo cargar EFlexSDK_ProcesoCollection desde las DLLs", null);
+                return 1;
+            }
             dynamic token = null;
             try
             {
@@ -172,9 +177,38 @@ namespace DataFlow.SDKWrapper
         }
 
         /// <summary>
+        /// Carga EFlexSDK_ProcesoCollection dinámicamente iterando las DLLs del directorio del EXE.
+        /// Evita la referencia estática al tipo que causa CS0246 si la DLL no está en el compilador.
+        /// </summary>
+        static dynamic CrearProcesoCollection()
+        {
+            string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            foreach (string dllPath in Directory.GetFiles(exeDir, "*.dll"))
+            {
+                try
+                {
+                    Assembly asm = Assembly.LoadFrom(dllPath);
+                    Type[] types;
+                    try { types = asm.GetTypes(); }
+                    catch (ReflectionTypeLoadException rtle) { types = rtle.Types ?? new Type[0]; }
+                    foreach (Type t in types)
+                    {
+                        if (t != null && t.Name == "EFlexSDK_ProcesoCollection")
+                        {
+                            LogDebug("EFlexSDK_ProcesoCollection encontrado en: " + Path.GetFileName(dllPath));
+                            return Activator.CreateInstance(t);
+                        }
+                    }
+                }
+                catch { /* DLL no cargable, continuar */ }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Ejecuta la operación SDK según el circuito
         /// </summary>
-        static string EjecutarOperacion(string circuito, string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
+        static string EjecutarOperacion(string circuito, string operacion, string jsonData, string numera, string emite, dynamic token, dynamic procesos)
         {
             switch (circuito)
             {
@@ -192,7 +226,7 @@ namespace DataFlow.SDKWrapper
         /// <summary>
         /// Ejecuta operaciones del circuito VENTAS
         /// </summary>
-        static string EjecutarVentas(string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
+        static string EjecutarVentas(string operacion, string jsonData, string numera, string emite, dynamic token, dynamic procesos)
         {
             string errores = string.Empty;
             EFlexSDK_Ventas ventas = new EFlexSDK_Ventas(token);
@@ -233,7 +267,7 @@ namespace DataFlow.SDKWrapper
         /// <summary>
         /// Ejecuta operaciones del circuito COMPRAS
         /// </summary>
-        static string EjecutarCompras(string operacion, string jsonData, string numera, string emite, dynamic token, EFlexSDK_ProcesoCollection procesos)
+        static string EjecutarCompras(string operacion, string jsonData, string numera, string emite, dynamic token, dynamic procesos)
         {
             string errores = string.Empty;
             EFlexSDK_Compras compras = new EFlexSDK_Compras(token);
@@ -270,7 +304,7 @@ namespace DataFlow.SDKWrapper
         /// EFlexSDK_Ventas/Compras heredan de EFlexSDK_CircuitoFlex que tiene _ProcFlex privado.
         /// El constructor busca el ProcesoFlex por token pero falla silenciosamente en consola.
         /// </summary>
-        static void InjectProcFlex(object circuito, dynamic token, EFlexSDK_ProcesoCollection procesos)
+        static void InjectProcFlex(object circuito, dynamic token, dynamic procesos)
         {
             try
             {
