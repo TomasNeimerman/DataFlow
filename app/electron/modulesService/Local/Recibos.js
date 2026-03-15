@@ -260,14 +260,15 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
   await transaction.begin();
 
   try {
-    // Get RC empresa/sucursal
+    // Get RC empresa/sucursal/nroCuota
     const rcRow = await transaction.request()
       .input('rcId', sql.Int, rcCveID)
-      .query(`SELECT cveemp_Codigo, cvesuc_Cod FROM CabVenta WHERE cve_ID = @rcId`);
+      .query(`SELECT cveemp_Codigo, cvesuc_Cod, cve_NroCuota FROM CabVenta WHERE cve_ID = @rcId`);
     if (!rcRow.recordset || !rcRow.recordset[0])
       throw new Error(`RC cve_ID=${rcCveID} no encontrado en CabVenta`);
-    const rcEmp = rcRow.recordset[0].cveemp_Codigo ?? 'MODE';
-    const rcSuc = rcRow.recordset[0].cvesuc_Cod ?? '';
+    const rcEmp    = rcRow.recordset[0].cveemp_Codigo ?? 'MODE';
+    const rcSuc    = rcRow.recordset[0].cvesuc_Cod    ?? '';
+    const rcCuota  = rcRow.recordset[0].cve_NroCuota  ?? ' ';
 
     let totalAplicado = 0;
 
@@ -287,7 +288,7 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
         .input('nro',   sql.VarChar(20), fcNro)
         .input('pto',   sql.VarChar(10), fcPto)
         .query(`
-          SELECT TOP 1 cve_ID, cveemp_Codigo, cvesuc_Cod
+          SELECT TOP 1 cve_ID, cveemp_Codigo, cvesuc_Cod, cve_NroCuota
           FROM CabVenta
           WHERE cvetco_Cod = @tipo
             AND RTRIM(ISNULL(cve_Letra,'')) = @letra
@@ -301,6 +302,7 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
       const fcCveID = fcRow.recordset[0].cve_ID;
       const fcEmp   = fcRow.recordset[0].cveemp_Codigo ?? rcEmp;
       const fcSuc   = fcRow.recordset[0].cvesuc_Cod   ?? '';
+      const fcCuota = fcRow.recordset[0].cve_NroCuota ?? ' ';
 
       // Insertar relación: Col1=FC, Col2=RC, Col3=RC (igual a Col2)
       // Bejerman filtra por rcvcve_IDCol2 = RC para mostrar FCs aplicadas en botón "Aplicado"
@@ -308,12 +310,15 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
         .input('emp1',      sql.VarChar(10), fcEmp)
         .input('suc1',      sql.VarChar(10), fcSuc)
         .input('id1',       sql.Int,         fcCveID)
+        .input('cuota1',    sql.VarChar(10), fcCuota)
         .input('emp2',      sql.VarChar(10), rcEmp)
         .input('suc2',      sql.VarChar(10), rcSuc)
         .input('id2',       sql.Int,         rcCveID)
+        .input('cuota2',    sql.VarChar(10), rcCuota)
         .input('emp3',      sql.VarChar(10), rcEmp)
         .input('suc3',      sql.VarChar(10), rcSuc)
         .input('id3',       sql.Int,         rcCveID)
+        .input('cuota3',    sql.VarChar(10), rcCuota)
         .input('impLoc',    sql.Float, importe)
         .input('impCC',     sql.Float, importe)
         .query(`
@@ -326,9 +331,9 @@ async function aplicarRelacionComprobante(rcCveID, aplicaciones) {
             rcvemp_CodigoCol4, rcvsuc_CodCol4, rcvcve_IDCol4, rcvcve_NroCuotaCol4,
             rcv_DiferenciaCotiz, rcv_SeCompenso, rcv_GrabaRegEspXComp, rcv_RegEspXComp
           ) VALUES (
-            @emp1, @suc1, @id1, ' ',
-            @emp2, @suc2, @id2, ' ',
-            @emp3, @suc3, @id3, ' ',
+            @emp1, @suc1, @id1, @cuota1,
+            @emp2, @suc2, @id2, @cuota2,
+            @emp3, @suc3, @id3, @cuota3,
             @impLoc, @impCC, 1, 0,
             GETDATE(), 'ADMIN',
             NULL, NULL, NULL, NULL,
