@@ -14,7 +14,7 @@
   gap: 12px;
 
   /* Alto controlado con scroll si hay más módulos */
-  max-height: 10rem;
+  max-height: 9.5rem;
   overflow-y: auto;
   padding-right: 4px;            /* espacio para la barra */
   scrollbar-gutter: stable both-edges;

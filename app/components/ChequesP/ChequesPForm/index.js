@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import styles from "./styles.module.css";
 import DownloadIcon from "../../DownloadButton";
+import PaginationBar from "../../PaginationBar";
 
 
-const Modal = ({ open, title, onClose, children }) => {
+const Modal = ({ open, title, onClose, children, footer }) => {
   if (!open) return null;
   return (
     <div
@@ -46,7 +47,18 @@ const Modal = ({ open, title, onClose, children }) => {
             ✕
           </button>
         </div>
-        <div style={{ padding: 12, overflow: "auto" }}>{children}</div>
+        <div style={{ padding: 12, overflow: "auto", flex: 1 }}>{children}</div>
+        {footer && (
+          <div
+            style={{
+              padding: "8px 12px",
+              borderTop: "1px solid #eee",
+              background: "#f9f9f9",
+            }}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -141,10 +153,28 @@ const ChequesPForm = ({
   const [previewRows, setPreviewRows] = useState([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  
+  // Paginación del modal
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageSize, setPreviewPageSize] = useState(15);
 
   // ❗ Error de “pre-chequeo” (duplicados)
   const [preCheckError, setPreCheckError] = useState("");
+  // Paginación de previewRows
+  const paginatedPreviewRows = useMemo(() => {
+    const start = (previewPage - 1) * previewPageSize;
+    const end = start + previewPageSize;
+    return previewRows.slice(start, end);
+  }, [previewRows, previewPage, previewPageSize]);
 
+  const handlePreviewPageChange = (newPage) => {
+    setPreviewPage(newPage);
+  };
+
+  const handlePreviewPageSizeChange = (newSize) => {
+    setPreviewPageSize(newSize);
+    setPreviewPage(1);
+  };
   useEffect(() => {
     const fetchModulos = async () => {
       if (!idCliente) return;
@@ -218,6 +248,7 @@ const ChequesPForm = ({
     try {
       setPreviewError("");
       setPreviewLoading(true);
+      setPreviewPage(1); // Reset a la primera página
       const res = await window.api?.chequespPreview?.();
       if (!res?.success) {
         setPreviewError(res?.message || "No se pudo obtener la vista previa.");
@@ -446,6 +477,19 @@ const ChequesPForm = ({
         open={previewOpen}
         title="Vista previa de Cheques"
         onClose={() => setPreviewOpen(false)}
+        footer={
+          previewRows.length > 0 && (
+            <PaginationBar
+              totalRows={previewRows.length}
+              page={previewPage}
+              pageSize={previewPageSize}
+              onPageChange={handlePreviewPageChange}
+              onPageSizeChange={handlePreviewPageSizeChange}
+              pageSizeOptions={[15, 30, 60, 90, 120]}
+              labels={{ items: "cheques" }}
+            />
+          )
+        }
       >
         {previewLoading ? (
           <p>Cargando cheques…</p>
@@ -469,7 +513,7 @@ const ChequesPForm = ({
                 </tr>
               </thead>
               <tbody>
-                {previewRows.map((r) => (
+                {paginatedPreviewRows.map((r) => (
                   <tr key={r.ID_Cheque}>
                     <td>{r.ID_Cheque}</td>
                     <td>{r.Empresa || ""}</td>

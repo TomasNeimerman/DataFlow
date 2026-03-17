@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
+import PaginationBar from "../PaginationBar";
 
 /** Acordeón simple */
 function Accordion({ title, defaultOpen = true, rightAdornment = null, children }) {
@@ -87,6 +88,10 @@ export default function Proveedores() {
   // ===== selección manual =====
   const [selectedPro, setSelectedPro] = useState(() => new Set());
   const selectedCount = selectedPro.size;
+
+  // ===== paginación =====
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
 
   const toggleOne = useCallback((id) => {
     setSelectedPro((prev) => {
@@ -277,10 +282,17 @@ export default function Proveedores() {
     });
   }, [proveedores, fCondPago, fProvincia, fPais, fIVA, fTipoDoc, fGan, fIB, fApe, fOrd1, fOrd2]);
 
-  // ids visibles (para seleccionar todos)
+  // Paginación de datos filtrados
+  const paginatedProveedores = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return filtrados.slice(start, end);
+  }, [filtrados, page, pageSize]);
+
+  // ids visibles en la página actual (para seleccionar todos)
   const visibleIds = useMemo(
-    () => (filtrados || []).map((p) => String(p.CodProveedor)),
-    [filtrados]
+    () => (paginatedProveedores || []).map((p) => String(p.CodProveedor)),
+    [paginatedProveedores]
   );
 
   // ===== limpiar filtros =====
@@ -295,7 +307,18 @@ export default function Proveedores() {
     setFApe("");
     setFOrd1("");
     setFOrd2("");
+    setPage(1); // Reset a la primera página
   }, []);
+
+  // Handlers de paginación
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+  };
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
 
   // ===== aplicar cambios =====
   const aplicarCambios = useCallback(async () => {
@@ -574,7 +597,7 @@ export default function Proveedores() {
                     </td>
                   </tr>
                 ) : (
-                  filtrados.slice(0, 2000).map((p, i) => {
+                  paginatedProveedores.map((p, i) => {
                     const id = String(p.CodProveedor);
                     const checked = selectedPro.has(id);
 
@@ -600,6 +623,16 @@ export default function Proveedores() {
           </div>
           <div className={styles.resizeHandle} />
         </div>
+
+        <PaginationBar
+          totalRows={filtrados.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          pageSizeOptions={[15, 30, 60, 90, 120]}
+          labels={{ items: "proveedores" }}
+        />
       </Accordion>
 
       {/* CAMPOS A ACTUALIZAR */}

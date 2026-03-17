@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import styles from "./styles.module.css";
 import EmpresaSelected from "../../../components/EmpresaSelected";
 import usePreciosActualizador from "../../../public/hooks/preciosActualizador";
+import PaginationBar from "../../../components/PaginationBar";
 
 // Tabs
 import DescargarTab from "../../../components/ListaPreciosTabs/DescargarTab";
@@ -67,11 +68,16 @@ export default function ActualizadordePrecios() {
   const [errorPreview, setErrorPreview] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  // Paginación del modal de vista previa
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageSize, setPreviewPageSize] = useState(15);
+
   const fetchPreview = useCallback(async (lista) => {
     if (!lista || !window.api?.previewLista) return;
     try {
       setLoadingPreview(true); setErrorPreview(""); setPreview([]);
-      const res = await window.api.previewLista(lista, 20);
+      setPreviewPage(1); // Reset a la primera página
+      const res = await window.api.previewLista(lista, 1000); // Traer más datos
       if (res?.success) setPreview(res.data || []);
       else setErrorPreview(res?.message || "No se pudo obtener la Vista Previa.");
     } catch (e) {
@@ -95,6 +101,22 @@ export default function ActualizadordePrecios() {
 
   // --- Resultados de asignación de Clientes (desde tab Clientes) ---
   const [cliAsignacionResultados, setCliAsignacionResultados] = useState(null);
+
+  // Paginación de datos de preview
+  const paginatedPreview = useMemo(() => {
+    const start = (previewPage - 1) * previewPageSize;
+    const end = start + previewPageSize;
+    return preview.slice(start, end);
+  }, [preview, previewPage, previewPageSize]);
+
+  const handlePreviewPageChange = (newPage) => {
+    setPreviewPage(newPage);
+  };
+
+  const handlePreviewPageSizeChange = (newSize) => {
+    setPreviewPageSize(newSize);
+    setPreviewPage(1);
+  };
 
   const handleAsignacionCompleta = useCallback((detalle) => {
     setCliAsignacionResultados(detalle);     // lo muestra en Resultados
@@ -226,7 +248,7 @@ export default function ActualizadordePrecios() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(preview || []).slice(0, 20).map((r, i) => (
+                      {paginatedPreview.map((r, i) => (
                         <tr key={i} className={styles.row}>
                           <td>{r.CodGenerico}</td>
                           <td>{r.CodElemento1 || ""}</td>
@@ -245,6 +267,19 @@ export default function ActualizadordePrecios() {
                 </div>
               )}
             </div>
+            {!loadingPreview && !errorPreview && preview.length > 0 && (
+              <div className={styles.modalFooter}>
+                <PaginationBar
+                  totalRows={preview.length}
+                  page={previewPage}
+                  pageSize={previewPageSize}
+                  onPageChange={handlePreviewPageChange}
+                  onPageSizeChange={handlePreviewPageSizeChange}
+                  pageSizeOptions={[15, 30, 60, 90,120]}
+                  labels={{ items: "artículos" }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}

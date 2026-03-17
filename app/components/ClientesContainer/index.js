@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
 import EmpresaSelected from "../EmpresaSelected";
+import PaginationBar from "../PaginationBar";
 
 /** Acordeón simple */
 function Accordion({ title, defaultOpen = true, rightAdornment = null, children }) {
@@ -88,6 +89,10 @@ export default function Clientes() {
   // ===== selección manual de clientes =====
   const [selectedCli, setSelectedCli] = useState(() => new Set());
   const selectedCount = selectedCli.size;
+
+  // ===== paginación =====
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
 
   const toggleOne = useCallback((id) => {
     setSelectedCli(prev => {
@@ -274,18 +279,37 @@ export default function Clientes() {
     fIVA, fTipoDoc, fGan, fIB, fApe, fTrn, fProv, fDef1, fDef2
   ]);
 
-  // ids visibles (para seleccionar todos)
+  // Paginación de datos filtrados
+  const paginatedClientes = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return filtrados.slice(start, end);
+  }, [filtrados, page, pageSize]);
+
+  // ids visibles en la página actual (para seleccionar todos)
   const visibleIds = useMemo(
-    () => (filtrados || []).map(c => String(c.CodCliente ?? c.cli_cod)),
-    [filtrados]
+    () => (paginatedClientes || []).map(c => String(c.CodCliente ?? c.cli_cod)),
+    [paginatedClientes]
   );
 const onlyDesc = (label = "") =>
   label.includes(" - ") ? label.split(" - ").slice(1).join(" - ").trim() : label;
+
+  // Handlers de paginación
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+  };
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
   // ===== limpiar filtros =====
   const limpiarFiltros = useCallback(() => {
     setFCondVta(""); setFProvincia(""); setFVendedor(""); setFTipoCli(""); setFLista(""); setFZona("");
     setFIVA(""); setFTipoDoc(""); setFGan(""); setFIB(""); setFApe("");
     setFTrn(""); setFProv(""); setFDef1(""); setFDef2("");
+    setPage(1); // Reset a la primera página
   }, []);
 
   // ===== aplicar cambios (usa actualizarCampos) =====
@@ -545,7 +569,7 @@ const onlyDesc = (label = "") =>
                 {!filtrados.length ? (
                   <tr><td colSpan={7} className={styles.noResults}>{loading ? "Cargando…" : "Sin resultados"}</td></tr>
                 ) : (
-                  filtrados.slice(0, 2000).map((c, i) => {
+                  paginatedClientes.map((c, i) => {
                     const id = String(c.CodCliente ?? c.cli_cod);
                     const checked = selectedCli.has(id);
                     return (
@@ -568,6 +592,16 @@ const onlyDesc = (label = "") =>
           </div>
           <div className={styles.resizeHandle} />
         </div>
+
+        <PaginationBar
+          totalRows={filtrados.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={handlePageChange}
+          onPageSizeChange={handlePageSizeChange}
+          pageSizeOptions={[15, 30, 60, 90, 120]}
+          labels={{ items: "clientes" }}
+        />
       </Accordion>
 
       {/* CAMPOS A ACTUALIZAR */}
