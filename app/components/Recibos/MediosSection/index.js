@@ -1,7 +1,6 @@
-// pages/components/Recibos/MediosSection/index.js
 "use client";
 import React from "react";
-import styles from "@/pages/Modules/Recibos/styles.module.css";
+import styles from "../../../pages/Modules/Recibos/styles.module.css"; // ✅ ruta correcta desde pages/components/...
 
 export default function MediosSection({
   // cheques
@@ -10,16 +9,18 @@ export default function MediosSection({
   cargarCheques,
   cancelarCheques,
   cheques,
-  chequesFormato,
   selCheques,
   setSelCheques,
   importMsg,
+
+  // ✅ NUEVO: formato seleccionado
+  chequesFormato,          // "ECH" | "CHE" | ""
+  setChequesFormato,       // setter desde la página
 
   // header info
   aplicadoMedios,
   restanteVsFact,
   excedentePos,
-
   esReciboACuenta,
   saldoRestanteCliente,
   facturasPendienteMonto,
@@ -81,7 +82,7 @@ export default function MediosSection({
     else setSelCheques(new Set());
   };
 
-  // labels según formato
+  // labels según formato (solo texto)
   const labelNro = chequesFormato === "CHE" ? "Nro Cheque" : "Nro Echeq";
   const labelHist = chequesFormato === "CHE" ? "Estado / Obs." : "Historial de Endosos";
   const labelFecha = chequesFormato === "CHE" ? "Fecha de Pago" : "Fecha Vencimiento";
@@ -142,14 +143,42 @@ export default function MediosSection({
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
+            {/* ✅ NUEVO: selector de tipo */}
+            <div className={styles.filterItem}>
+              <label className={styles.label}>Tipo</label>
+              <select
+                className={styles.select}
+                value={chequesFormato || ""}
+                onChange={(e) => {
+                  // cambio de tipo => limpío cheques + archivo (para evitar mezcla)
+                  cancelarCheques();
+                  setChequesFormato(e.target.value);
+                }}
+              >
+                <option value="">(Seleccione)</option>
+                <option value="ECH">ECheqs</option>
+                <option value="CHE">Cheques físicos</option>
+              </select>
+            </div>
+
             <div className={styles.filterItem}>
               <label className={styles.label}>Archivo</label>
-              <input type="file" className={styles.input} onChange={onFileChange} />
+              <input
+                type="file"
+                className={styles.input}
+                onChange={onFileChange}
+                disabled={!chequesFormato}
+                accept=".xlsx, .xls"
+              />
             </div>
 
             <div className={styles.filterItem}>
               <label className={styles.label}>&nbsp;</label>
-              <button className={styles.btn} onClick={cargarCheques} disabled={!file}>
+              <button
+                className={styles.btn}
+                onClick={cargarCheques}
+                disabled={!chequesFormato || !file}
+              >
                 Cargar
               </button>
             </div>
@@ -161,6 +190,10 @@ export default function MediosSection({
               </button>
             </div>
           </div>
+
+          {!chequesFormato && (
+            <div className={styles.muted}>Seleccioná el tipo de cheques para habilitar la carga.</div>
+          )}
 
           {importMsg && <div className={styles.muted}>{importMsg}</div>}
 

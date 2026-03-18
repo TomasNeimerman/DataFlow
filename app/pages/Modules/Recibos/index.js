@@ -44,6 +44,7 @@ export default function RecibosPage() {
   const [selCheques, setSelCheques] = useState(new Set());
   const [file, setFile] = useState(null);
   const [importMsg, setImportMsg] = useState("");
+  
 
   /* ======================= Medios (Transferencias/Cajas/Apps) ======================= */
   const [optsTransf, setOptsTransf] = useState([]);
@@ -582,6 +583,7 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
             setSelCheques={setSelCheques}
             importMsg={importMsg}
             chequesFormato={chequesFormato}
+            setChequesFormato={setChequesFormato}
             // totales / info
             aplicadoMedios={aplicadoMedios}
             restanteVsFact={restanteVsFact}
