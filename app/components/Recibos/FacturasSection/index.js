@@ -62,7 +62,7 @@ export default function FacturasSection({
                 facturas.map((f, idx) => {
                   const st = aplicaFact[idx] || { checked: false, monto: 0 };
                   return (
-                    <tr key={idx} className={styles.row}>
+                    <tr key={f.Comprobante || idx} className={styles.row}>
                       <td className={styles.checkCell}>
                         <input
                           type="checkbox"
@@ -92,7 +92,7 @@ export default function FacturasSection({
                           className={styles.input}
                           disabled={!st.checked}
                           value={st.monto ?? ""}
-                          onFocus={(e) => { if ((e.target.value || "") === "0") e.target.select(); }}
+                          onFocus={(e) => { const t = e.target; setTimeout(() => t.select(), 0); }}
                           onChange={(e) => {
                             const val = Number(e.target.value) || 0;
                             const topeFactura = Number(f["Saldo"]) || 0;

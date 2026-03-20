@@ -124,6 +124,7 @@
 
 /* ===== Mensajes y botones ===== */
 .errorBox{ background:#fff1ee; border:1px solid #ffd6ce; color:#8b1d10; padding:10px 12px; border-radius:8px; font-weight:600; margin-bottom:10px; }
+.successBox{ background:#f0fdf4; border:1px solid #86efac; color:#166534; padding:10px 12px; border-radius:8px; font-weight:600; margin-bottom:10px; }
 .btn{
   background:#e82c02; color:#fff; border:none; padding:12px 20px;
   border-radius:8px; font-weight:800; cursor:pointer;

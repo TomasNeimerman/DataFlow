@@ -64,6 +64,7 @@ export default function RecibosPage() {
 
   /* ======================= UI ======================= */
   const [err, setErr] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [loadingCore, setLoadingCore] = useState(true);
   const [loadingClientes, setLoadingClientes] = useState(true);
   const [activeTab, setActiveTab] = useState("facturas"); // "facturas" | "medios"
@@ -449,7 +450,8 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
       const result = await window.api.sdk.ventas.ingresarRecibo(payload);
 
       if (result?.success) {
-        alert(`✓ Recibo registrado exitosamente en Bejerman ERP`);
+        setSuccessMsg("✓ Recibo registrado exitosamente en Bejerman ERP");
+        setTimeout(() => setSuccessMsg(""), 6000);
         // Limpiar formulario
         setCliente("");
         setFecha(`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}-${String(new Date().getDate()).padStart(2,"0")}`);
@@ -581,6 +583,7 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
             <h1 className={styles.title}>Recibos</h1>
           </div>
 
+          {successMsg && <div className={styles.successBox}>{successMsg}</div>}
           {err && <div className={styles.errorBox}>{err}</div>}
 
           <FormHeader
