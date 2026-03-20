@@ -145,10 +145,10 @@
 .cardBody{ padding:14px 16px; }
 
 /* ===== Tabla ===== */
-.tableContainer{ width:100%; overflow:auto; max-height:420px; border:1px solid #eee; border-radius:12px; background:#fff; }
+.tableContainer{ width:100%; overflow:auto; max-height:420px; border:1px solid #eee; border-radius:12px; background:#fff;z-index: 1; }
 .table{ width:100%; border-collapse:collapse; font-size:.95rem; min-width: 860px; }
 .table th, .table td{ text-align:left; padding:10px; border-bottom:1px solid #eee; }
-.headerRow{ background:#fff; position: sticky; top:0; z-index:1; }
+.headerRow{ background:#fff; position: sticky; top:0; z-index:5; }
 .row:hover{ background:#fafafa; }
 .noResults{ text-align:center; color:#999; padding:16px; }
 .checkCell{ width:36px; text-align:center; vertical-align:middle; }

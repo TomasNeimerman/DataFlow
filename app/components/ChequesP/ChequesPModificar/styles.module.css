@@ -35,7 +35,8 @@
   border-radius:10px;
   overflow:auto;                /* scroll internos, no del body */
   background:#fff;
-  max-height:36vh;              /* 40vh -> 36vh */
+  max-height:30vh;              /* 40vh -> 36vh */
+  
 }
 
 /* Tabla más compacta */

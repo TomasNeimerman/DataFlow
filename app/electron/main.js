@@ -33,13 +33,20 @@ let __adminPool = null;
 
 
 let nextProcess = null;
-
+function killOldNext() {
+  try {
+    const { execSync } = require("child_process");
+    execSync("taskkill /IM node.exe /F", { stdio: "ignore" });
+    console.log("🧹 Procesos Node viejos eliminados");
+  } catch {}
+}
 function startNextDev() {
+  
   if (nextProcess) {
     console.log("⚠ Next ya está corriendo");
     return;
   }
-
+  
   const projectRoot = path.resolve(__dirname, "..");
 
   console.log("🚀 Iniciando Next DEV...");
@@ -788,6 +795,7 @@ async function createMainWindow() {
     width: 1280,
     height: 920,
     show: true,
+    icon: path.join(__dirname, '..', 'public' ,'logotitle.png'),
     webPreferences: {
       preload: hasPreload ? preloadPath : undefined,
       contextIsolation: true,

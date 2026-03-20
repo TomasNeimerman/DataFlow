@@ -1,7 +1,9 @@
+//components/ChequesP/ChequesPModificar/index.js
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./styles.module.css";
+import PaginationBar from "../../PaginationBar";
 
 const toDMY = (val) => {
   if (!val) return "—";
@@ -27,6 +29,10 @@ export default function ChequesPModificar() {
 
   // ⬇️ Default: ordenar por ID ascendente (numérico)
   const [sortBy, setSortBy] = useState({ key: "ID_Cheque", dir: "asc" });
+
+  // Estados de paginación
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
 
   const fetchPreview = useCallback(async () => {
     try {
@@ -134,7 +140,24 @@ export default function ChequesPModificar() {
     return arr;
   }, [rows, sortBy]);
 
+  // Paginación de datos
+  const totalRows = sortedRows.length;
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return sortedRows.slice(start, end);
+  }, [sortedRows, page, pageSize]);
+
   const selectedCount = Object.keys(selected).length;
+
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+  };
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize);
+    setPage(1); // Reset a la primera página
+  };
 
   const getExistingNumbers = () => {
     const s = new Set();
@@ -253,10 +276,10 @@ export default function ChequesPModificar() {
           <tbody>
             {loading ? (
               <tr><td colSpan={9} style={{ padding: 16 }}>Cargando…</td></tr>
-            ) : sortedRows.length === 0 ? (
+            ) : paginatedRows.length === 0 ? (
               <tr><td colSpan={9} className={styles.noResults}>No hay cheques para mostrar.</td></tr>
             ) : (
-              sortedRows.map((r) => (
+              paginatedRows.map((r) => (
                 <tr key={r.ID_Cheque} className={styles.row}>
                   <td>{r.CodEmpresa || r.Empresa || ""}</td>
                   <td>{r.ID_Cheque}</td>
@@ -295,6 +318,16 @@ export default function ChequesPModificar() {
           </tbody>
         </table>
       </div>
+
+      <PaginationBar
+        totalRows={totalRows}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
+        pageSizeOptions={[15, 30, 60, 90, 120]}
+        labels={{ items: "cheques" }}
+      />
 
       {err && <div className={styles.alert}>{err}</div>}
 
