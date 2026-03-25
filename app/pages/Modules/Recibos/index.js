@@ -553,8 +553,15 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
         setActiveTab("facturas");
         setSending(false);
       } else {
+        const parsearErrorBejerman = (str) => {
+          if (!str || typeof str !== 'string') return str;
+          const idx = str.lastIndexOf('Mensaje');
+          if (idx === -1) return str;
+          const match = str.substring(idx).match(/Mensaje\s*=>\s*(.+)/i);
+          return match ? match[1].trim() : str;
+        };
         const errores = (result.errors || [])
-          .map(e => typeof e === 'object' ? JSON.stringify(e) : e)
+          .map(e => typeof e === 'object' ? JSON.stringify(e) : parsearErrorBejerman(e))
           .join('\n');
         const mensaje = typeof result.message === 'object'
           ? JSON.stringify(result.message)
