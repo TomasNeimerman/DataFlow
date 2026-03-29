@@ -9,7 +9,7 @@ import FormHeader from "../../../components/Recibos/FormHeader";
 import Tabs from "../../../components/Recibos/Tabs";
 import FacturasSection from "../../../components/Recibos/FacturasSection";
 import MediosSection from "../../../components/Recibos/MediosSection";
-
+import ValoresBox from "../../components/Recibos/ValoresBox";
 
 
 export default function RecibosPage() {

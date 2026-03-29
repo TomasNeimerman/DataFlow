@@ -794,7 +794,7 @@ async function createMainWindow() {
     width: 1280,
     height: 920,
     show: true,
-    icon: path.join(__dirname, '..', 'public' ,'logotitle.png'),
+    icon: path.join(__dirname, '..', 'public' ,'iconodesktop.png'),
     webPreferences: {
       preload: hasPreload ? preloadPath : undefined,
       contextIsolation: true,
