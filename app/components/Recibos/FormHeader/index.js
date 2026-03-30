@@ -1,7 +1,7 @@
-// pages/components/Recibos/FormHeader/index.js
+// app/components/Recibos/FormHeader/index.js
 "use client";
 import React from "react";
-import styles from "../../../pages/Modules/Recibos/styles.module.css"; // <<< IMPORT CORREGIDO
+import styles from "../../../pages/Modules/Recibos/styles.module.css";
 
 export default function FormHeader({
   tipos, monMtca, clientes,
@@ -18,6 +18,12 @@ export default function FormHeader({
     const [mon_codigo = "", mtca_codigo = ""] = String(v || "").split("||");
     return { mon_codigo, mtca_codigo };
   };
+
+  // ✅ FILTRAR: Solo Pesos (mon_codigo === "PES")
+  const monMtcaFiltered = (monMtca || []).filter(m => {
+    const cod = String(m.mon_codigo || "").trim().toUpperCase();
+    return cod === "PES" || cod === "PESOS";
+  });
 
   return (
     <>
@@ -72,10 +78,10 @@ export default function FormHeader({
             className={styles.selector}
             value={monSel.mon_codigo && monSel.mtca_codigo ? comboValue(monSel) : ""}
             onChange={(e) => setMonSel(parseCombo(e.target.value))}
-            disabled={!monMtca?.length}
+            disabled={!monMtcaFiltered?.length}
           >
             <option value="">Seleccione moneda / tipo</option>
-            {monMtca.map((m, i) => (
+            {monMtcaFiltered.map((m, i) => (
               <option key={`${m.mon_codigo}-${m.mtca_codigo}-${i}`} value={comboValue(m)}>
                 {m.mon_descrip} — {m.mtca_descrip}
               </option>
@@ -113,7 +119,13 @@ export default function FormHeader({
 
         <div className={styles.field}>
           <label>Saldo del cliente</label>
-          <input className={styles.input} readOnly value={`$ ${nfmt(saldoMostrado)}`} />
+          {/* ✅ MOSTRAR NEGATIVO: Sin Math.max, mostrar valor real (positivo o negativo) */}
+          <input 
+            className={styles.input} 
+            readOnly 
+            value={`$ ${nfmt(saldoMostrado)}`}
+            style={saldoMostrado < 0 ? { color: "#c00", fontWeight: "bold" } : {}}
+          />
         </div>
       </div>
     </>

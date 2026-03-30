@@ -10,11 +10,13 @@ import FormHeader from "../../../components/Recibos/FormHeader";
 import Tabs from "../../../components/Recibos/Tabs";
 import FacturasSection from "../../../components/Recibos/FacturasSection";
 import MediosSection from "../../../components/Recibos/MediosSection";
-
-
+import ValoresBox from "../../../components/Recibos/ValoresBox";
+import SubmitDock from "../../../components/Recibos/SubmitDock";
 
 export default function RecibosPage() {
-  const router = useRouter();
+  /* ======================= CIRCUITO (Ventas o Finanzas) ======================= */
+  const [circuito, setCircuito] = useState("V"); // "V" = Ventas, "F" = Finanzas
+
   /* ======================= Catálogos ======================= */
   const [tipos, setTipos] = useState([]);
   const [monMtca, setMonMtca] = useState([]);
@@ -31,13 +33,13 @@ export default function RecibosPage() {
   const [tcEditable, setTcEditable] = useState(false);
   const tcRef = useRef(null);
 
-  // Saldo de BD + “valor facturas” aplicado (congelado)
+  // Saldo de BD (congelado cuando se selecciona cliente)
   const [saldoBase, setSaldoBase] = useState(0);
+  // Valor de facturas seleccionadas (congelado cuando se presiona "Aplicar")
   const [valorFacturas, setValorFacturas] = useState(0);
 
   /* ======================= Facturas ======================= */
   const [facturas, setFacturas] = useState([]);
-  // idx -> {checked, monto}
   const [aplicaFact, setAplicaFact] = useState({});
 
   /* ======================= Medios (Cheques) ======================= */
@@ -46,7 +48,6 @@ export default function RecibosPage() {
   const [selCheques, setSelCheques] = useState(new Set());
   const [file, setFile] = useState(null);
   const [importMsg, setImportMsg] = useState("");
-  
 
   /* ======================= Medios (Transferencias/Cajas/Apps) ======================= */
   const [optsTransf, setOptsTransf] = useState([]);
@@ -63,6 +64,10 @@ export default function RecibosPage() {
   const [apSel, setApSel] = useState("");
   const [apMonto, setApMonto] = useState("");
   const [aplicAps, setAplicAps] = useState([]);
+
+  /* ======================= Movimientos de Fondos (Prioridad 3) ======================= */
+  const [optsMovFondos, setOptsMovFondos] = useState([]);
+  const [movFondosSel, setMovFondosSel] = useState("");
 
   /* ======================= UI ======================= */
   const [err, setErr] = useState("");
@@ -97,12 +102,13 @@ export default function RecibosPage() {
     );
   }, []);
 
+  // Carga de catálogos iniciales
   useEffect(() => {
     (async () => {
       try {
         setLoadingCore(true);
         const [rTipos, rMon] = await Promise.all([
-          window?.api?.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito: "V" }),
+          window?.api?.recibos?.getTiposComprobante?.({ tipoFijo: "RC", circuito }),
           window?.api?.recibos?.getMonedas?.(),
         ]);
         if (rTipos?.ok) {
@@ -127,8 +133,9 @@ export default function RecibosPage() {
         setLoadingCore(false);
       }
     })();
-  }, []);
+  }, [circuito]);
 
+  // Carga de clientes
   useEffect(() => {
     (async () => {
       try {
@@ -211,6 +218,7 @@ export default function RecibosPage() {
       })
       .filter((o) => o.value !== "|");
   };
+  
   const normalizeCajas = (raw) => {
     const rows = raw?.data ?? (Array.isArray(raw) ? raw : []);
     return rows.map((r) => {
@@ -220,6 +228,7 @@ export default function RecibosPage() {
       return { value: String(CodCaja), label: `${Caja} (${Moneda})` };
     });
   };
+  
   const normalizeAplicaciones = (raw) => {
     const rows = raw?.data ?? (Array.isArray(raw) ? raw : []);
     return rows.map((r) => {
@@ -250,218 +259,57 @@ export default function RecibosPage() {
     })();
   }, []);
 
-  /* ======================= Facturas: selección y límites ======================= */
+  /* ======================= Cálculos de Valores ======================= */
   const seleccionadoFacturas = useMemo(
     () => Object.values(aplicaFact).reduce((a, it) => a + (it?.checked ? Number(it.monto) || 0 : 0), 0),
     [aplicaFact]
   );
+
   const aplicarFacturas = () => setValorFacturas(seleccionadoFacturas);
 
-  // helper: total seleccionado menos una fila (para topear por saldo del cliente) -> lo usa el componente
   const totalSeleccionadoExcept = (index) =>
     Object.entries(aplicaFact).reduce((acc, [k, v]) => {
       if (Number(k) === Number(index)) return acc;
       return acc + (v?.checked ? (Number(v.monto) || 0) : 0);
     }, 0);
 
-  /* ======================= Cheques ======================= */
-  function onFileChange(e) {
-    setFile(e.target.files?.[0] || null);
-    setImportMsg("");
-  }
+  // Totales de medios
+  const aplicadoCheques = useMemo(
+    () => (Array.isArray(cheques) ? cheques : []).reduce((a, c, i) => {
+      if (!selCheques.has(i)) return a;
+      const importe = Number(c?.importe || c?.Importe || 0) || 0;
+      return a + importe;
+    }, 0),
+    [cheques, selCheques]
+  );
 
-  // columnas pedidas: Nro Echeq, Razón Social, Historial de Endosos, Fecha Vencimiento, Importe
-function mapRowToCheque(row, formato) {
-  // normaliza keys (acentos/espacios)
-  const norm = (s) =>
-    String(s || "")
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const dict = {};
-  for (const k of Object.keys(row || {})) dict[norm(k)] = row[k];
-
-  const get = (...keys) => {
-    for (const k of keys) {
-      const v = dict[norm(k)];
-      if (v !== undefined && v !== null && String(v).trim() !== "") return v;
-    }
-    return undefined;
-  };
-
-  // helper para intentar derivar razón social desde el historial de endosos (si viene vacío)
-  const deriveRazonFromHist = (hist) => {
-    const s = String(hist || "");
-    if (!s) return "";
-    const parts = s.split("-").map(x => x.trim()).filter(Boolean);
-    // ejemplo típico: "CUIT - 307... - ECOEXIST SRL - aceptado"
-    const filtered = parts.filter(p => {
-      const low = p.toLowerCase();
-      if (low === "cuit") return false;
-      if (/^\d{6,}$/.test(p)) return false;
-      if (/(aceptado|rechazado|pendiente|endoso)/.test(low)) return false;
-      return true;
-    });
-    // devolvemos el “nombre” más largo que quede
-    return filtered.sort((a,b)=>b.length-a.length)[0] || "";
-  };
-
-  // ------------------- ECHEQS -------------------
-  if (formato === "ECH") {
-    const nroEcheq =
-      get("Nro Echeq", "Numero de ECHEQ", "Nro ECHEQ", "Número de ECHEQ", "Numero Echeq");
-
-    const historialEndosos = get("Historial de Endosos", "Historial Endosos", "Endosos") || "";
-
-    // en algunos archivos puede venir como "Fecha Vencimiento" o "Fecha Pago"
-    const fechaVencimiento =
-      get("Fecha Vencimiento", "Fec Vencimiento", "Fecha Pago", "Fecha de Pago") || "";
-
-    const importe = get("Importe", "Monto");
-
-    // puede venir o no; si no viene, intentamos derivar del historial
-    const razonSocial =
-      get("Razón Social", "Razon Social", "Nombre o Razón Social", "Nombre o Razon Social") ||
-      deriveRazonFromHist(historialEndosos);
-
-    if (nroEcheq == null || importe == null) return null;
-
-    return {
-      tipoCheque: "ECH",
-      nroEcheq: String(nroEcheq || ""),
-      razonSocial: String(razonSocial || ""),
-      historialEndosos: String(historialEndosos || ""),
-      fechaVencimiento: fechaVencimiento ? String(fechaVencimiento) : "",
-      importe: Number(importe) || 0,
-    };
-  }
-
-  // ------------------- CHEQUES FÍSICOS -------------------
-  const nroCheque = get("Nro de Cheque", "Nro Cheque", "Numero de Cheque", "Número de Cheque", "Cheque");
-  const fechaPago = get("Fecha de Pago", "Fecha Pago");
-  const importe = get("Importe", "Monto");
-
-  const firmanteEmisor = get("Firmante/Emisor", "Firmante Emisor", "Emisor", "Librador") || "";
-  const cuitLibrador = get("CUIT Librador", "Cuit Librador", "CUIT") || "";
-  const codBanco = get("Cod. Banco", "Cod Banco", "Codigo Banco", "Código Banco") || "";
-  const estadoFirma = get("Estado Firma", "Estado") || "";
-  const observaciones = get("Observaciones", "Obs") || "";
-
-  if (nroCheque == null || importe == null) return null;
-
-  return {
-    tipoCheque: "CHE",
-    // para mantener tu tabla actual, seguimos guardando el número en nroEcheq (aunque sea físico)
-    nroEcheq: String(nroCheque || ""),
-    razonSocial: String(firmanteEmisor || ""),
-    historialEndosos: String([estadoFirma, observaciones].filter(Boolean).join(" - ")),
-    fechaVencimiento: fechaPago ? String(fechaPago) : "",
-    importe: Number(importe) || 0,
-
-    // extras por si después los necesitás
-    codBanco: String(codBanco || ""),
-    cuitLibrador: String(cuitLibrador || ""),
-    estadoFirma: String(estadoFirma || ""),
-    observaciones: String(observaciones || ""),
-  };
-}
-
-async function cargarCheques() {
-  try {
-    if (!file) {
-      setImportMsg("Seleccioná un archivo.");
-      return;
-    }
-
-    const XLSX = await import("xlsx");
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    const sh = wb.SheetNames[0];
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sh], { defval: "" });
-
-    if (!rows.length) {
-      setCheques([]);
-      setSelCheques(new Set());
-      setChequesFormato("");
-      setImportMsg("El archivo no tiene filas.");
-      return;
-    }
-
-    // Detecta formato por headers
-    const norm = (s) =>
-      String(s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-    const headers = new Set(Object.keys(rows[0] || {}).map(norm));
-    const esFisico = headers.has(norm("Nro de Cheque")) || headers.has(norm("Firmante/Emisor")) || headers.has(norm("Cod. Banco"));
-    const formato = esFisico ? "CHE" : "ECH";
-
-    const mapped = rows.map(r => mapRowToCheque(r, formato)).filter(Boolean);
-
-    setCheques(mapped);
-    setSelCheques(new Set());
-    setChequesFormato(formato);
-    setImportMsg(`Se importaron ${mapped.length} cheque(s). (${formato === "ECH" ? "ECheqs" : "Físicos"})`);
-    setActiveTab("medios");
-  } catch (e) {
-    console.error(e);
-    setImportMsg("Error procesando planilla.");
-  }
-}
-
-  function cancelarCheques() {
-    setCheques([]);
-    setSelCheques(new Set());
-    setImportMsg("");
-    setFile(null);
-  }
-
-  const aplicadoCheques = useMemo(() => {
-    let sum = 0;
-    selCheques.forEach((i) => (sum += Number(cheques[i]?.importe) || 0));
-    return sum;
-  }, [selCheques, cheques]);
-
-  /* ======================= Medios totales ======================= */
   const aplicadoTransf = useMemo(
-    () => 0 + (Array.isArray(aplicTransf) ? aplicTransf : []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
+    () => (aplicTransf || []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
     [aplicTransf]
   );
+
   const aplicadoCajas = useMemo(
-    () => 0 + (Array.isArray(aplicCajas) ? aplicCajas : []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
+    () => (aplicCajas || []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
     [aplicCajas]
   );
+
   const aplicadoAps = useMemo(
-    () => 0 + (Array.isArray(aplicAps) ? aplicAps : []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
+    () => (aplicAps || []).reduce((a, b) => a + (Number(b.monto) || 0), 0),
     [aplicAps]
   );
 
   const aplicadoMedios = aplicadoCheques + aplicadoTransf + aplicadoCajas + aplicadoAps;
 
-  // Restante contra valor de facturas (puede ser negativo => a favor)
+  // Estados del recibo
   const restanteVsFact = valorFacturas - aplicadoMedios;
   const excedentePos = Math.max(0, aplicadoMedios - valorFacturas);
-  const facturasaplic = Number(valorFacturas || 0) - Number(aplicadoMedios || 0);
-  // ===== Distinguir recibo a cuenta vs con facturas =====
-const esReciboACuenta = Number(valorFacturas || 0) <= 0;
+  const esReciboACuenta = Number(valorFacturas || 0) <= 0;
+  const saldoRestanteCliente = Math.max(0, saldoBase - valorFacturas);
+  const facturasPendienteMonto = Math.max(0, Number(valorFacturas || 0) - Number(aplicadoMedios || 0));
+  const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
+    (it) => it?.checked && Number(it?.monto || 0) > 0
+  ).length;
 
-// saldo del cliente "reservado" (ya lo venías mostrando)
-const saldoRestanteCliente = Math.max(0, saldoBase - valorFacturas);
-
-// pendiente de facturas (si hay facturas aplicadas)
-const facturasPendienteMonto = Math.max(0, Number(valorFacturas || 0) - Number(aplicadoMedios || 0));
-
-// cantidad de facturas seleccionadas/aplicadas (por ahora)
-const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
-  (it) => it?.checked && Number(it?.monto || 0) > 0
-).length;
   /* ======================= Add / Del medios ======================= */
   function addTransf() {
     if (!transfSel || !transfMonto) return;
@@ -473,7 +321,9 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
     setTransfSel("");
     setTransfMonto("");
   }
-  function delTransf(i) { setAplicTransf((p) => p.filter((_, idx) => idx !== i)); }
+  function delTransf(i) {
+    setAplicTransf((p) => p.filter((_, idx) => idx !== i));
+  }
 
   function addCaja() {
     if (!cajaSel || !cajaMonto) return;
@@ -485,7 +335,9 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
     setCajaSel("");
     setCajaMonto("");
   }
-  function delCaja(i) { setAplicCajas((p) => p.filter((_, idx) => idx !== i)); }
+  function delCaja(i) {
+    setAplicCajas((p) => p.filter((_, idx) => idx !== i));
+  }
 
   function addAp() {
     if (!apSel || !apMonto) return;
@@ -497,9 +349,180 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
     setApSel("");
     setApMonto("");
   }
-  function delAp(i) { setAplicAps((p) => p.filter((_, idx) => idx !== i)); }
+  function delAp(i) {
+    setAplicAps((p) => p.filter((_, idx) => idx !== i));
+  }
 
-  /* ======================= Confirmar ======================= */
+  /* ======================= Cheques ======================= */
+  function onFileChange(e) {
+    setFile(e.target.files?.[0] || null);
+    setImportMsg("");
+  }
+
+  // Helper: parsear fecha DD/MM/AAAA a ISO string
+  function parseFecha(fechaStr) {
+    if (!fechaStr) return "";
+    const str = String(fechaStr).trim();
+    
+    // Intenta formato DD/MM/AAAA
+    const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+      const [, day, month, year] = match;
+      const d = new Date(Number(year), Number(month) - 1, Number(day));
+      if (!isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    }
+
+    // Intenta otros formatos comunes
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    } catch (e) {
+      // ignorar
+    }
+
+    return str; // Devolver como está si no se puede parsear
+  }
+
+  function cargarCheques() {
+    if (!file || !chequesFormato) {
+      setImportMsg("Selecciona un archivo y un formato.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const XLSX = await import("xlsx");
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const sh = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sh, { defval: "" });
+
+        if (!rows.length) {
+          setImportMsg("⚠️ El archivo está vacío.");
+          return;
+        }
+
+        // Parsear cheques según formato
+        const chequesParsed = rows
+          .map((row) => mapRowToCheque(row, chequesFormato))
+          .filter(Boolean);
+
+        if (!chequesParsed.length) {
+          setImportMsg("⚠️ No se encontraron cheques válidos en el archivo.");
+          return;
+        }
+
+        setCheques(chequesParsed);
+        setImportMsg(`✓ ${chequesParsed.length} cheques cargados correctamente.`);
+      } catch (error) {
+        console.error("Error cargando cheques:", error);
+        setImportMsg("❌ Error al procesar el archivo.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // Helper: parsear fila del Excel a objeto cheque
+  function mapRowToCheque(row, formato) {
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const dict = {};
+    for (const k of Object.keys(row || {})) {
+      dict[norm(k)] = row[k];
+    }
+
+    const get = (...keys) => {
+      for (const k of keys) {
+        const v = dict[norm(k)];
+        if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+      }
+      return undefined;
+    };
+
+    // Helper para derivar razón social desde historial de endosos
+    const deriveRazonFromHist = (hist) => {
+      const s = String(hist || "");
+      if (!s) return "";
+      const parts = s.split("-").map(x => x.trim()).filter(Boolean);
+      const filtered = parts.filter(p => {
+        const low = p.toLowerCase();
+        if (low === "cuit") return false;
+        if (/^\d{6,}$/.test(p)) return false;
+        if (/(aceptado|rechazado|pendiente|endoso)/.test(low)) return false;
+        return true;
+      });
+      return filtered.sort((a,b)=>b.length-a.length)[0] || "";
+    };
+
+    // ECheqs
+    if (formato === "ECH") {
+      const nroEcheq = get("nro echeq", "numero de echeq", "nro echeq", "numero echeq");
+      const historialEndosos = get("historial de endosos", "historial endosos", "endosos") || "";
+      const fechaVencimiento = get("fecha vencimiento", "fec vencimiento", "fecha pago", "fecha de pago") || "";
+      const importe = get("importe", "monto");
+      const razonSocial = get("razon social", "razon social", "nombre o razon social", "nombre o razon social") || deriveRazonFromHist(historialEndosos);
+
+      if (nroEcheq == null || importe == null) return null;
+
+      return {
+        tipoCheque: "ECH",
+        nroEcheq: String(nroEcheq || ""),
+        razonSocial: String(razonSocial || ""),
+        historialEndosos: String(historialEndosos || ""),
+        fechaVencimiento: parseFecha(fechaVencimiento),
+        importe: Number(importe) || 0,
+      };
+    }
+
+    // Cheques Físicos
+    if (formato === "CHE") {
+      const nroCheque = get("nro de cheque", "numero de cheque", "nro cheque", "numero cheque");
+      const fechaPago = get("fecha de pago", "fecha pago", "fecha vencimiento", "fec vencimiento");
+      const importe = get("importe", "monto");
+      const firmante = get("firmante/emisor", "firmante", "emisor") || "";
+      const cuitLibrador = get("cuit librador", "cuit", "cuit del librador") || "";
+      const codBanco = get("cod. banco", "codigo banco", "banco", "cod banco") || "";
+      const estadoFirma = get("estado firma", "estado", "estado de firma") || "";
+      const observaciones = get("observaciones", "obs", "observacion") || "";
+
+      if (nroCheque == null || importe == null) return null;
+
+      return {
+        tipoCheque: "CHE",
+        nroEcheq: String(nroCheque || ""),
+        razonSocial: String(firmante || ""),
+        cuitLibrador: String(cuitLibrador || ""),
+        codBanco: String(codBanco || ""),
+        estadoFirma: String(estadoFirma || ""),
+        observaciones: String(observaciones || ""),
+        fechaVencimiento: parseFecha(fechaPago),
+        importe: Number(importe) || 0,
+      };
+    }
+
+    return null;
+  }
+
+  function cancelarCheques() {
+    setCheques([]);
+    setSelCheques(new Set());
+    setFile(null);
+    setChequesFormato("");
+    setImportMsg("");
+  }
+
+  /* ======================= Validación y Confirmación ======================= */
   const ready = !!(tipoComprobante && fecha && cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
   const canConfirm = esReciboACuenta
     ? aplicadoMedios > 0
@@ -660,10 +683,24 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
         </div>
       )}
       <div className={styles.container}>
-        {/* ---------- STICKY HEADER ---------- */}
+        {/* Selector de Circuito (Prioridad 3) */}
+        {circuito === "F" && (
+          <div className={styles.circuitoSelector}>
+            <label>
+              <input
+                type="checkbox"
+                checked={circuito === "F"}
+                onChange={(e) => setCircuito(e.target.checked ? "F" : "V")}
+              />
+              {" "}Recibos de Finanzas (Cobros Varios)
+            </label>
+          </div>
+        )}
+
+        {/* STICKY HEADER */}
         <div className={styles.stickyHead}>
           <div className={styles.titleContainer}>
-            <h1 className={styles.title}>Recibos</h1>
+            <h1 className={styles.title}>Recibos {circuito === "F" ? "- Finanzas" : ""}</h1>
           </div>
 
           {successMsg && <div className={styles.successBox}>{successMsg}</div>}
@@ -690,13 +727,30 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
             tcRef={tcRef}
             saldoMostrado={Math.max(0, saldoBase - valorFacturas)}
             nfmt={nfmt}
+            esFinanzas={circuito === "F"}
           />
 
-          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />
+          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} esFinanzas={circuito === "F"} />
         </div>
 
-        {/* ======================= FACTURAS ======================= */}
-        {activeTab === "facturas" && (
+        {/* VALORES BOX FIJO (Prioridad 1) */}
+        <div className={styles.valoresBoxSticky}>
+          <ValoresBox
+            saldoTotalCliente={saldoBase}
+            saldoDisponible={saldoRestanteCliente}
+            valorFacturas={valorFacturas}
+            seleccionadoFacturas={seleccionadoFacturas}
+            cantFacturasAplicadas={cantFacturasAplicadas}
+            totalValores={aplicadoMedios}
+            esReciboACuenta={esReciboACuenta}
+            nfmt={nfmt}
+            excedentePos={excedentePos}
+            restanteVsFact={restanteVsFact}
+          />
+        </div>
+
+        {/* CONTENIDO POR PESTAÑA */}
+        {circuito === "V" && activeTab === "facturas" && (
           <FacturasSection
             facturas={facturas}
             aplicaFact={aplicaFact}
@@ -713,7 +767,6 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
           />
         )}
 
-        {/* ======================= MEDIOS DE COBRO ======================= */}
         {activeTab === "medios" && (
           <MediosSection
             // cheques
@@ -725,19 +778,23 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
             selCheques={selCheques}
             setSelCheques={setSelCheques}
             importMsg={importMsg}
+            setImportMsg={setImportMsg}
             chequesFormato={chequesFormato}
             setChequesFormato={setChequesFormato}
             // totales / info
             aplicadoMedios={aplicadoMedios}
             restanteVsFact={restanteVsFact}
             excedentePos={excedentePos}
-            facturasaplic={facturasaplic}
-            nfmt={nfmt}
-            dfmt={dfmt}
             esReciboACuenta={esReciboACuenta}
             saldoRestanteCliente={saldoRestanteCliente}
             facturasPendienteMonto={facturasPendienteMonto}
             cantFacturasAplicadas={cantFacturasAplicadas}
+            nfmt={nfmt}
+            dfmt={dfmt}
+            esFinanzas={circuito === "F"}
+            movFondosSel={movFondosSel}
+            setMovFondosSel={setMovFondosSel}
+            optsMovFondos={optsMovFondos}
             // transferencias
             optsTransf={optsTransf}
             transfSel={transfSel}
@@ -768,12 +825,14 @@ const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
           />
         )}
 
-        {/* ======= Submit Dock (dentro del contenedor) ======= */}
-        <div className={styles.submitDock}>
-          <button className={styles.submitBtn} disabled={!ready || !canConfirm || sending} onClick={onConfirmar}>
-            {sending ? "Enviando..." : Number(valorFacturas || 0) <= 0 ? "Confirmar Recibo a Cuenta" : "Confirmar Recibos"}
-          </button>
-        </div>
+        {/* SUBMIT DOCK */}
+        <SubmitDock
+          ready={ready}
+          canConfirm={canConfirm}
+          onConfirmar={onConfirmar}
+          esReciboACuenta={esReciboACuenta}
+          valorFacturas={valorFacturas}
+        />
       </div>
     </div>
   );

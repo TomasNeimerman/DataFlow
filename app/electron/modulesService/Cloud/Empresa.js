@@ -37,8 +37,9 @@ async function hasManagerDb() {
 }
 
 /**
- * Empresas habilitadas en manager.dbo.emp
- * SELECT emp_codigo, emp_razsoc, emp_cuit WHERE emp_habili=1
+ * ✅ MODIFICADO: Empresas habilitadas en manager.dbo.emp
+ * Ahora con JOIN a bas tabla para filtrar por ssis_codigo = 'WFLEX'
+ * SELECT emp_codigo, emp_razsoc, emp_cuit WHERE emp_habili=1 AND ssis_codigo='WFLEX'
  */
 async function getEmpresasHabilitadas() {
   let pool;
@@ -46,14 +47,19 @@ async function getEmpresasHabilitadas() {
     pool = await sql.connect(mssqlCfg('manager'));
     const rs = await pool.request().query(`
       SELECT
-        LTRIM(RTRIM(emp_codigo)) AS Codigo,
-        LTRIM(RTRIM(emp_razsoc)) AS RazonSocial,
-        LTRIM(RTRIM(emp_cuit))   AS Cuit
+        LTRIM(RTRIM(emp.emp_codigo)) AS Codigo,
+        LTRIM(RTRIM(emp.emp_razsoc)) AS RazonSocial,
+        LTRIM(RTRIM(emp.emp_cuit))   AS Cuit
       FROM dbo.emp WITH (NOLOCK)
-      WHERE emp_habili = 1
-        AND emp_codigo IS NOT NULL
-        AND LTRIM(RTRIM(emp_codigo)) <> ''
-      ORDER BY emp_codigo;
+      INNER JOIN dbo.bas WITH (NOLOCK) 
+        ON emp.emp_codigo = bas.emp_codigo
+          OR emp.emp_codigo = bas.emp_codigo
+          OR LTRIM(RTRIM(emp.emp_codigo)) = LTRIM(RTRIM(bas.emp_codigo))
+      WHERE emp.emp_habili = 1
+        AND bas.ssis_codigo = 'WFLEX'
+        AND emp.emp_codigo IS NOT NULL
+        AND LTRIM(RTRIM(emp.emp_codigo)) <> ''
+      ORDER BY emp.emp_codigo;
     `);
     return rs.recordset || [];
   } finally {
@@ -92,42 +98,62 @@ async function getClientServer(user, pass) {
     return rows?.[0]?.Server;
   });
 }
+
 /**
  * Verifica que el usuario tenga habilitada la empresa (Nombre == emp_codigo).
  * Si matchea, escribe userDbConfig.properties con SOLO DB_DATABASE = InstanciaBD.
  */
 async function verifyEmpresaHabilitadaYGuardar(idCliente, empCodigo) {
   if (!idCliente || !empCodigo) {
-    return { success: false, message: 'Faltan parámetros (idCliente/empCodigo).' };
+    return { success: false, message: 'Faltan parámetros (idCliente/empCodigo).'};
   }
 
-  // 1) Buscar en la nube si el usuario tiene esa empresa
-  const empresas = await getEmpresasNubeByCliente(idCliente);
-  const match = empresas.find((r) => norm(r.Nombre) === norm(empCodigo));
-
+  // 1) Traer la empresa del listado habilitado
+  const habilitadas = await getEmpresasHabilitadas();
+  const match = habilitadas.find(e => norm(e.Codigo) === norm(empCodigo));
   if (!match) {
-    return {
-      success: false,
-      code: 'NOT_ENABLED',
-      message: 'El usuario no esta habilitado para operar esa empresa',
-    };
+    return { success: false, message: `La empresa '${empCodigo}' no está habilitada o no existe en el sistema.` };
   }
 
-  // 2) Persistir SOLO la DB en el properties (server/user/pass/port son fijos en userDbConfig)
-  const propertiesPath = writeAdminDbConfig({ database: match.InstanciaBD });
+  // 2) Traer la empresa de la nube (para obtener InstanciaBD)
+  const nubes = await getEmpresasNubeByCliente(idCliente);
+  const nube = nubes.find(e => norm(e.Nombre) === norm(empCodigo));
+  if (!nube || !nube.InstanciaBD) {
+    return { success: false, message: `No se encontró la instancia de BD para la empresa '${empCodigo}'.` };
+  }
 
-  // 3) (Opcional) Confirmar qué DB quedó activa
-  const effective = getAdminDbConfig();
-  const effectiveDb = effective?.database;
+  // 3) Escribe en userDbConfig.properties
+  await writeAdminDbConfig({ database: nube.InstanciaBD });
 
   return {
     success: true,
     data: {
-      nombre: match.Nombre,
-      instanciaBD: match.InstanciaBD,
-      razonSocial: match.RazonSocial,
-      propertiesPath,
-      effectiveDatabase: effectiveDb,
+      emp_codigo: match.Codigo,
+      emp_razsoc: match.RazonSocial,
+      emp_cuit: match.Cuit,
+      instanciaBD: nube.InstanciaBD,
+    },
+  };
+}
+
+async function verifyEmpresaHabilitada(idCliente, empCodigo) {
+  // Vía cloud: get empresa + set InstanciaBD
+  const habilitadas = await getEmpresasHabilitadas();
+  const match = habilitadas.find(e => norm(e.Codigo) === norm(empCodigo));
+  if (!match) return { success: false, message: `Empresa '${empCodigo}' no habilitada.` };
+
+  const nubes = await getEmpresasNubeByCliente(idCliente);
+  const nube = nubes.find(e => norm(e.Nombre) === norm(empCodigo));
+  if (!nube?.InstanciaBD) return { success: false, message: `InstanciaBD no encontrada.` };
+
+  await writeAdminDbConfig({ database: nube.InstanciaBD });
+  return {
+    success: true,
+    data: {
+      emp_codigo: match.Codigo,
+      emp_razsoc: match.RazonSocial,
+      emp_cuit: match.Cuit,
+      instanciaBD: nube.InstanciaBD,
     },
   };
 }
@@ -136,6 +162,7 @@ module.exports = {
   hasManagerDb,
   getEmpresasHabilitadas,
   getEmpresasNubeByCliente,
+  getClientServer,
+  verifyEmpresaHabilitada,
   verifyEmpresaHabilitadaYGuardar,
-  getClientServer
 };
