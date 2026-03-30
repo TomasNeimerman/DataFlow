@@ -1,4 +1,4 @@
-// app/components/Recibos/FormHeader/index.js
+// components/Recibos/FormHeader/index.js
 "use client";
 import React from "react";
 import styles from "../../../pages/Modules/Recibos/styles.module.css";
@@ -11,7 +11,8 @@ export default function FormHeader({
   monSel, setMonSel,
   tc, setTc,
   readySaldoFact, monEditable, tcEditable, toggleTcEdit, tcRef,
-  saldoMostrado, nfmt
+  saldoMostrado, nfmt,
+  esFinanzas = false
 }) {
   const comboValue = (m) => `${m.mon_codigo}||${m.mtca_codigo}`;
   const parseCombo = (v) => {
@@ -19,11 +20,10 @@ export default function FormHeader({
     return { mon_codigo, mtca_codigo };
   };
 
-  // ✅ FILTRAR: Solo Pesos (mon_codigo === "PES")
-  const monMtcaFiltered = (monMtca || []).filter(m => {
-    const cod = String(m.mon_codigo || "").trim().toUpperCase();
-    return cod === "PES" || cod === "PESOS";
-  });
+  // Filtrar monedas: en Finanzas solo mostrar Pesos (mon_codigo = "1")
+  const displayMonedas = esFinanzas
+    ? monMtca.filter(m => String(m.mon_codigo) === "1")
+    : monMtca;
 
   return (
     <>
@@ -73,20 +73,13 @@ export default function FormHeader({
         </div>
 
         <div className={styles.field}>
-          <label>Moneda / Tipo de Cambio</label>
-          <select
-            className={styles.selector}
-            value={monSel.mon_codigo && monSel.mtca_codigo ? comboValue(monSel) : ""}
-            onChange={(e) => setMonSel(parseCombo(e.target.value))}
-            disabled={!monMtcaFiltered?.length}
-          >
-            <option value="">Seleccione moneda / tipo</option>
-            {monMtcaFiltered.map((m, i) => (
-              <option key={`${m.mon_codigo}-${m.mtca_codigo}-${i}`} value={comboValue(m)}>
-                {m.mon_descrip} — {m.mtca_descrip}
-              </option>
-            ))}
-          </select>
+          <label>Moneda</label>
+          <input
+            className={`${styles.input} ${styles.readonlyGray}`}
+            readOnly
+            value={monSel.mon_codigo ? `Pesos — Tipo de Cambio único` : ""}
+            title="Pesos (automático, no modificable)"
+          />
         </div>
 
         <div className={`${styles.field} ${tcEditable ? styles.editing : ""}`}>
@@ -119,12 +112,11 @@ export default function FormHeader({
 
         <div className={styles.field}>
           <label>Saldo del cliente</label>
-          {/* ✅ MOSTRAR NEGATIVO: Sin Math.max, mostrar valor real (positivo o negativo) */}
           <input 
-            className={styles.input} 
+            className={`${styles.input} ${styles.readonlyGray}`}
             readOnly 
             value={`$ ${nfmt(saldoMostrado)}`}
-            style={saldoMostrado < 0 ? { color: "#c00", fontWeight: "bold" } : {}}
+            title="Saldo disponible del cliente (información)"
           />
         </div>
       </div>
