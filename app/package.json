@@ -1,8 +1,8 @@
 {
-  "name": "DataFlow-SDK",
-  "version": "0.9.0",
-  "description": "DataFlow-SDK",
-  "productName": "DataFlow-SDK",
+  "name": "dataflow",
+  "productname": "DataFlow",
+  "version": "1.0.3",
+  "description": "DataFlow",
   "private": true,
   "author": "Consultora de Negocios Empresrios S.R.L.",
   "main": "electron/main.js",
@@ -59,11 +59,11 @@
   },
   "build": {
     "appId": "com.DataFlow.updater",
-    "productName": "DataFlow-SDK",
+    "productName": "DataFlow",
     "npmRebuild": true,
     "asar": false,
     "directories": {
-      "output": "DataFlow-SDK ${version}",
+      "output": "DataFlow ${version}",
       "buildResources": "electron/build"
     },
     "extraResources": [
