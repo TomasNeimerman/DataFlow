@@ -144,7 +144,20 @@ export default function RecibosPage() {
   }, []);
 
   /* ======================= Tipo de cambio ======================= */
-  const readySaldoFact = !!(cliente && monSel.mon_codigo && monSel.mtca_codigo);
+  const readySaldoFact = !!(cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
+
+  // Auto-seleccionar Pesos SIEMPRE (en Finanzas y Ventas)
+  useEffect(() => {
+    if ((!monSel.mon_codigo || !monSel.mtca_codigo) && monMtca.length > 0) {
+      const pesos = monMtca.find(m => String(m.mon_codigo) === "1" || String(m.mon_codigo).toUpperCase() === "PES");
+      if (pesos) {
+        setMonSel({
+          mon_codigo: pesos.mon_codigo,
+          mtca_codigo: pesos.mtca_codigo,
+        });
+      }
+    }
+  }, [monMtca, setMonSel]);
 
   useEffect(() => {
     (async () => {
@@ -186,11 +199,71 @@ export default function RecibosPage() {
           window?.api?.recibos?.getSaldoCliente?.(payload),
           window?.api?.recibos?.getFacturas?.(payload),
         ]);
-        setSaldoBase(Number(sf?.saldo || 0));
-        setFacturas(ff?.ok ? ff.data || [] : []);
+        
+        // Extraer saldo - buscar en múltiples ubicaciones
+        let saldoValue = 0;
+        if (sf) {
+          // Si es un número directo
+          if (typeof sf === 'number') {
+            saldoValue = sf;
+          }
+          // Si tiene propiedad saldo
+          else if (sf.saldo !== undefined) {
+            saldoValue = Number(sf.saldo);
+          }
+          // Si tiene data con saldo
+          else if (sf.data?.saldo !== undefined) {
+            saldoValue = Number(sf.data.saldo);
+          }
+          // Si data es un número
+          else if (typeof sf.data === 'number') {
+            saldoValue = sf.data;
+          }
+          // Si data es un objeto con saldo
+          else if (sf.data?.data?.saldo !== undefined) {
+            saldoValue = Number(sf.data.data.saldo);
+          }
+          // Búsqueda de emergencia: buscar cualquier valor numérico
+          else if (typeof sf === 'object') {
+            // Buscar primera propiedad numérica
+            for (let key in sf) {
+              const val = Number(sf[key]);
+              if (!isNaN(val) && val > 0) {
+                saldoValue = val;
+                break;
+              }
+              // Si es un objeto, buscar dentro
+              if (typeof sf[key] === 'object' && sf[key] !== null) {
+                for (let innerKey in sf[key]) {
+                  const innerVal = Number(sf[key][innerKey]);
+                  if (!isNaN(innerVal) && innerVal > 0) {
+                    saldoValue = innerVal;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        setSaldoBase(Number(saldoValue) || 0);
+        
+        // Extraer facturas
+        let facturas = [];
+        if (ff?.ok && ff.data) {
+          facturas = Array.isArray(ff.data) ? ff.data : (ff.data.data || []);
+        } else if (Array.isArray(ff?.data)) {
+          facturas = ff.data;
+        } else if (Array.isArray(ff)) {
+          facturas = ff;
+        }
+        
+        setFacturas(facturas);
         setAplicaFact({});
       } catch (e) {
-        console.error(e);
+        console.error("Error en getSaldoCliente:", e);
+        setSaldoBase(0);
+        setFacturas([]);
       }
     })();
   }, [cliente, monSel.mon_codigo, monSel.mtca_codigo, tc]);
