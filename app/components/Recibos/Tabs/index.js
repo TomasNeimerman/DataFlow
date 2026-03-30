@@ -1,22 +1,26 @@
-// pages/components/Recibos/Tabs/index.js
+// components/Recibos/Tabs/index.js
 "use client";
 import React from "react";
-import styles from "../../../pages/Modules/Recibos/styles.module.css"
+import styles from "../../../pages/Modules/Recibos/styles.module.css";
 
-export default function Tabs({ activeTab, setActiveTab }) {
+export default function Tabs({ activeTab, setActiveTab, esFinanzas = false }) {
   return (
     <div className={styles.toggleContainer}>
-      <button
-        className={`${styles.toggleButton} ${activeTab === "facturas" ? styles.active : ""}`}
-        onClick={() => setActiveTab("facturas")}
-      >
-        Facturas
-      </button>
+      {/* Mostrar pestaña Facturas solo si es Ventas */}
+      {!esFinanzas && (
+        <button
+          className={`${styles.toggleButton} ${activeTab === "facturas" ? styles.active : ""}`}
+          onClick={() => setActiveTab("facturas")}
+        >
+          Facturas
+        </button>
+      )}
+      
       <button
         className={`${styles.toggleButton} ${activeTab === "medios" ? styles.active : ""}`}
         onClick={() => setActiveTab("medios")}
       >
-        Medios de Cobro
+        Medios de Cobro {esFinanzas ? "(Fondos)" : ""}
       </button>
     </div>
   );

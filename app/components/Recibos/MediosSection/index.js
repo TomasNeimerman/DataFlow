@@ -1,6 +1,7 @@
+// components/Recibos/MediosSection/index.js
 "use client";
 import React from "react";
-import styles from "../../../pages/Modules/Recibos/styles.module.css"; // ✅ ruta correcta desde pages/components/...
+import styles from "../../../pages/Modules/Recibos/styles.module.css";
 
 export default function MediosSection({
   // cheques
@@ -12,12 +13,10 @@ export default function MediosSection({
   selCheques,
   setSelCheques,
   importMsg,
+  chequesFormato,
+  setChequesFormato,
 
-  // ✅ NUEVO: formato seleccionado
-  chequesFormato,          // "ECH" | "CHE" | ""
-  setChequesFormato,       // setter desde la página
-
-  // header info
+  // totales / info
   aplicadoMedios,
   restanteVsFact,
   excedentePos,
@@ -25,10 +24,14 @@ export default function MediosSection({
   saldoRestanteCliente,
   facturasPendienteMonto,
   cantFacturasAplicadas,
-
-  // helpers
   nfmt,
   dfmt,
+
+  // Finanzas support
+  esFinanzas = false,
+  movFondosSel,
+  setMovFondosSel,
+  optsMovFondos,
 
   // transferencias
   optsTransf,
@@ -60,7 +63,6 @@ export default function MediosSection({
   addAp,
   delAp,
 }) {
-  // ===== TOTAL no seleccionable + "seleccionar todos" sin TOTAL =====
   const esFilaTotal = (c) => {
     const a = String(c?.nroEcheq ?? "").trim().toUpperCase();
     const b = String(c?.razonSocial ?? "").trim().toUpperCase();
@@ -82,34 +84,35 @@ export default function MediosSection({
     else setSelCheques(new Set());
   };
 
-  // labels según formato (solo texto)
   const labelNro = chequesFormato === "CHE" ? "Nro Cheque" : "Nro Echeq";
   const labelHist = chequesFormato === "CHE" ? "Estado / Obs." : "Historial de Endosos";
   const labelFecha = chequesFormato === "CHE" ? "Fecha de Pago" : "Fecha Vencimiento";
 
   return (
     <div className={styles.tabInner}>
-      {/* ===== Header saldo ===== */}
+      {/* HEADER CON INFO (mejorado - "Valores" en lugar de "Aplicado") */}
       <div className={styles.saldoHeader}>
         <div className={styles.favorRow}>
-          <span>
-            <strong>Saldo Restante:</strong> $ {nfmt(saldoRestanteCliente)}
-          </span>
+          {!esReciboACuenta && (
+            <>
+              <span>
+                <strong>Saldo Restante:</strong> $ {nfmt(saldoRestanteCliente)}
+              </span>
+              <span>·</span>
+            </>
+          )}
 
           {!esReciboACuenta && (
             <>
-              <span>·</span>
-
               {facturasPendienteMonto > 0 ? (
                 <span>
                   <strong>Facturas a pagar:</strong> $ {nfmt(facturasPendienteMonto)}
                 </span>
               ) : (
                 <span className={styles.parenGreen}>
-                  <strong>Facturas a pagar</strong> (a favor): {nfmt(excedentePos)}
+                  <strong>Facturas a pagar</strong> (a favor): $ {nfmt(excedentePos)}
                 </span>
               )}
-
               <span>·</span>
               <span>
                 <strong>Cant. facturas:</strong> {cantFacturasAplicadas}
@@ -119,7 +122,7 @@ export default function MediosSection({
         </div>
 
         <div>
-          Aplicado: <strong>$ {nfmt(aplicadoMedios)}</strong> ·{" "}
+          <strong>Total Valores:</strong> $ {nfmt(aplicadoMedios)} ·{" "}
           {esReciboACuenta ? (
             <>
               Saldo Total: <strong>$ {nfmt(saldoRestanteCliente)}</strong>
@@ -135,22 +138,48 @@ export default function MediosSection({
         </div>
       </div>
 
-      {/* ======================= Cheques ======================= */}
+      {/* MOVIMIENTOS DE FONDOS (solo Finanzas) */}
+      {esFinanzas && (
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <span className={styles.cardTitle}>Movimiento de Fondos</span>
+          </div>
+          <div className={styles.cardBody}>
+            <div className={styles.filtersGrid}>
+              <div className={styles.filterItem}>
+                <label className={styles.label}>Tipo de Movimiento</label>
+                <select
+                  className={styles.select}
+                  value={movFondosSel}
+                  onChange={(e) => setMovFondosSel(e.target.value)}
+                >
+                  <option value="">(Seleccione)</option>
+                  {(optsMovFondos || []).map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================= Cheques / ECheqs ======================= */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
+        <div className={styles.cardHeader}>
           <span className={styles.cardTitle}>Cheques / ECheqs</span>
-        </button>
+        </div>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
-            {/* ✅ NUEVO: selector de tipo */}
             <div className={styles.filterItem}>
               <label className={styles.label}>Tipo</label>
               <select
                 className={styles.select}
                 value={chequesFormato || ""}
                 onChange={(e) => {
-                  // cambio de tipo => limpío cheques + archivo (para evitar mezcla)
                   cancelarCheques();
                   setChequesFormato(e.target.value);
                 }}
@@ -185,7 +214,11 @@ export default function MediosSection({
 
             <div className={styles.filterItem}>
               <label className={styles.label}>&nbsp;</label>
-              <button className={styles.btn} onClick={cancelarCheques} disabled={!cheques?.length}>
+              <button
+                className={styles.btn}
+                onClick={cancelarCheques}
+                disabled={!cheques?.length}
+              >
                 Cancelar
               </button>
             </div>
@@ -197,9 +230,8 @@ export default function MediosSection({
 
           {importMsg && <div className={styles.muted}>{importMsg}</div>}
 
-          {/* Tabla SOLO si hay cheques importados */}
-          {!!cheques?.length && (
-            <div className={styles.tableContainer} style={{ marginTop: 8 }}>
+          {cheques?.length > 0 && (
+            <div className={`${styles.cardBody} ${styles.tableContainer}`}>
               <table className={styles.table}>
                 <thead className={styles.headerRow}>
                   <tr>
@@ -207,8 +239,8 @@ export default function MediosSection({
                       <input
                         type="checkbox"
                         checked={allChequesChecked}
-                        disabled={!indicesSeleccionables.length}
                         onChange={toggleAllCheques}
+                        title="Seleccionar todos"
                       />
                     </th>
                     <th>{labelNro}</th>
@@ -218,32 +250,45 @@ export default function MediosSection({
                     <th className={styles.tdRight}>Importe</th>
                   </tr>
                 </thead>
-
                 <tbody>
-                  {cheques.map((c, i) => (
-                    <tr key={`${c?.nroEcheq || i}-${i}`} className={styles.row}>
-                      <td className={styles.checkCell}>
-                        {!esFilaTotal(c) && (
+                  {cheques.map((c, i) => {
+                    const isTotal = esFilaTotal(c);
+                    return (
+                      <tr
+                        key={i}
+                        className={`${styles.row} ${isTotal ? styles.rowTotal : ""}`}
+                      >
+                        <td className={styles.checkCell}>
                           <input
                             type="checkbox"
                             checked={selCheques.has(i)}
                             onChange={(e) => {
-                              const next = new Set(selCheques);
-                              if (e.target.checked) next.add(i);
-                              else next.delete(i);
-                              setSelCheques(next);
+                              const newSel = new Set(selCheques);
+                              if (e.target.checked) newSel.add(i);
+                              else newSel.delete(i);
+                              setSelCheques(newSel);
                             }}
+                            disabled={isTotal}
                           />
-                        )}
-                      </td>
-
-                      <td>{c?.nroEcheq ?? ""}</td>
-                      <td>{c?.razonSocial ?? ""}</td>
-                      <td>{c?.historialEndosos ?? ""}</td>
-                      <td>{c?.fechaVencimiento ? dfmt(c.fechaVencimiento) : ""}</td>
-                      <td className={styles.tdRight}>$ {nfmt(c?.importe ?? 0)}</td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className={isTotal ? styles.fontBold : ""}>
+                          {c.nroEcheq || c.nroCheque || "-"}
+                        </td>
+                        <td className={isTotal ? styles.fontBold : ""}>
+                          {c.razonSocial || "-"}
+                        </td>
+                        <td className={styles.muted}>
+                          {c.historialEndosos || c.estado || "-"}
+                        </td>
+                        <td className={styles.muted}>
+                          {dfmt(c.fechaVencimiento || c.fechaPago || "")}
+                        </td>
+                        <td className={`${styles.tdRight} ${isTotal ? styles.fontBold : ""}`}>
+                          $ {nfmt(Number(c.importe || 0))}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -253,15 +298,19 @@ export default function MediosSection({
 
       {/* ======================= Transferencias ======================= */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Transferencias bancarias</span>
-        </button>
+        <div className={styles.cardHeader}>
+          <span className={styles.cardTitle}>Transferencias Bancarias</span>
+        </div>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
               <label className={styles.label}>Cuenta</label>
-              <select className={styles.select} value={transfSel} onChange={(e) => setTransfSel(e.target.value)}>
+              <select
+                className={styles.select}
+                value={transfSel}
+                onChange={(e) => setTransfSel(e.target.value)}
+              >
                 <option value="">(Seleccione)</option>
                 {(optsTransf || []).map((o) => (
                   <option key={o.value} value={o.value}>
@@ -287,7 +336,11 @@ export default function MediosSection({
 
             <div className={styles.filterItem}>
               <label className={styles.label}>&nbsp;</label>
-              <button className={styles.btn} onClick={addTransf} disabled={!transfSel || !transfMonto}>
+              <button
+                className={styles.btn}
+                onClick={addTransf}
+                disabled={!transfSel || !transfMonto}
+              >
                 Agregar
               </button>
             </div>
@@ -310,15 +363,19 @@ export default function MediosSection({
 
       {/* ======================= Cajas ======================= */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
+        <div className={styles.cardHeader}>
           <span className={styles.cardTitle}>Cajas</span>
-        </button>
+        </div>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
               <label className={styles.label}>Caja</label>
-              <select className={styles.select} value={cajaSel} onChange={(e) => setCajaSel(e.target.value)}>
+              <select
+                className={styles.select}
+                value={cajaSel}
+                onChange={(e) => setCajaSel(e.target.value)}
+              >
                 <option value="">(Seleccione)</option>
                 {(optsCajas || []).map((o) => (
                   <option key={o.value} value={o.value}>
@@ -344,7 +401,11 @@ export default function MediosSection({
 
             <div className={styles.filterItem}>
               <label className={styles.label}>&nbsp;</label>
-              <button className={styles.btn} onClick={addCaja} disabled={!cajaSel || !cajaMonto}>
+              <button
+                className={styles.btn}
+                onClick={addCaja}
+                disabled={!cajaSel || !cajaMonto}
+              >
                 Agregar
               </button>
             </div>
@@ -367,15 +428,19 @@ export default function MediosSection({
 
       {/* ======================= Aplicaciones ======================= */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Aplicaciones</span>
-        </button>
+        <div className={styles.cardHeader}>
+          <span className={styles.cardTitle}>Aplicaciones (Apps/Plataformas)</span>
+        </div>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
               <label className={styles.label}>Aplicación</label>
-              <select className={styles.select} value={apSel} onChange={(e) => setApSel(e.target.value)}>
+              <select
+                className={styles.select}
+                value={apSel}
+                onChange={(e) => setApSel(e.target.value)}
+              >
                 <option value="">(Seleccione)</option>
                 {(optsAp || []).map((o) => (
                   <option key={o.value} value={o.value}>
@@ -401,7 +466,11 @@ export default function MediosSection({
 
             <div className={styles.filterItem}>
               <label className={styles.label}>&nbsp;</label>
-              <button className={styles.btn} onClick={addAp} disabled={!apSel || !apMonto}>
+              <button
+                className={styles.btn}
+                onClick={addAp}
+                disabled={!apSel || !apMonto}
+              >
                 Agregar
               </button>
             </div>
