@@ -1,4 +1,4 @@
-// components/Recibos/FormHeader/index.js
+// app/components/Recibos/FormHeader/index.js
 "use client";
 import React from "react";
 import styles from "../../../pages/Modules/Recibos/styles.module.css";
@@ -11,8 +11,7 @@ export default function FormHeader({
   monSel, setMonSel,
   tc, setTc,
   readySaldoFact, monEditable, tcEditable, toggleTcEdit, tcRef,
-  saldoMostrado, nfmt,
-  esFinanzas = false
+  saldoMostrado, nfmt
 }) {
   const comboValue = (m) => `${m.mon_codigo}||${m.mtca_codigo}`;
   const parseCombo = (v) => {
@@ -20,10 +19,11 @@ export default function FormHeader({
     return { mon_codigo, mtca_codigo };
   };
 
-  // Filtrar monedas: en Finanzas solo mostrar Pesos (mon_codigo = "1") pero deshabilitado
-  const displayMonedas = esFinanzas
-    ? monMtca.filter(m => String(m.mon_codigo) === "1")
-    : monMtca;
+  // ✅ FILTRAR: Solo Pesos (mon_codigo === "PES")
+  const monMtcaFiltered = (monMtca || []).filter(m => {
+    const cod = String(m.mon_codigo || "").trim().toUpperCase();
+    return cod === "PES" || cod === "PESOS";
+  });
 
   return (
     <>
@@ -73,28 +73,20 @@ export default function FormHeader({
         </div>
 
         <div className={styles.field}>
-          <label>
-            {esFinanzas ? "Moneda (Pesos)" : "Moneda / Tipo de Cambio"}
-          </label>
+          <label>Moneda / Tipo de Cambio</label>
           <select
-            className={`${styles.selector} ${esFinanzas ? styles.disabledGray : ""}`}
+            className={styles.selector}
             value={monSel.mon_codigo && monSel.mtca_codigo ? comboValue(monSel) : ""}
-            onChange={(e) => !esFinanzas && setMonSel(parseCombo(e.target.value))}
-            disabled={!displayMonedas?.length || esFinanzas}
-            title={esFinanzas ? "Moneda fija: Pesos" : ""}
+            onChange={(e) => setMonSel(parseCombo(e.target.value))}
+            disabled={!monMtcaFiltered?.length}
           >
-            <option value="">
-              {esFinanzas ? "Pesos (fijo)" : "Seleccione moneda / tipo"}
-            </option>
-            {displayMonedas.map((m, i) => (
+            <option value="">Seleccione moneda / tipo</option>
+            {monMtcaFiltered.map((m, i) => (
               <option key={`${m.mon_codigo}-${m.mtca_codigo}-${i}`} value={comboValue(m)}>
                 {m.mon_descrip} — {m.mtca_descrip}
               </option>
             ))}
           </select>
-          {esFinanzas && (
-            <span className={styles.hint}>Solo Pesos disponible</span>
-          )}
         </div>
 
         <div className={`${styles.field} ${tcEditable ? styles.editing : ""}`}>
@@ -127,11 +119,12 @@ export default function FormHeader({
 
         <div className={styles.field}>
           <label>Saldo del cliente</label>
+          {/* ✅ MOSTRAR NEGATIVO: Sin Math.max, mostrar valor real (positivo o negativo) */}
           <input 
-            className={`${styles.input} ${styles.readonlyGray}`}
+            className={styles.input} 
             readOnly 
             value={`$ ${nfmt(saldoMostrado)}`}
-            title="Saldo disponible del cliente (información)"
+            style={saldoMostrado < 0 ? { color: "#c00", fontWeight: "bold" } : {}}
           />
         </div>
       </div>

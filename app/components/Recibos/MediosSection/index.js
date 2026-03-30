@@ -1,39 +1,26 @@
-// components/Recibos/MediosSection/index.js
+// app/components/Recibos/MediosSection/index.js
+// ✅ VERSIÓN ÓPTIMA: Funcionalidad completa + Validaciones + Estilos generales
+
 "use client";
-import React from "react";
+
+import React, { useMemo, useState } from "react";
 import styles from "../../../pages/Modules/Recibos/styles.module.css";
+import PaginationBar from "../../PaginationBar";
 
 export default function MediosSection({
-  // cheques
+  seleccionadoFacturas,
+  saldoMostrado,
+  chequesFormato,
+  setChequesFormato,
   file,
   onFileChange,
-  cargarCheques,
-  cancelarCheques,
   cheques,
   selCheques,
   setSelCheques,
   importMsg,
-  chequesFormato,
-  setChequesFormato,
-
-  // totales / info
-  aplicadoMedios,
-  restanteVsFact,
-  excedentePos,
-  esReciboACuenta,
-  saldoRestanteCliente,
-  facturasPendienteMonto,
-  cantFacturasAplicadas,
-  nfmt,
-  dfmt,
-
-  // Finanzas support
-  esFinanzas = false,
-  movFondosSel,
-  setMovFondosSel,
-  optsMovFondos,
-
-  // transferencias
+  setImportMsg,
+  cargarCheques,
+  cancelarCheques,
   optsTransf,
   transfSel,
   setTransfSel,
@@ -42,8 +29,6 @@ export default function MediosSection({
   aplicTransf,
   addTransf,
   delTransf,
-
-  // cajas
   optsCajas,
   cajaSel,
   setCajaSel,
@@ -52,8 +37,6 @@ export default function MediosSection({
   aplicCajas,
   addCaja,
   delCaja,
-
-  // aplicaciones
   optsAp,
   apSel,
   setApSel,
@@ -62,245 +45,483 @@ export default function MediosSection({
   aplicAps,
   addAp,
   delAp,
+  nfmt,
+  dfmt,
+  aplicadoMedios,
 }) {
-  const esFilaTotal = (c) => {
-    const a = String(c?.nroEcheq ?? "").trim().toUpperCase();
-    const b = String(c?.razonSocial ?? "").trim().toUpperCase();
-    return a === "TOTAL" || b === "TOTAL";
+  const [chequesTab, setChequesTab] = useState("ech");
+  const [chequesPage, setChequesPage] = useState(1);
+  const [chequesPageSize, setChequesPageSize] = useState(15);
+
+  // Calcular cheques paginados
+  const chequesPaginados = useMemo(() => {
+    const start = (chequesPage - 1) * chequesPageSize;
+    const end = start + chequesPageSize;
+    return cheques.slice(start, end);
+  }, [cheques, chequesPage, chequesPageSize]);
+
+  // Calcular suma de cheques seleccionados
+  const totalChequesSeleccionados = useMemo(() => {
+    let suma = 0;
+    selCheques.forEach((idx) => {
+      if (cheques[idx]) suma += Number(cheques[idx].importe) || 0;
+    });
+    return suma;
+  }, [cheques, selCheques]);
+
+  // Estado para cheques aplicados como medios de cobro
+  const [chequesAplicados, setChequesAplicados] = useState([]);
+
+  // Función para agregar cheques seleccionados a medios de cobro
+  const handleAgregarCheques = () => {
+    if (selCheques.size === 0) return;
+
+    const chequesSeleccionados = Array.from(selCheques).map((idx) => cheques[idx]);
+    const nuevoMedio = {
+      id: `chq-${Date.now()}`,
+      cantidad: selCheques.size,
+      monto: totalChequesSeleccionados,
+      cheques: chequesSeleccionados,
+    };
+
+    setChequesAplicados((prev) => [...prev, nuevoMedio]);
+    setSelCheques(new Set()); // Limpiar selección
+    setChequesPage(1); // Resetear paginación
   };
 
-  const indicesSeleccionables = (cheques || [])
-    .map((c, i) => ({ c, i }))
-    .filter(({ c }) => !esFilaTotal(c))
-    .map(({ i }) => i);
+  // ═══════════════════════════════════════════════════════════════
+  // HANDLER: Cambiar tab + Validar archivo
+  // ═══════════════════════════════════════════════════════════════
+  async function handleTabClick(tabKey) {
+    // Limpiar estado anterior
+    cancelarCheques();
+    setChequesTab(tabKey);
+    setChequesFormato("");
+    setImportMsg("");
+    
+    // Asignar formato pero SIN cargar nada aún
+    // El usuario debe elegir archivo primero
+  }
 
-  const allChequesChecked =
-    indicesSeleccionables.length > 0 &&
-    indicesSeleccionables.every((i) => selCheques.has(i));
+  // ═══════════════════════════════════════════════════════════════
+  // HANDLER: Validar archivo cuando se selecciona
+  // ═══════════════════════════════════════════════════════════════
+  async function handleFileChangeWithValidation(e) {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
 
-  const toggleAllCheques = (e) => {
-    if (!indicesSeleccionables.length) return;
-    if (e.target.checked) setSelCheques(new Set(indicesSeleccionables));
-    else setSelCheques(new Set());
-  };
+    setImportMsg("");
 
-  const labelNro = chequesFormato === "CHE" ? "Nro Cheque" : "Nro Echeq";
-  const labelHist = chequesFormato === "CHE" ? "Estado / Obs." : "Historial de Endosos";
-  const labelFecha = chequesFormato === "CHE" ? "Fecha de Pago" : "Fecha Vencimiento";
+    try {
+      // Leer headers del archivo para detectar tipo
+      const XLSX = await import("xlsx");
+      const buf = await selectedFile.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sh = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sh], { defval: "" });
+
+      if (!rows.length) {
+        alert("⚠️ El archivo está vacío.");
+        return;
+      }
+
+      // Normalizar headers
+      const norm = (s) =>
+        String(s || "")
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+      const headers = new Set(Object.keys(rows[0] || {}).map(norm));
+      const esFisico = headers.has(norm("Nro de Cheque")) || 
+                       headers.has(norm("Firmante/Emisor")) || 
+                       headers.has(norm("Cod. Banco"));
+      const formatoDetectado = esFisico ? "CHE" : "ECH";
+
+      // Validar que coincida con el tab actual
+      const tabEsperado = chequesTab === "ech" ? "ECH" : "CHE";
+      
+      if (formatoDetectado !== tabEsperado) {
+        alert(
+          `❌ ERROR: Estás en la tab "${chequesTab === "ech" ? "ECheqs" : "Cheques Físicos"}" ` +
+          `pero cargaste un archivo de ${formatoDetectado === "ECH" ? "ECheqs" : "Cheques Físicos"}.\n\n` +
+          `Por favor, selecciona el archivo correcto o cambia a la tab correspondiente.`
+        );
+        // Limpiar el input
+        e.target.value = "";
+        return;
+      }
+
+      // ✅ Archivo correcto: pasar al padre
+      onFileChange(e);
+      setChequesFormato(formatoDetectado);
+    } catch (error) {
+      console.error("Error validando archivo:", error);
+      alert("⚠️ Error al validar el archivo. Verifica que sea un Excel válido.");
+      e.target.value = "";
+    }
+  }
+
+  const esReciboACuenta = Number(seleccionadoFacturas || 0) <= 0;
+  const saldoRestanteCliente = Number(saldoMostrado || 0);
+  const restanteVsFact = saldoRestanteCliente - Number(aplicadoMedios || 0);
 
   return (
-    <div className={styles.tabInner}>
-      {/* HEADER CON INFO (mejorado - "Valores" en lugar de "Aplicado") */}
-      <div className={styles.saldoHeader}>
-        <div className={styles.favorRow}>
-          {!esReciboACuenta && (
-            <>
-              <span>
-                <strong>Saldo Restante:</strong> $ {nfmt(saldoRestanteCliente)}
-              </span>
-              <span>·</span>
-            </>
-          )}
+    <div>
+      {/* ==================== CHEQUES / ECHEQS CON TABS ==================== */}
+      <div className={styles.card}>
+        <button className={styles.cardHeader} type="button">
+          <span className={styles.cardTitle}>Cheques / ECheqs</span>
+        </button>
 
-          {!esReciboACuenta && (
+        <div className={styles.cardBody}>
+          {/* TABS */}
+          <div className={styles.toggleContainer}>
+            <button
+              className={`${styles.toggleButton} ${chequesTab === "ech" ? styles.active : ""}`}
+              onClick={() => handleTabClick("ech")}
+            >
+              ECheqs
+            </button>
+            <button
+              className={`${styles.toggleButton} ${chequesTab === "che" ? styles.active : ""}`}
+              onClick={() => handleTabClick("che")}
+            >
+              Cheques Físicos
+            </button>
+          </div>
+
+          {/* ────────── TAB: ECheqs ────────── */}
+          {chequesTab === "ech" && (
             <>
-              {facturasPendienteMonto > 0 ? (
-                <span>
-                  <strong>Facturas a pagar:</strong> $ {nfmt(facturasPendienteMonto)}
-                </span>
-              ) : (
-                <span className={styles.parenGreen}>
-                  <strong>Facturas a pagar</strong> (a favor): $ {nfmt(excedentePos)}
-                </span>
+              <div className={styles.filtersGrid}>
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>Archivo ECheqs</label>
+                  <input
+                    type="file"
+                    className={styles.input}
+                    onChange={handleFileChangeWithValidation}
+                    accept=".xlsx, .xls"
+                  />
+                </div>
+
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>&nbsp;</label>
+                  <button
+                    className={styles.btn}
+                    onClick={cargarCheques}
+                    disabled={!file || chequesFormato !== "ECH"}
+                  >
+                    Cargar ECheqs
+                  </button>
+                </div>
+
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>&nbsp;</label>
+                  <button
+                    className={styles.btn}
+                    onClick={cancelarCheques}
+                    disabled={!cheques?.length}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+
+              {importMsg && (
+                <div className={styles.muted}>{importMsg}</div>
               )}
-              <span>·</span>
-              <span>
-                <strong>Cant. facturas:</strong> {cantFacturasAplicadas}
-              </span>
+
+              {cheques && cheques.length > 0 && chequesFormato === "ECH" && (
+                <>
+                  <div className={styles.chequesTableContainer}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr className={styles.headerRow}>
+                          <th style={{ width: "40px" }}>Sel</th>
+                          <th>Nro ECheq</th>
+                          <th>Razón Social</th>
+                          <th>Endosos</th>
+                          <th>Vencimiento</th>
+                          <th>Importe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chequesPaginados.map((c, i) => {
+                          const idx = (chequesPage - 1) * chequesPageSize + i;
+                          return (
+                            <tr key={idx} className={styles.row}>
+                              <td style={{ textAlign: "center" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selCheques.has(idx)}
+                                  onChange={() => {
+                                    const n = new Set(selCheques);
+                                    n.has(idx) ? n.delete(idx) : n.add(idx);
+                                    setSelCheques(n);
+                                  }}
+                                />
+                              </td>
+                              <td>{c?.nroEcheq ?? ""}</td>
+                              <td>{c?.razonSocial ?? ""}</td>
+                              <td>{c?.historialEndosos ?? ""}</td>
+                              <td>{c?.fechaVencimiento ? dfmt(c.fechaVencimiento) : ""}</td>
+                              <td className={styles.tdRight}>$ {nfmt(c?.importe ?? 0)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Botón flotante "Agregar Cheques" cuando hay seleccionados */}
+                  {selCheques.size > 0 && (
+                    <div
+                      style={{
+                        position: "sticky",
+                        bottom: 0,
+                        padding: "16px",
+                        backgroundColor: "#fff",
+                        borderTop: "2px solid #e82c02",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        zIndex: 20,
+                        boxShadow: "0 -2px 8px rgba(0,0,0,0.1)",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.95rem", fontWeight: "500", color: "#333" }}>
+                        {selCheques.size} cheque{selCheques.size !== 1 ? "s" : ""} seleccionado{selCheques.size !== 1 ? "s" : ""} • Total: <strong style={{ color: "#e82c02", fontSize: "1.1rem" }}>$ {nfmt(totalChequesSeleccionados)}</strong>
+                      </div>
+                      <button
+                        className={styles.btn}
+                        style={{
+                          background: "#e82c02",
+                          color: "#fff",
+                          padding: "10px 24px",
+                          fontSize: "0.95rem",
+                          fontWeight: "600",
+                        }}
+                        onClick={handleAgregarCheques}
+                      >
+                        ➕ Agregar Cheques
+                      </button>
+                    </div>
+                  )}
+
+                  <PaginationBar
+                    totalRows={cheques.length}
+                    page={chequesPage}
+                    pageSize={chequesPageSize}
+                    onPageChange={(newPage) => setChequesPage(newPage)}
+                    onPageSizeChange={(newSize) => {
+                      setChequesPageSize(newSize);
+                      setChequesPage(1);
+                    }}
+                    pageSizeOptions={[15, 30, 60, 90, 120]}
+                    labels={{ items: "cheques" }}
+                  />
+                </>
+              )}
+
+              {(!cheques || cheques.length === 0) && (
+                <div className={styles.muted}>
+                  Sin ECheqs cargados. Selecciona un archivo y haz clic en "Cargar ECheqs".
+                </div>
+              )}
             </>
           )}
-        </div>
 
-        <div>
-          <strong>Total Valores:</strong> $ {nfmt(aplicadoMedios)} ·{" "}
-          {esReciboACuenta ? (
+          {/* ────────── TAB: Cheques Físicos ────────── */}
+          {chequesTab === "che" && (
             <>
-              Saldo Total: <strong>$ {nfmt(saldoRestanteCliente)}</strong>
-            </>
-          ) : (
-            <>
-              Restante:{" "}
-              <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>
-                $ {nfmt(restanteVsFact)}
-              </strong>
+              <div className={styles.filtersGrid}>
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>Archivo Cheques Físicos</label>
+                  <input
+                    type="file"
+                    className={styles.input}
+                    onChange={handleFileChangeWithValidation}
+                    accept=".xlsx, .xls"
+                  />
+                </div>
+
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>&nbsp;</label>
+                  <button
+                    className={styles.btn}
+                    onClick={cargarCheques}
+                    disabled={!file || chequesFormato !== "CHE"}
+                  >
+                    Cargar Cheques
+                  </button>
+                </div>
+
+                <div className={styles.filterItem}>
+                  <label className={styles.label}>&nbsp;</label>
+                  <button
+                    className={styles.btn}
+                    onClick={cancelarCheques}
+                    disabled={!cheques?.length}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+
+              {importMsg && (
+                <div className={styles.muted}>{importMsg}</div>
+              )}
+
+              {cheques && cheques.length > 0 && chequesFormato === "CHE" && (
+                <>
+                  <div className={styles.chequesTableContainer}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr className={styles.headerRow}>
+                          <th style={{ width: "40px" }}>Sel</th>
+                          <th>Nro de Cheque</th>
+                          <th>Fecha de Pago</th>
+                          <th>Importe</th>
+                          <th>Firmante/Emisor</th>
+                          <th>CUIT Librador</th>
+                          <th>Cod. Banco</th>
+                          <th>Estado Firma</th>
+                          <th>Observaciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chequesPaginados.map((c, i) => {
+                          const idx = (chequesPage - 1) * chequesPageSize + i;
+                          return (
+                            <tr key={idx} className={styles.row}>
+                              <td style={{ textAlign: "center" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selCheques.has(idx)}
+                                  onChange={() => {
+                                    const n = new Set(selCheques);
+                                    n.has(idx) ? n.delete(idx) : n.add(idx);
+                                    setSelCheques(n);
+                                  }}
+                                />
+                              </td>
+                              <td>{c?.nroEcheq ?? ""}</td>
+                              <td>{c?.fechaVencimiento ? dfmt(c.fechaVencimiento) : ""}</td>
+                              <td className={styles.tdRight}>$ {nfmt(c?.importe ?? 0)}</td>
+                              <td>{c?.razonSocial ?? ""}</td>
+                              <td>{c?.cuitLibrador ?? ""}</td>
+                              <td>{c?.codBanco ?? ""}</td>
+                              <td>{c?.estadoFirma ?? ""}</td>
+                              <td>{c?.observaciones ?? ""}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Botón flotante "Agregar Cheques" cuando hay seleccionados */}
+                  {selCheques.size > 0 && (
+                    <div
+                      style={{
+                        position: "sticky",
+                        bottom: 0,
+                        padding: "16px",
+                        backgroundColor: "#fff",
+                        borderTop: "2px solid #e82c02",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        zIndex: 20,
+                        boxShadow: "0 -2px 8px rgba(0,0,0,0.1)",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.95rem", fontWeight: "500", color: "#333" }}>
+                        {selCheques.size} cheque{selCheques.size !== 1 ? "s" : ""} seleccionado{selCheques.size !== 1 ? "s" : ""} • Total: <strong style={{ color: "#e82c02", fontSize: "1.1rem" }}>$ {nfmt(totalChequesSeleccionados)}</strong>
+                      </div>
+                      <button
+                        className={styles.btn}
+                        style={{
+                          background: "#e82c02",
+                          color: "#fff",
+                          padding: "10px 24px",
+                          fontSize: "0.95rem",
+                          fontWeight: "600",
+                        }}
+                        onClick={handleAgregarCheques}
+                      >
+                        ➕ Agregar Cheques
+                      </button>
+                    </div>
+                  )}
+
+                  <PaginationBar
+                    totalRows={cheques.length}
+                    page={chequesPage}
+                    pageSize={chequesPageSize}
+                    onPageChange={(newPage) => setChequesPage(newPage)}
+                    onPageSizeChange={(newSize) => {
+                      setChequesPageSize(newSize);
+                      setChequesPage(1);
+                    }}
+                    pageSizeOptions={[15, 30, 60, 90, 120]}
+                    labels={{ items: "cheques" }}
+                  />
+                </>
+              )}
+
+              {(!cheques || cheques.length === 0) && (
+                <div className={styles.muted}>
+                  Sin cheques físicos cargados. Selecciona un archivo y haz clic en "Cargar Cheques".
+                </div>
+              )}
             </>
           )}
         </div>
       </div>
 
-      {/* MOVIMIENTOS DE FONDOS (solo Finanzas) */}
-      {esFinanzas && (
+      {/* ==================== CHEQUES AGREGADOS ==================== */}
+      {chequesAplicados?.length > 0 && (
         <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <span className={styles.cardTitle}>Movimiento de Fondos</span>
-          </div>
+          <button className={styles.cardHeader} type="button">
+            <span className={styles.cardTitle}>✓ Cheques Agregados ({chequesAplicados.length})</span>
+          </button>
+
           <div className={styles.cardBody}>
-            <div className={styles.filtersGrid}>
-              <div className={styles.filterItem}>
-                <label className={styles.label}>Tipo de Movimiento</label>
-                <select
-                  className={styles.select}
-                  value={movFondosSel}
-                  onChange={(e) => setMovFondosSel(e.target.value)}
-                >
-                  <option value="">(Seleccione)</option>
-                  {(optsMovFondos || []).map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <ul className={styles.listSimple}>
+              {chequesAplicados.map((medio, i) => (
+                <li key={medio.id}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                    <span>
+                      {medio.cantidad} cheque{medio.cantidad !== 1 ? "s" : ""} • $ {nfmt(medio.monto)}
+                    </span>
+                    <button
+                      className={styles.smallBtn}
+                      onClick={() => {
+                        setChequesAplicados((prev) => prev.filter((_, idx) => idx !== i));
+                      }}
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #ddd", textAlign: "right" }}>
+              <strong>Total Cheques: $ {nfmt(chequesAplicados.reduce((sum, m) => sum + m.monto, 0))}</strong>
             </div>
           </div>
         </div>
       )}
 
-      {/* ======================= Cheques / ECheqs ======================= */}
+      {/* ==================== TRANSFERENCIAS ==================== */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <span className={styles.cardTitle}>Cheques / ECheqs</span>
-        </div>
-
-        <div className={styles.cardBody}>
-          <div className={styles.filtersGrid}>
-            <div className={styles.filterItem}>
-              <label className={styles.label}>Tipo</label>
-              <select
-                className={styles.select}
-                value={chequesFormato || ""}
-                onChange={(e) => {
-                  cancelarCheques();
-                  setChequesFormato(e.target.value);
-                }}
-              >
-                <option value="">(Seleccione)</option>
-                <option value="ECH">ECheqs</option>
-                <option value="CHE">Cheques físicos</option>
-              </select>
-            </div>
-
-            <div className={styles.filterItem}>
-              <label className={styles.label}>Archivo</label>
-              <input
-                type="file"
-                className={styles.input}
-                onChange={onFileChange}
-                disabled={!chequesFormato}
-                accept=".xlsx, .xls"
-              />
-            </div>
-
-            <div className={styles.filterItem}>
-              <label className={styles.label}>&nbsp;</label>
-              <button
-                className={styles.btn}
-                onClick={cargarCheques}
-                disabled={!chequesFormato || !file}
-              >
-                Cargar
-              </button>
-            </div>
-
-            <div className={styles.filterItem}>
-              <label className={styles.label}>&nbsp;</label>
-              <button
-                className={styles.btn}
-                onClick={cancelarCheques}
-                disabled={!cheques?.length}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-
-          {!chequesFormato && (
-            <div className={styles.muted}>Seleccioná el tipo de cheques para habilitar la carga.</div>
-          )}
-
-          {importMsg && <div className={styles.muted}>{importMsg}</div>}
-
-          {cheques?.length > 0 && (
-            <div className={`${styles.cardBody} ${styles.tableContainer}`}>
-              <table className={styles.table}>
-                <thead className={styles.headerRow}>
-                  <tr>
-                    <th className={styles.checkCell}>
-                      <input
-                        type="checkbox"
-                        checked={allChequesChecked}
-                        onChange={toggleAllCheques}
-                        title="Seleccionar todos"
-                      />
-                    </th>
-                    <th>{labelNro}</th>
-                    <th>Razón Social</th>
-                    <th>{labelHist}</th>
-                    <th>{labelFecha}</th>
-                    <th className={styles.tdRight}>Importe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cheques.map((c, i) => {
-                    const isTotal = esFilaTotal(c);
-                    return (
-                      <tr
-                        key={i}
-                        className={`${styles.row} ${isTotal ? styles.rowTotal : ""}`}
-                      >
-                        <td className={styles.checkCell}>
-                          <input
-                            type="checkbox"
-                            checked={selCheques.has(i)}
-                            onChange={(e) => {
-                              const newSel = new Set(selCheques);
-                              if (e.target.checked) newSel.add(i);
-                              else newSel.delete(i);
-                              setSelCheques(newSel);
-                            }}
-                            disabled={isTotal}
-                          />
-                        </td>
-                        <td className={isTotal ? styles.fontBold : ""}>
-                          {c.nroEcheq || c.nroCheque || "-"}
-                        </td>
-                        <td className={isTotal ? styles.fontBold : ""}>
-                          {c.razonSocial || "-"}
-                        </td>
-                        <td className={styles.muted}>
-                          {c.historialEndosos || c.estado || "-"}
-                        </td>
-                        <td className={styles.muted}>
-                          {dfmt(c.fechaVencimiento || c.fechaPago || "")}
-                        </td>
-                        <td className={`${styles.tdRight} ${isTotal ? styles.fontBold : ""}`}>
-                          $ {nfmt(Number(c.importe || 0))}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ======================= Transferencias ======================= */}
-      <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <span className={styles.cardTitle}>Transferencias Bancarias</span>
-        </div>
+        <button className={styles.cardHeader} type="button">
+          <span className={styles.cardTitle}>Transferencias bancarias</span>
+        </button>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
@@ -361,11 +582,11 @@ export default function MediosSection({
         </div>
       </div>
 
-      {/* ======================= Cajas ======================= */}
+      {/* ==================== CAJAS ==================== */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
+        <button className={styles.cardHeader} type="button">
           <span className={styles.cardTitle}>Cajas</span>
-        </div>
+        </button>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
@@ -426,11 +647,11 @@ export default function MediosSection({
         </div>
       </div>
 
-      {/* ======================= Aplicaciones ======================= */}
+      {/* ==================== APLICACIONES ==================== */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}>
-          <span className={styles.cardTitle}>Aplicaciones (Apps/Plataformas)</span>
-        </div>
+        <button className={styles.cardHeader} type="button">
+          <span className={styles.cardTitle}>Aplicaciones</span>
+        </button>
 
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>

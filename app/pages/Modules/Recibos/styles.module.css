@@ -487,6 +487,37 @@
 
 .tableContainer {
   overflow-x: auto;
+  max-height: 400px;
+}
+
+.chequesTableContainer {
+  max-height: 300px;
+  overflow-y: auto;
+  position: relative;
+  border: 1px solid #eee;
+  border-radius: 6px;
+}
+
+.chequesTableContainer .table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.chequesTableContainer thead {
+  position: sticky;
+  top: 0;
+  z-index: 11;
+  background: #f5f5f5;
+}
+
+.chequesTableContainer th {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 2px solid #ddd;
+  background: #f5f5f5;
+  font-weight: 700;
+  color: #333;
 }
 
 .table {

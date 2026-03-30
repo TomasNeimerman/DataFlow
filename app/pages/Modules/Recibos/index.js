@@ -352,9 +352,159 @@ export default function RecibosPage() {
     setImportMsg("");
   }
 
+  // Helper: parsear fecha DD/MM/AAAA a ISO string
+  function parseFecha(fechaStr) {
+    if (!fechaStr) return "";
+    const str = String(fechaStr).trim();
+    
+    // Intenta formato DD/MM/AAAA
+    const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+      const [, day, month, year] = match;
+      const d = new Date(Number(year), Number(month) - 1, Number(day));
+      if (!isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    }
+
+    // Intenta otros formatos comunes
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    } catch (e) {
+      // ignorar
+    }
+
+    return str; // Devolver como está si no se puede parsear
+  }
+
   function cargarCheques() {
-    // TODO: implementar carga desde archivo
-    setImportMsg("Funcionalidad en desarrollo...");
+    if (!file || !chequesFormato) {
+      setImportMsg("Selecciona un archivo y un formato.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const XLSX = await import("xlsx");
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const sh = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sh, { defval: "" });
+
+        if (!rows.length) {
+          setImportMsg("⚠️ El archivo está vacío.");
+          return;
+        }
+
+        // Parsear cheques según formato
+        const chequesParsed = rows
+          .map((row) => mapRowToCheque(row, chequesFormato))
+          .filter(Boolean);
+
+        if (!chequesParsed.length) {
+          setImportMsg("⚠️ No se encontraron cheques válidos en el archivo.");
+          return;
+        }
+
+        setCheques(chequesParsed);
+        setImportMsg(`✓ ${chequesParsed.length} cheques cargados correctamente.`);
+      } catch (error) {
+        console.error("Error cargando cheques:", error);
+        setImportMsg("❌ Error al procesar el archivo.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // Helper: parsear fila del Excel a objeto cheque
+  function mapRowToCheque(row, formato) {
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const dict = {};
+    for (const k of Object.keys(row || {})) {
+      dict[norm(k)] = row[k];
+    }
+
+    const get = (...keys) => {
+      for (const k of keys) {
+        const v = dict[norm(k)];
+        if (v !== undefined && v !== null && String(v).trim() !== "") return v;
+      }
+      return undefined;
+    };
+
+    // Helper para derivar razón social desde historial de endosos
+    const deriveRazonFromHist = (hist) => {
+      const s = String(hist || "");
+      if (!s) return "";
+      const parts = s.split("-").map(x => x.trim()).filter(Boolean);
+      const filtered = parts.filter(p => {
+        const low = p.toLowerCase();
+        if (low === "cuit") return false;
+        if (/^\d{6,}$/.test(p)) return false;
+        if (/(aceptado|rechazado|pendiente|endoso)/.test(low)) return false;
+        return true;
+      });
+      return filtered.sort((a,b)=>b.length-a.length)[0] || "";
+    };
+
+    // ECheqs
+    if (formato === "ECH") {
+      const nroEcheq = get("nro echeq", "numero de echeq", "nro echeq", "numero echeq");
+      const historialEndosos = get("historial de endosos", "historial endosos", "endosos") || "";
+      const fechaVencimiento = get("fecha vencimiento", "fec vencimiento", "fecha pago", "fecha de pago") || "";
+      const importe = get("importe", "monto");
+      const razonSocial = get("razon social", "razon social", "nombre o razon social", "nombre o razon social") || deriveRazonFromHist(historialEndosos);
+
+      if (nroEcheq == null || importe == null) return null;
+
+      return {
+        tipoCheque: "ECH",
+        nroEcheq: String(nroEcheq || ""),
+        razonSocial: String(razonSocial || ""),
+        historialEndosos: String(historialEndosos || ""),
+        fechaVencimiento: parseFecha(fechaVencimiento),
+        importe: Number(importe) || 0,
+      };
+    }
+
+    // Cheques Físicos
+    if (formato === "CHE") {
+      const nroCheque = get("nro de cheque", "numero de cheque", "nro cheque", "numero cheque");
+      const fechaPago = get("fecha de pago", "fecha pago", "fecha vencimiento", "fec vencimiento");
+      const importe = get("importe", "monto");
+      const firmante = get("firmante/emisor", "firmante", "emisor") || "";
+      const cuitLibrador = get("cuit librador", "cuit", "cuit del librador") || "";
+      const codBanco = get("cod. banco", "codigo banco", "banco", "cod banco") || "";
+      const estadoFirma = get("estado firma", "estado", "estado de firma") || "";
+      const observaciones = get("observaciones", "obs", "observacion") || "";
+
+      if (nroCheque == null || importe == null) return null;
+
+      return {
+        tipoCheque: "CHE",
+        nroEcheq: String(nroCheque || ""),
+        razonSocial: String(firmante || ""),
+        cuitLibrador: String(cuitLibrador || ""),
+        codBanco: String(codBanco || ""),
+        estadoFirma: String(estadoFirma || ""),
+        observaciones: String(observaciones || ""),
+        fechaVencimiento: parseFecha(fechaPago),
+        importe: Number(importe) || 0,
+      };
+    }
+
+    return null;
   }
 
   function cancelarCheques() {
@@ -481,6 +631,7 @@ export default function RecibosPage() {
             selCheques={selCheques}
             setSelCheques={setSelCheques}
             importMsg={importMsg}
+            setImportMsg={setImportMsg}
             chequesFormato={chequesFormato}
             setChequesFormato={setChequesFormato}
             // totales / info
