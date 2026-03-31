@@ -4,94 +4,55 @@ import React, { useMemo } from "react";
 import styles from "../../../pages/Modules/Recibos/styles.module.css";
 
 export default function ValoresBox({
-  saldoTotalCliente,        // saldoBase (gris, informativo)
-  saldoDisponible,          // saldoMostrado
-  valorFacturas,            // valor aplicado
-  seleccionadoFacturas,     // selección actual sin aplicar
-  cantFacturasAplicadas,    // cantidad aplicada
-  totalValores,             // aplicadoMedios
-  esReciboACuenta,          // boolean
-  excedentePos,             // monto a favor
-  restanteVsFact,           // monto pendiente
+  valorFacturas,      // monto de facturas aplicadas
+  aplicadoMedios,     // total de medios de cobro agregados
+  mostrarPendiente,   // boolean: mostrar cuadro de saldo pendiente
   nfmt,
 }) {
-  // Semáforo: rojo (falta), verde (exacto/cubre), naranja (excede)
+  // Cuadro 1: Facturas aplicadas - aparece cuando valorFacturas > 0
+  const mostrarFacturas = Number(valorFacturas || 0) > 0;
+
+  // Cuadro 2: Saldo por cobrar (facturas - medios) - aparece cuando mostrarPendiente = true
+  const saldoPorCobrar = Number(valorFacturas || 0) - Number(aplicadoMedios || 0);
+  const mostrarSaldoPorCobrar = mostrarPendiente && Number(aplicadoMedios || 0) > 0;
+
+  // Semáforo para saldo por cobrar
   const estadoSaldo = useMemo(() => {
-    if ((Number(valorFacturas) || 0) <= 0) return "cuenta";
-    const total = Number(totalValores) || 0;
-    const valor = Number(valorFacturas) || 0;
-    
-    if (total < valor) return "rojo";
-    if (total > valor) return "naranja";
-    return "verde";
-  }, [valorFacturas, totalValores]);
+    if (saldoPorCobrar < 0) return "verde"; // Exceso a favor
+    if (saldoPorCobrar > 0) return "rojo";  // Falta
+    return "verde"; // Exacto
+  }, [saldoPorCobrar]);
 
   const saldoClass = 
     estadoSaldo === "rojo" ? styles.saldoRojo :
     estadoSaldo === "verde" ? styles.saldoVerde :
-    estadoSaldo === "naranja" ? styles.saldoNaranja :
     "";
+
+  // Determinar label y valor
+  const esASuFavor = saldoPorCobrar < 0;
+  const labelSaldo = esASuFavor ? "Saldo a Favor" : "Saldo por Cobrar";
 
   return (
     <div className={styles.valoresBoxContainer}>
       <div className={styles.valoresBoxInner}>
-        {/* LADO IZQUIERDO: Saldo del Cliente (informativo, grisado) */}
-        <div className={styles.valoresSection}>
-          <div className={styles.saldoTotalRow}>
-            <span className={styles.saldoLabel}>Saldo Total Cliente:</span>
-            <span className={styles.saldoTotalGris}>$ {nfmt(saldoTotalCliente)}</span>
-            <span className={styles.saldoInfo}>(informativo - no se modifica)</span>
-          </div>
-        </div>
-
-        {/* CENTRO: Facturas (solo si NO es a cuenta) */}
-        {!esReciboACuenta && (
+        {/* CUADRO 1: Facturas Aplicadas */}
+        {mostrarFacturas && (
           <div className={styles.valoresSection}>
-            <div className={styles.facturaRow}>
-              <span className={styles.label}>Cant. Facturas:</span>
-              <span className={styles.value}>{cantFacturasAplicadas}</span>
-            </div>
-            <div className={styles.facturaRow}>
-              <span className={styles.label}>Valor Facturas:</span>
-              <span className={styles.value}>$ {nfmt(valorFacturas)}</span>
-            </div>
+            <div className={styles.label}>Facturas Aplicadas</div>
+            <div className={styles.value}>$ {nfmt(valorFacturas)}</div>
           </div>
         )}
 
-        {/* LADO DERECHO: Totales y Saldo Resultante */}
-        <div className={styles.valoresSection}>
-          <div className={styles.valoresRow}>
-            <span className={styles.label}>Total Valores:</span>
-            <span className={styles.value}>$ {nfmt(totalValores)}</span>
+        {/* CUADRO 2: Saldo por Cobrar / Saldo a Favor */}
+        {mostrarSaldoPorCobrar && (
+          <div className={styles.valoresSection}>
+            <div className={styles.label}>{labelSaldo}</div>
+            <div className={`${styles.value} ${saldoClass}`}>
+              {esASuFavor ? "+" : ""} $ {nfmt(Math.abs(saldoPorCobrar))}
+            </div>
           </div>
-
-          {/* Saldo Restante con código de color */}
-          {!esReciboACuenta && (
-            <div className={styles.valoresRow}>
-              <span className={styles.label}>Saldo Restante:</span>
-              <span className={`${styles.value} ${saldoClass}`}>
-                $ {nfmt(restanteVsFact)}
-                {estadoSaldo === "naranja" && (
-                  <span className={styles.aFavor}>(a favor: $ {nfmt(excedentePos)})</span>
-                )}
-              </span>
-            </div>
-          )}
-
-          {/* Para Recibos a Cuenta */}
-          {esReciboACuenta && (
-            <div className={styles.valoresRow}>
-              <span className={styles.label}>Recibo a Cuenta:</span>
-              <span className={styles.valueMuted}>Total aplicado: $ {nfmt(totalValores)}</span>
-            </div>
-          )}
-        </div>
+        )}
       </div>
-
-      {/* Indicador visual de semáforo */}
-      {!esReciboACuenta && (
-        <div className={`${styles.semaforoBar} ${styles[`semaforo_${estadoSaldo}`]}`} />
-      )}
     </div>
   );
 }

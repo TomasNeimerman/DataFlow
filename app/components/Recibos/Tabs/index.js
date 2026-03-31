@@ -12,7 +12,7 @@ export default function Tabs({ activeTab, setActiveTab, esFinanzas = false }) {
           className={`${styles.toggleButton} ${activeTab === "facturas" ? styles.active : ""}`}
           onClick={() => setActiveTab("facturas")}
         >
-          Facturas
+          Aplicación
         </button>
       )}
       

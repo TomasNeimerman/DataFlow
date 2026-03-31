@@ -1,4 +1,4 @@
-// app/components/Recibos/FacturasSection/index.js
+// components/Recibos/FacturasSection/index.js
 "use client";
 
 import React, { useMemo } from "react";
@@ -14,9 +14,9 @@ export default function FacturasSection({
   saldoMostrado,
   nfmt,
   dfmt,
+  setActiveTab,
 }) {
   const esReciboACuenta = Number(seleccionadoFacturas || 0) <= 0;
-  const restanteVsFact = Number(saldoMostrado || 0) - Number(seleccionadoFacturas || 0);
 
   // Helper para togglear factura
   const toggleFactura = (index) => {
@@ -64,7 +64,7 @@ export default function FacturasSection({
   return (
     <div className={styles.card}>
       <button className={styles.cardHeader} type="button">
-        <span className={styles.cardTitle}>Facturas</span>
+        <span className={styles.cardTitle}>Aplicacion de comprobantes</span>
       </button>
 
       <div className={styles.cardBody}>
@@ -132,32 +132,21 @@ export default function FacturasSection({
             </div>
 
             <div className={styles.summaryBlock}>
-              <div>
-                {!esReciboACuenta && (
-                  <span>
-                    Facturas seleccionadas: <strong>{facturas.length}</strong>
-                  </span>
-                )}
-              </div>
+              {!esReciboACuenta && (
+                <div className={styles.summaryText}>
+                  CANTIDAD: <strong>{facturas.length}</strong> · SUBTOTAL: <strong>$ {nfmt(seleccionadoFacturas)}</strong>
+                </div>
+              )}
 
-              <div>
-                Seleccionado: <strong>$ {nfmt(seleccionadoFacturas)}</strong> ·{" "}
-                {esReciboACuenta ? (
-                  <>
-                    Saldo Total: <strong>$ {nfmt(saldoMostrado)}</strong>
-                  </>
-                ) : (
-                  <>
-                    Restante:{" "}
-                    <strong className={restanteVsFact < 0 ? styles.saldoFavor : ""}>
-                      $ {nfmt(restanteVsFact)}
-                    </strong>
-                  </>
-                )}
-              </div>
-
-              <button className={styles.btn} onClick={aplicarFacturas}>
-                Confirmar Facturas
+              <button 
+                className={styles.btn}
+                style={{ width: "70%", marginLeft: "auto", marginRight: "auto", display: "block" }}
+                onClick={() => {
+                  aplicarFacturas();
+                  setActiveTab("medios");
+                }}
+              >
+                Confirmar Aplicacion
               </button>
             </div>
           </>

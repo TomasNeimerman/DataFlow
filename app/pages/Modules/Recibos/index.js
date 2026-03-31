@@ -47,6 +47,7 @@ export default function RecibosPage() {
   const [selCheques, setSelCheques] = useState(new Set());
   const [file, setFile] = useState(null);
   const [importMsg, setImportMsg] = useState("");
+  const [chequesAplicados, setChequesAplicados] = useState([]); // NUEVO: Cheques persistentes
 
   /* ======================= Medios (Transferencias/Cajas/Apps) ======================= */
   const [optsTransf, setOptsTransf] = useState([]);
@@ -146,9 +147,9 @@ export default function RecibosPage() {
   /* ======================= Tipo de cambio ======================= */
   const readySaldoFact = !!(cliente && monSel.mon_codigo && monSel.mtca_codigo && tc);
 
-  // Auto-seleccionar Pesos SIEMPRE (en Finanzas y Ventas)
+  // Auto-seleccionar Pesos cuando carga
   useEffect(() => {
-    if ((!monSel.mon_codigo || !monSel.mtca_codigo) && monMtca.length > 0) {
+    if (monMtca.length > 0 && !monSel.mon_codigo) {
       const pesos = monMtca.find(m => String(m.mon_codigo) === "1" || String(m.mon_codigo).toUpperCase() === "PES");
       if (pesos) {
         setMonSel({
@@ -157,7 +158,7 @@ export default function RecibosPage() {
         });
       }
     }
-  }, [monMtca, setMonSel]);
+  }, [monMtca]);
 
   useEffect(() => {
     (async () => {
@@ -430,6 +431,20 @@ export default function RecibosPage() {
     if (!fechaStr) return "";
     const str = String(fechaStr).trim();
     
+    // Detectar número serial de Excel (número entre 1 y 60000)
+    const serialNum = Number(str);
+    if (!isNaN(serialNum) && serialNum > 0 && serialNum < 100000) {
+      // Excel cuenta desde 1/1/1900, pero hay un bug histórico (29/2/1900)
+      // Entonces si el serial es > 59, restar 1
+      let excelSerial = serialNum;
+      if (excelSerial > 59) excelSerial -= 1;
+      
+      const d = new Date((excelSerial - 1) * 86400 * 1000 + new Date(1900, 0, 1).getTime());
+      if (!isNaN(d.getTime())) {
+        return d.toISOString();
+      }
+    }
+    
     // Intenta formato DD/MM/AAAA
     const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (match) {
@@ -450,7 +465,7 @@ export default function RecibosPage() {
       // ignorar
     }
 
-    return str; // Devolver como está si no se puede parsear
+    return "INVALID_DATE"; // Devolver marcador para fecha inválida
   }
 
   function cargarCheques() {
@@ -533,17 +548,17 @@ export default function RecibosPage() {
 
     // ECheqs
     if (formato === "ECH") {
-      const nroEcheq = get("nro echeq", "numero de echeq", "nro echeq", "numero echeq");
-      const historialEndosos = get("historial de endosos", "historial endosos", "endosos") || "";
-      const fechaVencimiento = get("fecha vencimiento", "fec vencimiento", "fecha pago", "fecha de pago") || "";
-      const importe = get("importe", "monto");
-      const razonSocial = get("razon social", "razon social", "nombre o razon social", "nombre o razon social") || deriveRazonFromHist(historialEndosos);
+      const nroEcheq = get("numero de echeq", "nro echeq");
+      const razonSocial = get("nombre o razon social beneficiario endoso", "nombre o razon social emisor") || "";
+      const historialEndosos = get("historial de endosos") || "";
+      const fechaVencimiento = get("fecha pago", "fecha de pago") || "";
+      const importe = get("importe");
 
       if (nroEcheq == null || importe == null) return null;
 
       return {
         tipoCheque: "ECH",
-        nroEcheq: String(nroEcheq || ""),
+        nroEcheq: String(nroEcheq || "").padStart(8, "0"),
         razonSocial: String(razonSocial || ""),
         historialEndosos: String(historialEndosos || ""),
         fechaVencimiento: parseFecha(fechaVencimiento),
@@ -554,11 +569,11 @@ export default function RecibosPage() {
     // Cheques Físicos
     if (formato === "CHE") {
       const nroCheque = get("nro de cheque", "numero de cheque", "nro cheque", "numero cheque");
-      const fechaPago = get("fecha de pago", "fecha pago", "fecha vencimiento", "fec vencimiento");
-      const importe = get("importe", "monto");
+      const fechaPago = get("fecha de pago", "fecha pago");
+      const importe = get("importe");
       const firmante = get("firmante/emisor", "firmante", "emisor") || "";
-      const cuitLibrador = get("cuit librador", "cuit", "cuit del librador") || "";
-      const codBanco = get("cod. banco", "codigo banco", "banco", "cod banco") || "";
+      const cuitLibrador = get("cuit librador", "cuit") || "";
+      const codBanco = get("cod. banco", "codigo banco", "cod banco") || "";
       const estadoFirma = get("estado firma", "estado", "estado de firma") || "";
       const observaciones = get("observaciones", "obs", "observacion") || "";
 
@@ -624,7 +639,7 @@ export default function RecibosPage() {
           </div>
         )}
 
-        {/* STICKY HEADER */}
+        {/* HEADER + VALORES BOX STICKY */}
         <div className={styles.stickyHead}>
           <div className={styles.titleContainer}>
             <h1 className={styles.title}>Recibos {circuito === "F" ? "- Finanzas" : ""}</h1>
@@ -656,108 +671,95 @@ export default function RecibosPage() {
             esFinanzas={circuito === "F"}
           />
 
-          <Tabs activeTab={activeTab} setActiveTab={setActiveTab} esFinanzas={circuito === "F"} />
+          <Tabs
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            esFinanzas={circuito === "F"}
+          />
+
+          <div className={styles.valoresBoxSticky}>
+            <ValoresBox
+              valorFacturas={valorFacturas}
+              aplicadoMedios={aplicadoMedios}
+              mostrarPendiente={activeTab === "medios"}
+              nfmt={nfmt}
+            />
+          </div>
         </div>
 
-        {/* VALORES BOX FIJO (Prioridad 1) */}
-        <div className={styles.valoresBoxSticky}>
-          <ValoresBox
-            saldoTotalCliente={saldoBase}
-            saldoDisponible={saldoRestanteCliente}
-            valorFacturas={valorFacturas}
-            seleccionadoFacturas={seleccionadoFacturas}
-            cantFacturasAplicadas={cantFacturasAplicadas}
-            totalValores={aplicadoMedios}
-            esReciboACuenta={esReciboACuenta}
-            nfmt={nfmt}
-            excedentePos={excedentePos}
-            restanteVsFact={restanteVsFact}
-          />
-        </div>
-
-        {/* CONTENIDO POR PESTAÑA */}
-        {circuito === "V" && activeTab === "facturas" && (
-          <FacturasSection
-            facturas={facturas}
-            aplicaFact={aplicaFact}
-            setAplicaFact={setAplicaFact}
-            saldoBase={saldoBase}
-            valorFacturas={valorFacturas}
-            setValorFacturas={setValorFacturas}
-            seleccionadoFacturas={seleccionadoFacturas}
-            aplicarFacturas={aplicarFacturas}
-            restanteVsFact={restanteVsFact}
-            nfmt={nfmt}
-            dfmt={dfmt}
-            totalSeleccionadoExcept={totalSeleccionadoExcept}
-          />
+        {activeTab === "facturas" && (
+          <div className={styles.tabInner}>
+            <FacturasSection
+              facturas={facturas}
+              aplicaFact={aplicaFact}
+              setAplicaFact={setAplicaFact}
+              seleccionadoFacturas={seleccionadoFacturas}
+              aplicarFacturas={aplicarFacturas}
+              totalSeleccionadoExcept={totalSeleccionadoExcept}
+              saldoMostrado={Math.max(0, saldoBase - valorFacturas)}
+              nfmt={nfmt}
+              dfmt={dfmt}
+              setActiveTab={setActiveTab}
+            />
+          </div>
         )}
 
         {activeTab === "medios" && (
-          <MediosSection
-            // cheques
-            file={file}
-            onFileChange={onFileChange}
-            cargarCheques={cargarCheques}
-            cancelarCheques={cancelarCheques}
-            cheques={cheques}
-            selCheques={selCheques}
-            setSelCheques={setSelCheques}
-            importMsg={importMsg}
-            setImportMsg={setImportMsg}
-            chequesFormato={chequesFormato}
-            setChequesFormato={setChequesFormato}
-            // totales / info
-            aplicadoMedios={aplicadoMedios}
-            restanteVsFact={restanteVsFact}
-            excedentePos={excedentePos}
-            esReciboACuenta={esReciboACuenta}
-            saldoRestanteCliente={saldoRestanteCliente}
-            facturasPendienteMonto={facturasPendienteMonto}
-            cantFacturasAplicadas={cantFacturasAplicadas}
-            nfmt={nfmt}
-            dfmt={dfmt}
-            esFinanzas={circuito === "F"}
-            movFondosSel={movFondosSel}
-            setMovFondosSel={setMovFondosSel}
-            optsMovFondos={optsMovFondos}
-            // transferencias
-            optsTransf={optsTransf}
-            transfSel={transfSel}
-            setTransfSel={setTransfSel}
-            transfMonto={transfMonto}
-            setTransfMonto={setTransfMonto}
-            aplicTransf={aplicTransf}
-            addTransf={addTransf}
-            delTransf={delTransf}
-            // cajas
-            optsCajas={optsCajas}
-            cajaSel={cajaSel}
-            setCajaSel={setCajaSel}
-            cajaMonto={cajaMonto}
-            setCajaMonto={setCajaMonto}
-            aplicCajas={aplicCajas}
-            addCaja={addCaja}
-            delCaja={delCaja}
-            // aplicaciones
-            optsAp={optsAp}
-            apSel={apSel}
-            setApSel={setApSel}
-            apMonto={apMonto}
-            setApMonto={setApMonto}
-            aplicAps={aplicAps}
-            addAp={addAp}
-            delAp={delAp}
-          />
+          <div className={styles.tabInner}>
+            <MediosSection
+              seleccionadoFacturas={seleccionadoFacturas}
+              saldoMostrado={Math.max(0, saldoBase - valorFacturas)}
+              chequesFormato={chequesFormato}
+              setChequesFormato={setChequesFormato}
+              file={file}
+              onFileChange={onFileChange}
+              cheques={cheques}
+              selCheques={selCheques}
+              setSelCheques={setSelCheques}
+              importMsg={importMsg}
+              setImportMsg={setImportMsg}
+              cargarCheques={cargarCheques}
+              cancelarCheques={cancelarCheques}
+              chequesAplicados={chequesAplicados}
+              setChequesAplicados={setChequesAplicados}
+              optsTransf={optsTransf}
+              transfSel={transfSel}
+              setTransfSel={setTransfSel}
+              transfMonto={transfMonto}
+              setTransfMonto={setTransfMonto}
+              aplicTransf={aplicTransf}
+              addTransf={addTransf}
+              delTransf={delTransf}
+              optsCajas={optsCajas}
+              cajaSel={cajaSel}
+              setCajaSel={setCajaSel}
+              cajaMonto={cajaMonto}
+              setCajaMonto={setCajaMonto}
+              aplicCajas={aplicCajas}
+              addCaja={addCaja}
+              delCaja={delCaja}
+              optsAp={optsAp}
+              apSel={apSel}
+              setApSel={setApSel}
+              apMonto={apMonto}
+              setApMonto={setApMonto}
+              aplicAps={aplicAps}
+              addAp={addAp}
+              delAp={delAp}
+              nfmt={nfmt}
+              dfmt={dfmt}
+              aplicadoMedios={aplicadoMedios}
+            />
+          </div>
         )}
 
-        {/* SUBMIT DOCK */}
         <SubmitDock
           ready={ready}
           canConfirm={canConfirm}
           onConfirmar={onConfirmar}
           esReciboACuenta={esReciboACuenta}
           valorFacturas={valorFacturas}
+          seleccionadoFacturas={seleccionadoFacturas}
         />
       </div>
     </div>

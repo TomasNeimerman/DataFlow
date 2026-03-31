@@ -75,7 +75,7 @@ export default function FormHeader({
         <div className={styles.field}>
           <label>Moneda</label>
           <input
-            className={`${styles.input} ${styles.readonlyGray}`}
+            className={`${styles.input}`}
             readOnly
             value={monSel.mon_codigo ? `Pesos — Tipo de Cambio único` : ""}
             title="Pesos (automático, no modificable)"
@@ -113,7 +113,7 @@ export default function FormHeader({
         <div className={styles.field}>
           <label>Saldo del cliente</label>
           <input 
-            className={`${styles.input} ${styles.readonlyGray}`}
+            className={`${styles.input}`}
             readOnly 
             value={`$ ${nfmt(saldoMostrado)}`}
             title="Saldo disponible del cliente (información)"

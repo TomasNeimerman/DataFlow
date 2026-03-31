@@ -1,5 +1,5 @@
 // app/components/Recibos/MediosSection/index.js
-// ✅ VERSIÓN ÓPTIMA: Funcionalidad completa + Validaciones + Estilos generales
+// ✅ VERSIÓN ÓPTIMA: Sin headers en Transferencias, Cajas y Aplicaciones
 
 "use client";
 
@@ -21,6 +21,8 @@ export default function MediosSection({
   setImportMsg,
   cargarCheques,
   cancelarCheques,
+  chequesAplicados,
+  setChequesAplicados,
   optsTransf,
   transfSel,
   setTransfSel,
@@ -69,9 +71,6 @@ export default function MediosSection({
     return suma;
   }, [cheques, selCheques]);
 
-  // Estado para cheques aplicados como medios de cobro
-  const [chequesAplicados, setChequesAplicados] = useState([]);
-
   // Función para agregar cheques seleccionados a medios de cobro
   const handleAgregarCheques = () => {
     if (selCheques.size === 0) return;
@@ -93,14 +92,10 @@ export default function MediosSection({
   // HANDLER: Cambiar tab + Validar archivo
   // ═══════════════════════════════════════════════════════════════
   async function handleTabClick(tabKey) {
-    // Limpiar estado anterior
     cancelarCheques();
     setChequesTab(tabKey);
     setChequesFormato("");
     setImportMsg("");
-    
-    // Asignar formato pero SIN cargar nada aún
-    // El usuario debe elegir archivo primero
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -113,7 +108,6 @@ export default function MediosSection({
     setImportMsg("");
 
     try {
-      // Leer headers del archivo para detectar tipo
       const XLSX = await import("xlsx");
       const buf = await selectedFile.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
@@ -125,7 +119,6 @@ export default function MediosSection({
         return;
       }
 
-      // Normalizar headers
       const norm = (s) =>
         String(s || "")
           .toLowerCase()
@@ -140,7 +133,6 @@ export default function MediosSection({
                        headers.has(norm("Cod. Banco"));
       const formatoDetectado = esFisico ? "CHE" : "ECH";
 
-      // Validar que coincida con el tab actual
       const tabEsperado = chequesTab === "ech" ? "ECH" : "CHE";
       
       if (formatoDetectado !== tabEsperado) {
@@ -149,12 +141,10 @@ export default function MediosSection({
           `pero cargaste un archivo de ${formatoDetectado === "ECH" ? "ECheqs" : "Cheques Físicos"}.\n\n` +
           `Por favor, selecciona el archivo correcto o cambia a la tab correspondiente.`
         );
-        // Limpiar el input
         e.target.value = "";
         return;
       }
 
-      // ✅ Archivo correcto: pasar al padre
       onFileChange(e);
       setChequesFormato(formatoDetectado);
     } catch (error) {
@@ -172,12 +162,7 @@ export default function MediosSection({
     <div>
       {/* ==================== CHEQUES / ECHEQS CON TABS ==================== */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Cheques / ECheqs</span>
-        </button>
-
         <div className={styles.cardBody}>
-          {/* TABS */}
           <div className={styles.toggleContainer}>
             <button
               className={`${styles.toggleButton} ${chequesTab === "ech" ? styles.active : ""}`}
@@ -193,7 +178,6 @@ export default function MediosSection({
             </button>
           </div>
 
-          {/* ────────── TAB: ECheqs ────────── */}
           {chequesTab === "ech" && (
             <>
               <div className={styles.filtersGrid}>
@@ -276,7 +260,6 @@ export default function MediosSection({
                     </table>
                   </div>
 
-                  {/* Botón flotante "Agregar Cheques" cuando hay seleccionados */}
                   {selCheques.size > 0 && (
                     <div
                       style={{
@@ -334,7 +317,6 @@ export default function MediosSection({
             </>
           )}
 
-          {/* ────────── TAB: Cheques Físicos ────────── */}
           {chequesTab === "che" && (
             <>
               <div className={styles.filtersGrid}>
@@ -423,7 +405,6 @@ export default function MediosSection({
                     </table>
                   </div>
 
-                  {/* Botón flotante "Agregar Cheques" cuando hay seleccionados */}
                   {selCheques.size > 0 && (
                     <div
                       style={{
@@ -491,25 +472,92 @@ export default function MediosSection({
           </button>
 
           <div className={styles.cardBody}>
-            <ul className={styles.listSimple}>
-              {chequesAplicados.map((medio, i) => (
-                <li key={medio.id}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
-                    <span>
-                      {medio.cantidad} cheque{medio.cantidad !== 1 ? "s" : ""} • $ {nfmt(medio.monto)}
-                    </span>
-                    <button
-                      className={styles.smallBtn}
-                      onClick={() => {
-                        setChequesAplicados((prev) => prev.filter((_, idx) => idx !== i));
-                      }}
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {/* Agrupar por tipo */}
+            {(() => {
+              const porTipo = { ECH: [], CHE: [] };
+              chequesAplicados.forEach((medio) => {
+                const tipo = medio.cheques?.[0]?.tipoCheque;
+                if (tipo === "ECH") porTipo.ECH.push(medio);
+                else if (tipo === "CHE") porTipo.CHE.push(medio);
+              });
+
+              return (
+                <>
+                  {/* ECheqs */}
+                  {porTipo.ECH.length > 0 && (
+                    <>
+                      <div style={{ marginBottom: "12px", paddingBottom: "12px", borderBottom: "1px solid #eee" }}>
+                        <ul className={styles.listSimple} style={{ marginBottom: 0 }}>
+                          {porTipo.ECH.map((medio, i) => {
+                            const numeros = medio.cheques?.map((c) => c.nroEcheq).join(", ") || "";
+                            const fechas = medio.cheques?.map((c) => c.fechaVencimiento === "INVALID_DATE" ? "Sin Fecha" : (c.fechaVencimiento ? dfmt(c.fechaVencimiento) : "Sin Fecha")).join(", ") || "";
+                            return (
+                              <li key={medio.id}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: "12px" }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: "0.9rem", fontWeight: "500", marginBottom: "2px" }}>
+                                      {numeros}
+                                    </div>
+                                    <div style={{ fontSize: "0.85rem", color: "#666" }}>
+                                      Vencimiento: {fechas} • {medio.cantidad} ECheq{medio.cantidad !== 1 ? "s" : ""} • <strong>$ {nfmt(medio.monto)}</strong>
+                                    </div>
+                                  </div>
+                                  <button
+                                    className={styles.smallBtn}
+                                    onClick={() => {
+                                      setChequesAplicados((prev) => prev.filter((m) => m.id !== medio.id));
+                                    }}
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Cheques Físicos */}
+                  {porTipo.CHE.length > 0 && (
+                    <>
+                      <div style={{ marginBottom: "12px" }}>
+                        <ul className={styles.listSimple} style={{ marginBottom: 0 }}>
+                          {porTipo.CHE.map((medio, i) => {
+                            const numeros = medio.cheques?.map((c) => c.nroEcheq).join(", ") || "";
+                            const fechas = medio.cheques?.map((c) => c.fechaVencimiento === "INVALID_DATE" ? "Sin Fecha" : (c.fechaVencimiento ? dfmt(c.fechaVencimiento) : "Sin Fecha")).join(", ") || "";
+                            return (
+                              <li key={medio.id}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: "12px" }}>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: "0.9rem", fontWeight: "500", marginBottom: "2px" }}>
+                                      {numeros}
+                                    </div>
+                                    <div style={{ fontSize: "0.85rem", color: "#666" }}>
+                                      Vencimiento: {fechas} • {medio.cantidad} Cheque Físico{medio.cantidad !== 1 ? "s" : ""} • <strong>$ {nfmt(medio.monto)}</strong>
+                                    </div>
+                                  </div>
+                                  <button
+                                    className={styles.smallBtn}
+                                    onClick={() => {
+                                      setChequesAplicados((prev) => prev.filter((m) => m.id !== medio.id));
+                                    }}
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+
             <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #ddd", textAlign: "right" }}>
               <strong>Total Cheques: $ {nfmt(chequesAplicados.reduce((sum, m) => sum + m.monto, 0))}</strong>
             </div>
@@ -519,10 +567,6 @@ export default function MediosSection({
 
       {/* ==================== TRANSFERENCIAS ==================== */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Transferencias bancarias</span>
-        </button>
-
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
@@ -584,10 +628,6 @@ export default function MediosSection({
 
       {/* ==================== CAJAS ==================== */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Cajas</span>
-        </button>
-
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>
@@ -649,10 +689,6 @@ export default function MediosSection({
 
       {/* ==================== APLICACIONES ==================== */}
       <div className={styles.card}>
-        <button className={styles.cardHeader} type="button">
-          <span className={styles.cardTitle}>Aplicaciones</span>
-        </button>
-
         <div className={styles.cardBody}>
           <div className={styles.filtersGrid}>
             <div className={styles.filterItem}>

@@ -9,21 +9,28 @@ export default function SubmitDock({
   onConfirmar,
   esReciboACuenta = false,
   valorFacturas = 0,
+  seleccionadoFacturas = 0,
 }) {
   const buttonText = esReciboACuenta
     ? "Confirmar Recibo a Cuenta"
-    : "Confirmar Recibos";
+    : "Confirmar Recibo";
+
+  // Mostrar botón SOLO si valorFacturas > 0 (después de aplicar facturas)
+  console.log("SubmitDock - valorFacturas:", valorFacturas, "seleccionadoFacturas:", seleccionadoFacturas);
+  const mostrarBoton = valorFacturas > 0;
 
   return (
     <div className={styles.submitDock}>
-      <button
-        className={styles.submitBtn}
-        disabled={!ready || !canConfirm}
-        onClick={onConfirmar}
-        title={!ready ? "Completa los datos requeridos" : !canConfirm ? "El monto no cubre las facturas" : ""}
-      >
-        {buttonText}
-      </button>
+      {mostrarBoton && (
+        <button
+          className={styles.submitBtn}
+          disabled={!ready || !canConfirm}
+          onClick={onConfirmar}
+          title={!ready ? "Completa los datos requeridos" : !canConfirm ? "El monto no cubre las facturas" : ""}
+        >
+          {buttonText}
+        </button>
+      )}
     </div>
   );
 }
