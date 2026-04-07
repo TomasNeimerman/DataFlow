@@ -15,9 +15,10 @@ export default function FacturasSection({
   nfmt,
   dfmt,
   setActiveTab,
+  esReciboACuenta,
+  setEsReciboACuenta,
+  onConfirmarAplicacion,
 }) {
-  const esReciboACuenta = Number(seleccionadoFacturas || 0) <= 0;
-
   // Helper para togglear factura
   const toggleFactura = (index) => {
     setAplicaFact((prev) => {
@@ -138,20 +139,29 @@ export default function FacturasSection({
                 </div>
               )}
 
-              <button 
-                className={styles.btn}
-                style={{ width: "70%", marginLeft: "auto", marginRight: "auto", display: "block" }}
-                onClick={() => {
-                  aplicarFacturas();
-                  setActiveTab("medios");
-                }}
-              >
-                Confirmar Aplicacion
-              </button>
+              {/* Opción Recibo a Cuenta */}
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", padding: "8px 0" }}>
+                <input
+                  type="checkbox"
+                  checked={esReciboACuenta}
+                  onChange={(e) => setEsReciboACuenta(e.target.checked)}
+                />
+                <span style={{ fontWeight: 600, color: "#333" }}>Emitir recibo a cuenta (sin facturas)</span>
+              </label>
             </div>
           </>
         )}
       </div>
+
+      {/* Botón flotante Confirmar Aplicación */}
+      {(seleccionadoFacturas > 0 || esReciboACuenta) && (
+        <button 
+          className={styles.btnConfirmarAplicacion}
+          onClick={onConfirmarAplicacion}
+        >
+          Confirmar Aplicacion
+        </button>
+      )}
     </div>
   );
 }

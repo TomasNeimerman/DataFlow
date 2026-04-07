@@ -92,10 +92,11 @@ export default function MediosSection({
   // HANDLER: Cambiar tab + Validar archivo
   // ═══════════════════════════════════════════════════════════════
   async function handleTabClick(tabKey) {
-    cancelarCheques();
+    // NO llamar a cancelarCheques() para mantener los excels cargados
+    // Solo cambiar la tab sin limpiar
     setChequesTab(tabKey);
-    setChequesFormato("");
-    setImportMsg("");
+    setImportMsg(""); // Solo limpiar mensaje
+    // NO resetear chequesFormato para mantener el estado
   }
 
   // ═══════════════════════════════════════════════════════════════

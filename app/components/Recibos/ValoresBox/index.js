@@ -12,9 +12,9 @@ export default function ValoresBox({
   // Cuadro 1: Facturas aplicadas - aparece cuando valorFacturas > 0
   const mostrarFacturas = Number(valorFacturas || 0) > 0;
 
-  // Cuadro 2: Saldo por cobrar (facturas - medios) - aparece cuando mostrarPendiente = true
+  // Cuadro 2: Saldo por cobrar (facturas - medios) - aparece cuando mostrarPendiente = true (incluso si aplicadoMedios = 0)
   const saldoPorCobrar = Number(valorFacturas || 0) - Number(aplicadoMedios || 0);
-  const mostrarSaldoPorCobrar = mostrarPendiente && Number(aplicadoMedios || 0) > 0;
+  const mostrarSaldoPorCobrar = mostrarPendiente;
 
   // Semáforo para saldo por cobrar
   const estadoSaldo = useMemo(() => {

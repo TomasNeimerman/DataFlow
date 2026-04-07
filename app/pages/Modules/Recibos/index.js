@@ -74,6 +74,8 @@ export default function RecibosPage() {
   const [loadingCore, setLoadingCore] = useState(true);
   const [loadingClientes, setLoadingClientes] = useState(true);
   const [activeTab, setActiveTab] = useState("facturas"); // "facturas" | "medios"
+  const [esReciboACuenta, setEsReciboACuenta] = useState(false); // NUEVO: opción recibo a cuenta
+  const [puedeMostrarMedios, setPuedeMostrarMedios] = useState(false); // NUEVO: controlar visibilidad de Medios
 
   /* ======================= Helpers ======================= */
   const nfmt = (v) =>
@@ -183,8 +185,10 @@ export default function RecibosPage() {
 
   /* ======================= Saldo + Facturas ======================= */
   useEffect(() => {
+    // NO resetear valorFacturas si ya estamos en medios de cobro
+    if (puedeMostrarMedios) return;
     setValorFacturas(0);
-  }, [cliente, monSel.mon_codigo, monSel.mtca_codigo, tc]);
+  }, [cliente, monSel.mon_codigo, monSel.mtca_codigo, tc, puedeMostrarMedios]);
 
   useEffect(() => {
     if (!(cliente && monSel.mon_codigo && monSel.mtca_codigo && tc)) {
@@ -258,6 +262,12 @@ export default function RecibosPage() {
         } else if (Array.isArray(ff)) {
           facturas = ff;
         }
+        
+        // Filtrar: solo facturas con Saldo > 0
+        facturas = facturas.filter(f => {
+          const saldo = Number(f.Saldo || f.saldo || 0);
+          return saldo > 0;
+        });
         
         setFacturas(facturas);
         setAplicaFact({});
@@ -342,12 +352,23 @@ export default function RecibosPage() {
 
   // Totales de medios
   const aplicadoCheques = useMemo(
-    () => (Array.isArray(cheques) ? cheques : []).reduce((a, c, i) => {
-      if (!selCheques.has(i)) return a;
-      const importe = Number(c?.importe || c?.Importe || 0) || 0;
-      return a + importe;
-    }, 0),
-    [cheques, selCheques]
+    () => {
+      // Calcular desde cheques seleccionados (mientras se seleccionan)
+      const desSeleccionados = (Array.isArray(cheques) ? cheques : []).reduce((a, c, i) => {
+        if (!selCheques.has(i)) return a;
+        const importe = Number(c?.importe || c?.Importe || 0) || 0;
+        return a + importe;
+      }, 0);
+      
+      // Calcular desde cheques ya agregados en chequesAplicados
+      const desAgregados = (Array.isArray(chequesAplicados) ? chequesAplicados : []).reduce((a, medio) => {
+        return a + (Number(medio.monto) || 0);
+      }, 0);
+      
+      // Retornar la suma de ambos
+      return desSeleccionados + desAgregados;
+    },
+    [cheques, selCheques, chequesAplicados]
   );
 
   const aplicadoTransf = useMemo(
@@ -370,7 +391,7 @@ export default function RecibosPage() {
   // Estados del recibo
   const restanteVsFact = valorFacturas - aplicadoMedios;
   const excedentePos = Math.max(0, aplicadoMedios - valorFacturas);
-  const esReciboACuenta = Number(valorFacturas || 0) <= 0;
+  // NOTA: esReciboACuenta ahora es un ESTADO controlado (línea 77), no una variable calculada
   const saldoRestanteCliente = Math.max(0, saldoBase - valorFacturas);
   const facturasPendienteMonto = Math.max(0, Number(valorFacturas || 0) - Number(aplicadoMedios || 0));
   const cantFacturasAplicadas = Object.values(aplicaFact || {}).filter(
@@ -498,8 +519,34 @@ export default function RecibosPage() {
           return;
         }
 
+        // ===== NUEVA LÓGICA: Detectar y tildar duplicados =====
+        // Obtener números de cheques ya agregados en chequesAplicados
+        const numerosAgregados = new Set();
+        chequesAplicados.forEach((medio) => {
+          if (Array.isArray(medio.cheques)) {
+            medio.cheques.forEach((cheque) => {
+              numerosAgregados.add(String(cheque.nroEcheq));
+            });
+          }
+        });
+
+        // Pre-seleccionar cheques que ya están en chequesAplicados
+        const nuevaSeleccion = new Set();
+        chequesParsed.forEach((cheque, idx) => {
+          if (numerosAgregados.has(String(cheque.nroEcheq))) {
+            nuevaSeleccion.add(idx);
+          }
+        });
+
         setCheques(chequesParsed);
-        setImportMsg(`✓ ${chequesParsed.length} cheques cargados correctamente.`);
+        setSelCheques(nuevaSeleccion);
+
+        const duplicadosCount = nuevaSeleccion.size;
+        if (duplicadosCount > 0) {
+          setImportMsg(`✓ ${chequesParsed.length} cheques cargados. ${duplicadosCount} ya estaban agregados y fueron tildados.`);
+        } else {
+          setImportMsg(`✓ ${chequesParsed.length} cheques cargados correctamente.`);
+        }
       } catch (error) {
         console.error("Error cargando cheques:", error);
         setImportMsg("❌ Error al procesar el archivo.");
@@ -610,6 +657,43 @@ export default function RecibosPage() {
     ? Number(aplicadoMedios || 0) > 0
     : Number(aplicadoMedios || 0) >= Number(valorFacturas || 0);
 
+  /* ===== NUEVA LÓGICA: Confirmar Aplicación de Facturas ===== */
+  function onConfirmarAplicacion() {
+    // Si es recibo a cuenta, congelar valor en 0 para generar saldo a favor
+    if (esReciboACuenta) {
+      setValorFacturas(0); // Será manejado como saldo a favor
+      setActiveTab("medios");
+      setPuedeMostrarMedios(true);
+      return;
+    }
+    
+    // Si hay facturas seleccionadas, congelar el valor
+    if (seleccionadoFacturas > 0) {
+      setValorFacturas(seleccionadoFacturas);
+      setActiveTab("medios");
+      setPuedeMostrarMedios(true);
+    }
+  }
+
+  /* ===== NUEVA LÓGICA: Cancelar Recibo (Reset completo) ===== */
+  function onCancelar() {
+    // Reset de todo
+    setAplicaFact({});
+    setValorFacturas(0);
+    setCheques([]);
+    setSelCheques(new Set());
+    setFile(null);
+    setChequesFormato("");
+    setImportMsg("");
+    setChequesAplicados([]);
+    setAplicTransf([]);
+    setAplicCajas([]);
+    setAplicAps([]);
+    setEsReciboACuenta(false);
+    setPuedeMostrarMedios(false);
+    setActiveTab("facturas");
+  }
+
   function onConfirmar() {
     if (!ready || !canConfirm) return;
 
@@ -675,13 +759,14 @@ export default function RecibosPage() {
             activeTab={activeTab}
             setActiveTab={setActiveTab}
             esFinanzas={circuito === "F"}
+            puedeMostrarMedios={puedeMostrarMedios}
           />
 
           <div className={styles.valoresBoxSticky}>
             <ValoresBox
               valorFacturas={valorFacturas}
               aplicadoMedios={aplicadoMedios}
-              mostrarPendiente={activeTab === "medios"}
+              mostrarPendiente={valorFacturas > 0}
               nfmt={nfmt}
             />
           </div>
@@ -700,6 +785,9 @@ export default function RecibosPage() {
               nfmt={nfmt}
               dfmt={dfmt}
               setActiveTab={setActiveTab}
+              esReciboACuenta={esReciboACuenta}
+              setEsReciboACuenta={setEsReciboACuenta}
+              onConfirmarAplicacion={onConfirmarAplicacion}
             />
           </div>
         )}
@@ -757,6 +845,7 @@ export default function RecibosPage() {
           ready={ready}
           canConfirm={canConfirm}
           onConfirmar={onConfirmar}
+          onCancelar={onCancelar}
           esReciboACuenta={esReciboACuenta}
           valorFacturas={valorFacturas}
           seleccionadoFacturas={seleccionadoFacturas}

@@ -3,7 +3,12 @@
 import React from "react";
 import styles from "../../../pages/Modules/Recibos/styles.module.css";
 
-export default function Tabs({ activeTab, setActiveTab, esFinanzas = false }) {
+export default function Tabs({ 
+  activeTab, 
+  setActiveTab, 
+  esFinanzas = false,
+  puedeMostrarMedios = false 
+}) {
   return (
     <div className={styles.toggleContainer}>
       {/* Mostrar pestaña Facturas solo si es Ventas */}
@@ -16,12 +21,15 @@ export default function Tabs({ activeTab, setActiveTab, esFinanzas = false }) {
         </button>
       )}
       
-      <button
-        className={`${styles.toggleButton} ${activeTab === "medios" ? styles.active : ""}`}
-        onClick={() => setActiveTab("medios")}
-      >
-        Medios de Cobro {esFinanzas ? "(Fondos)" : ""}
-      </button>
+      {/* Mostrar pestaña Medios SOLO si se confirmó aplicación o es recibo a cuenta */}
+      {puedeMostrarMedios && (
+        <button
+          className={`${styles.toggleButton} ${activeTab === "medios" ? styles.active : ""}`}
+          onClick={() => setActiveTab("medios")}
+        >
+          Medios de Cobro {esFinanzas ? "(Fondos)" : ""}
+        </button>
+      )}
     </div>
   );
 }
